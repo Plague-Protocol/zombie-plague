@@ -1,4 +1,4 @@
-// Outbreak's sound, synthesised in code (no audio files), in the spirit of Eko Lockdown's Sounds.cs.
+// Zombie Plague's sound, synthesised in code (no audio files), in the spirit of Eko Lockdown's Sounds.cs.
 // Wind and a low drone under everything, distant sirens, zombie groans placed in stereo, a scream
 // when one lunges, footsteps paced to the player's speed, a heartbeat when time or distance is short,
 // and stingers. Starts on the first tap (browsers require a user gesture).

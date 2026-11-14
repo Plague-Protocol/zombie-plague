@@ -19,11 +19,19 @@
     var ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && touch);
     var standalone = navigator.standalone === true || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
     if (ios && !standalone) document.documentElement.classList.add('ios-browser');
+    // the cold open plays once a session (and never in tests: ?skipintro)
+    try { if (sessionStorage.getItem('zp_intro_seen') || /[?&](skipintro|nosplash)/.test(location.search)) document.documentElement.classList.add('intro-seen'); } catch (e) {}
   })();
 </script>
-<link rel="icon" href="data:," />
-<title>Outbreak</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="preload" as="image" href="/intro/splash-mark.webp" fetchpriority="high" />
+<link rel="preload" as="font" type="font/woff2" href="/intro/fonts/eater.woff2" crossorigin />
+<title>Zombie Plague</title>
 <style>
+  /* Zombie Plague's faces: Eater (decayed display) and VT323 (terminal), both SIL OFL 1.1 (public/intro/fonts) */
+  @font-face { font-family: 'Eater'; src: url(/intro/fonts/eater.woff2) format('woff2'); font-display: swap; }
+  @font-face { font-family: 'VT323'; src: url(/intro/fonts/vt323.woff2) format('woff2'); font-display: swap; }
   html, body { margin: 0; height: 100%; background: #06080c; overflow: hidden; overscroll-behavior: none;
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #eee; user-select: none; -webkit-user-select: none;
     touch-action: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
@@ -101,13 +109,83 @@
 
   .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
     gap: 10px; text-align: center; padding: 24px; z-index: 8; }
-  #title { background: radial-gradient(ellipse at center, rgba(40,10,10,.55), rgba(0,0,0,.92)); display: flex; }
-  #title h1 { margin: 0; font-size: clamp(44px, 12vw, 88px); letter-spacing: .28em; text-indent: .28em; font-weight: 800; color: #e8e2d8;
-    text-shadow: 0 0 30px rgba(180,20,20,.6); }
-  #title p { margin: 0; opacity: .7; letter-spacing: .2em; text-transform: uppercase; font-size: 12px; }
-  #title button, #ending button { margin-top: 18px; font-size: 18px; padding: 12px 30px; border: 1px solid #c9c2b5; border-radius: 4px;
-    background: transparent; color: #eee; letter-spacing: .15em; text-transform: uppercase; }
-  #title button:disabled { opacity: .4; }
+  #title { background: linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.85)), radial-gradient(ellipse at center, transparent 35%, rgba(150,0,0,.25)),
+    url(/intro/bg-home.webp) center / cover; display: flex; }
+  #title img { width: clamp(64px, 14vw, 120px); height: auto; filter: drop-shadow(0 0 20px rgba(230,51,41,.8)); animation: zp-pulse 3s ease-in-out infinite; }
+  #title h1 { margin: 0; font-family: 'Eater', system-ui, sans-serif; font-weight: 400; font-size: clamp(40px, 9vw, 84px); line-height: 1; letter-spacing: .06em;
+    color: #d4c9b2; text-shadow: 0 0 30px rgba(230,51,41,.5); }
+  #title p { margin: 0; font-family: 'VT323', monospace; color: #7d9a72; letter-spacing: .2em; text-transform: uppercase; font-size: 18px; }
+  #title button, #ending button { margin-top: 18px; font-family: 'VT323', monospace; font-size: 24px; font-weight: 700; padding: 8px 34px; border: 2px solid #6b8e23; border-radius: 6px;
+    background: #6b8e23; color: #060b06; letter-spacing: .22em; text-transform: uppercase; box-shadow: 0 0 24px rgba(107,142,35,.55); }
+  #ending button + button { background: transparent; color: #a8c46a; }
+  #title button:disabled { opacity: .45; box-shadow: none; }
+  @keyframes zp-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+
+  /* ── the cold open (src/ui/splash.ts); painted before any script runs ── */
+  #splash { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: #000; overflow: hidden;
+    font-family: 'VT323', monospace; animation: zp-in .6s ease-out both; }
+  html.intro-seen #splash { display: none; }
+  #splash.exit { animation: zp-out .8s ease-in forwards; }
+  #splash .poster, #splash .clip, #splash .bgs div { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: center / cover; pointer-events: none; }
+  #splash .poster { background-image: url(/intro/gate-poster.webp); filter: saturate(.7) contrast(1.1) brightness(.5); opacity: .85; }
+  #splash .gateclip { filter: saturate(.7) contrast(1.1) brightness(.5); opacity: .85; }
+  #splash .bgs div { transform: scale(1.04); filter: saturate(.9) contrast(1.05) brightness(.38); opacity: 0; transition: opacity 2.5s ease; }
+  #splash .bgs div.on { opacity: 1; }
+  #splash .finale { filter: saturate(.7) contrast(1.15) brightness(.42); opacity: 0; transition: opacity 1.6s ease; }
+  #splash .finale.on { opacity: .7; }
+  #splash .scan { position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,.18) 2px, rgba(0,0,0,.18) 4px); }
+  #splash .blood { position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background: linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.7)), radial-gradient(ellipse at center, transparent 35%, rgba(180,0,0,.22)); }
+  #splash .noise { position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: 0; transition: opacity .18s;
+    background-image: radial-gradient(circle at 20% 10%, rgba(255,255,255,.38) 0 1px, transparent 1px), radial-gradient(circle at 80% 70%, rgba(255,255,255,.28) 0 1px, transparent 1px), radial-gradient(circle at 55% 30%, rgba(255,255,255,.42) 0 1px, transparent 1px);
+    background-size: 6px 6px, 8px 8px, 5px 5px; }
+  #splash.static .noise { opacity: .55; animation: zp-static .22s steps(4) infinite; }
+  #splash .motes { position: absolute; inset: 0; pointer-events: none; }
+  #splash .motes span { position: absolute; bottom: -12px; border-radius: 50%; background: rgba(107,142,35,.35); box-shadow: 0 0 6px rgba(107,142,35,.5);
+    animation: zp-mote linear infinite; animation-timing-function: ease-in; }
+  #splash .top { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right));
+    display: flex; justify-content: space-between; z-index: 10; }
+  #splash .top button { background: rgba(6,11,6,.7); border: 1px solid rgba(212,201,178,.25); border-radius: 6px; padding: 5px 12px; color: rgba(212,201,178,.75);
+    font: 16px 'VT323', monospace; letter-spacing: .14em; }
+  #splash .top .mute { border-color: rgba(107,142,35,.35); color: #6b8e23; }
+  #splash .gate, #splash .story { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 16px; }
+  #splash .gate { gap: 20px; }
+  #splash .gate.gone { display: none; }
+  #splash .gate img { width: clamp(96px, 26vmin, 224px); height: auto; filter: drop-shadow(0 0 24px rgba(230,51,41,.8)); animation: zp-pulse 3s ease-in-out infinite; }
+  #splash h1 { margin: 0; font-family: 'Eater', system-ui, sans-serif; font-weight: 400; font-size: clamp(34px, 7vw, 68px); line-height: 1; color: #d4c9b2;
+    letter-spacing: .06em; text-shadow: 0 0 30px rgba(230,51,41,.5); transition: transform .2s cubic-bezier(.2,.8,.2,1); }
+  #splash.slam h1 { transform: scale(1.12) skewX(-2deg); }
+  #splash .go { font: 700 clamp(18px, 3.4vw, 24px) 'VT323', monospace; letter-spacing: .2em; text-transform: uppercase; white-space: nowrap; color: #060b06;
+    background: #6b8e23; border: 2px solid #6b8e23; border-radius: 6px; padding: 8px clamp(18px, 6vw, 40px); box-shadow: 0 0 24px rgba(107,142,35,.6);
+    animation: zp-beat 2s ease-in-out infinite; }
+  #splash .story { display: none; gap: 14px; max-width: 640px; width: 100%; }
+  #splash .story.on { display: flex; }
+  #splash .bio { font-size: clamp(34px, 9vmin, 60px); line-height: 1; filter: drop-shadow(0 0 24px rgba(230,51,41,.8)); animation: zp-beat 3s ease-in-out infinite; }
+  #splash .lines { width: 100%; display: flex; flex-direction: column; align-items: center; }
+  #splash .line { width: 100%; max-height: 20rem; overflow: hidden; margin-bottom: .32rem;
+    transition: opacity 1.3s ease, max-height 1.5s ease, margin-bottom 1.5s ease; }
+  #splash .line.fade { opacity: 0; }
+  #splash .line.folded { max-height: 0; margin-bottom: 0; }
+  #splash .line p { margin: 0; font-size: clamp(18px, 2.6vw, 22px); line-height: 1.3; letter-spacing: .06em; color: #7a8c74; }
+  #splash .line.act3 { margin-bottom: .5rem; }
+  #splash .line.act3 p { color: #d4c9b2; font-size: clamp(20px, 3vw, 26px); letter-spacing: .04em; }
+  #splash .line.last p { font-size: clamp(22px, 3.4vw, 30px); }
+  #splash.done .line.last p { color: #e63329; text-shadow: 0 0 14px rgba(230,51,41,.75); }
+  #splash .line p.typing { border-right: 2px solid #6b8e23; padding-right: 4px; display: inline; }
+  #splash .tell { color: #8a6f68; font-style: italic; text-shadow: 0 0 10px rgba(230,51,41,.35); animation: zp-tell 2.4s ease-in-out infinite; }
+  #splash .enter { opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity .6s, transform .6s; animation: none; }
+  #splash.done .enter { opacity: 1; transform: none; pointer-events: auto; }
+  #splash .hint { margin: 0; font-size: 15px; letter-spacing: .15em; color: #7d9a72; opacity: 0; transition: opacity .8s .3s; }
+  #splash.done .hint { opacity: .7; }
+  html.mobile #splash .hint { display: none; }
+  @keyframes zp-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes zp-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(1.04); } }
+  @keyframes zp-beat { 0%, 100% { transform: scale(1); opacity: .88; } 50% { transform: scale(1.08); opacity: 1; } }
+  @keyframes zp-mote { 0% { transform: translateY(0) scale(1); opacity: 0; } 10% { opacity: .8; } 90% { opacity: .4; } 100% { transform: translateY(-100vh) scale(.4); opacity: 0; } }
+  @keyframes zp-static { 0%,100% { transform: translate(0,0); } 25% { transform: translate(-4px,2px); } 50% { transform: translate(3px,-2px); } 75% { transform: translate(-2px,-1px); } }
+  @keyframes zp-tell { 0%, 100% { opacity: .85; } 38% { opacity: .45; } 44% { opacity: .9; } 61% { opacity: .35; } 67% { opacity: .8; } }
+  @media (prefers-reduced-motion: reduce) { #splash .tell, #splash .motes span { animation: none; } }
   #title small { position: absolute; bottom: 14px; left: 0; right: 0; opacity: .4; font-size: 10px; }
   /* iPhone Safari cannot hide its bars from a web page; a Home Screen icon opens the game full screen */
   #ios-tip { display: none; max-width: 440px; font-size: 12px; line-height: 1.45; color: #f2d58a; opacity: .9;
@@ -287,6 +365,25 @@
 </style>
 </head>
 <body>
+<div id="splash" role="dialog" aria-label="Zombie Plague intro">
+  <div class="bgs"></div>
+  <div class="poster"></div>
+  <video class="clip finale" muted loop playsinline aria-hidden="true"></video>
+  <div class="scan"></div><div class="motes"></div><div class="blood"></div><div class="noise"></div>
+  <div class="top"><button class="skip" aria-label="Skip intro">SKIP ››</button><button class="mute" hidden>🔊 SOUND ON</button></div>
+  <div class="gate">
+    <img src="/intro/splash-mark.webp" alt="" width="224" height="224" fetchpriority="high" decoding="sync" />
+    <h1>ZOMBIE PLAGUE</h1>
+    <button class="go begin">Message from Command</button>
+  </div>
+  <div class="story">
+    <div class="bio" aria-hidden="true">☣</div>
+    <h1>ZOMBIE PLAGUE</h1>
+    <div class="lines" aria-live="polite"></div>
+    <button class="go enter">Enter</button>
+    <p class="hint">Press ENTER or SPACE to continue</p>
+  </div>
+</div>
 <div id="fade"></div>
 <div id="game"></div>
 <div id="vignette" class="layer"></div>
@@ -323,8 +420,9 @@
   <div id="map-tools"><button id="map-close" aria-label="Close map">&#10005;</button><button id="map-in" aria-label="Zoom in">+</button><button id="map-out" aria-label="Zoom out">&minus;</button></div>
   <p>Drag to move &middot; pinch or +/&minus; to zoom &middot; tap to close</p></div>
 <div id="title" class="screen">
-  <h1>OUTBREAK</h1>
-  <p>Day one &middot; Port Halden</p>
+  <img src="/intro/splash-mark.webp" alt="" width="120" height="120" />
+  <h1>ZOMBIE PLAGUE</h1>
+  <p>Escape Port Halden &middot; one night, three districts</p>
   <button id="start" disabled>Loading&hellip;</button>
   <div id="ios-tip">For full screen on iPhone: tap Share (the square with an arrow), then <b>Add to Home Screen</b>, and play from the new icon.</div>
   <small>Sound on. Drag anywhere to move, buttons to fire and use. Keyboard: WASD, Space fire, E use, R reload, Q swap, M map.</small>

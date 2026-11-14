@@ -25,6 +25,9 @@ import { noopProgress, type RunResult } from './seams/progress';
 const SIM_DT = 1 / 60; // fixed timestep
 const MAX_STEPS_PER_FRAME = 5;
 const params = new URLSearchParams(location.search);
+// The cold open runs while everything else loads (its own chunk; nothing to do if it is not showing).
+let splashOn = !document.documentElement.classList.contains('intro-seen');
+if (splashOn) void import('./ui/splash').then((m) => m.runSplash()).then(() => { splashOn = false; });
 const debug = params.has('debug');
 
 type Mode = 'title' | 'intro' | 'play' | 'ending';
@@ -348,6 +351,7 @@ const debugEl = $('debug');
 let miniTick = 0;
 
 function frame(now: number): void {
+  if (splashOn) { last = now; requestAnimationFrame(frame); return; } // nothing to draw under the cold open
   // Draw only as often as it is worth: a held story moment or the store is still (20/s), the title
   // and phones run at 30/s; a computer plays at the screen's rate. The sim's fixed step does
   // not care: it catches up on the time between frames.

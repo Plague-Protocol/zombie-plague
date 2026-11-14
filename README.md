@@ -1,8 +1,22 @@
-# Outbreak (working name)
+# Zombie Plague
 
 A browser game: a virus has emptied Port Halden, and the last evacuation helicopter leaves on
 schedule. Find what you need, arm yourself, find a ride, and get to the evac point before it
-lifts off. Separate from the live [Plague Protocol](../plague-celo) game, which this does not modify.
+lifts off. This is now Zombie Plague itself (it was built as "Outbreak"); the social deduction game
+that had the name ([plague-celo](../plague-celo), "Infect the Room") moves to its own subdomain.
+That repo is read here, never modified.
+
+## The cold open
+
+The first visit in a session opens on Zombie Plague's splash, ported from plague-celo
+(`src/ui/splash.ts`, markup and styles in `index.html`): the logo gate over a looping clip, then a
+transmission from Port Halden Command typed out in three acts (nine lines; the scream is keyed to
+the third, the act changes drive the fades; the commander is infected, and the last fragment after
+the "…" is the tell), then the title slams in. It loads in its own chunk while the game loads; the
+gate clip waits for the page to load and is never fetched on a slow or data-saving connection.
+Skip is always there; `?skipintro` skips it too. The 3D scene does not render underneath it.
+Art, clips and sounds come from plague-celo's `public/` (`public/intro/`); the faces are Eater and
+VT323 (SIL Open Font License 1.1, licences in `public/intro/fonts/`).
 
 Status: phase 1 slice (one city, single player, no sign-in, no backend, no wallet).
 Design: [docs/DESIGN.md](docs/DESIGN.md).

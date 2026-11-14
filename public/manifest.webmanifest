@@ -1,10 +1,14 @@
 {
-  "name": "Outbreak",
-  "short_name": "Outbreak",
+  "name": "Zombie Plague",
+  "short_name": "Zombie Plague",
   "description": "Get to the last evacuation helicopter out of Port Halden.",
   "start_url": "/",
   "display": "fullscreen",
   "orientation": "landscape",
   "background_color": "#06080c",
-  "theme_color": "#06080c"
+  "theme_color": "#06080c",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
 }

@@ -1,4 +1,4 @@
-// Outbreak: the story told around a run, in the Eko Lockdown style: a title card, a cutscene,
+// Zombie Plague: the story told around a run, in the Eko Lockdown style: a title card, a cutscene,
 // "Speaker|line" dialogue, an objective line per step, radio calls as the night gets worse, and
 // endings. Pure data and helpers, no DOM, so the same beats can be driven from a server later.
 //
