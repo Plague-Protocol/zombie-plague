@@ -1,13 +1,14 @@
 import {
-  chapterBonus, clearLeft, createGame, currentTask, finalChapter, nextChapter, requiredDone, restartChapter, solvePuzzle, step,
+  chapterBonus, clearLeft, createGame, currentTask, finalChapter, nextChapter, requiredDone, restartChapter, step,
   taskTarget, type GameState,
 } from './core/state';
+import { command, quantize, Recorder, STEP, type Command } from './core/replay';
 import {
-  briefFor, chapterCard, chapterLines, doneFor, escortBehind, exitLabel, exitLocked, exitOpen, intro, lockedTask, objectiveFor,
-  partsReady, shortName, survivorLines, tierLines, vehicleLines, type Line,
+  briefFor, chapterCard, chapterLines, doneFor, escortBehind, exitLabel, exitLocked, exitOpen, HERO, hint, intro, lockedTask, objectiveFor,
+  paLine, partsReady, shortName, survivorLines, tierLines, vehicleLines, type Line,
 } from './core/story';
-import type { GameEvent, Task, TaskId } from './core/types';
-import { chapterInfo, setChapter, setContent, stepDef, type Content } from './core/content';
+import type { GameEvent, Husk, Task, TaskId } from './core/types';
+import { chapterInfo, content, setChapter, setContent, stepDef, type Content } from './core/content';
 import { GameView } from './render/view';
 import { loadCharacterAssets } from './render/characters';
 import { loadModels } from './render/models';
@@ -17,12 +18,12 @@ import { Dialogue } from './ui/dialogue';
 import { Talk, type NextUp } from './ui/talk';
 import { Sound } from './audio/sound';
 import { CityMap } from './ui/map';
-import { GEAR, SAFE_AFTER, WEAPON_NAMES } from './core/config';
+import { GEAR, WEAPON_NAMES } from './core/config';
 import type { StorePage } from './ui/store';
 import { anonymousSession } from './seams/session';
 import { noopProgress, type RunResult } from './seams/progress';
 
-const SIM_DT = 1 / 60; // fixed timestep
+const SIM_DT = STEP; // fixed timestep (the same one a replay uses)
 const MAX_STEPS_PER_FRAME = 5;
 const params = new URLSearchParams(location.search);
 // The cold open runs while everything else loads (its own chunk; nothing to do if it is not showing).
@@ -35,7 +36,38 @@ type Mode = 'title' | 'intro' | 'play' | 'ending';
 const newSeed = () => (Math.random() * 0xffffffff) >>> 0; // randomness lives here, not in core/
 // the task content (what each step is, says and looks like) comes as data, before the first night
 setContent(await fetch('/content/tasks.json').then((r) => r.json() as Promise<Content>));
-let state: GameState = createGame(params.has('seed') ? Number(params.get('seed')) >>> 0 : newSeed());
+// Your last self: where a district took you, and what you had in hand. It is waiting there the next time
+// you come through that chapter (kept on this device until you put it down).
+const HUSK_KEY = 'zp.husk';
+function lastSelf(chapter: number): Husk | null {
+  try {
+    const h = JSON.parse(localStorage.getItem(HUSK_KEY) ?? 'null') as (Husk & { chapter: number }) | null;
+    return h && h.chapter === chapter && h.pos ? { pos: h.pos, weapon: h.weapon } : null;
+  } catch { return null; }
+}
+function rememberSelf(s: GameState | null): void {
+  try {
+    if (s) localStorage.setItem(HUSK_KEY, JSON.stringify({ chapter: s.chapter, pos: s.player.pos, weapon: s.arsenal.weapon }));
+    else localStorage.removeItem(HUSK_KEY);
+  } catch { /* no storage here: it just will not be waiting */ }
+}
+// The night is written down as it is played (every step's input, and everything done between steps),
+// so it can be re-run and checked. It goes out with the run's result.
+let rec!: Recorder;
+/** Make a chapter's state (with your last self, if it is waiting there) and start its page of the log. */
+function fresh(make: (husk: Husk | null) => GameState, chapter: number): GameState {
+  const husk = lastSelf(chapter);
+  const g = make(husk);
+  if (chapter === 0) rec = new Recorder(g.night, content().version);
+  rec.begin(chapter, husk);
+  return g;
+}
+/** The one door for changes made outside a step (a purchase, a puzzle answer): done, and written down. */
+function act(c: Command): boolean {
+  rec.command(c);
+  return command(state, c);
+}
+let state: GameState = fresh((husk) => createGame(params.has('seed') ? Number(params.get('seed')) >>> 0 : newSeed(), undefined, { husk }), 0);
 let mode: Mode = 'title';
 let endTimer = -1;
 let lastTaskId: TaskId | null = null;
@@ -54,10 +86,19 @@ const convo: Line[] = [];
 /** The engine warnings already given this night (once for a car, once for a bike). */
 const warned = new Set<string>();
 let swarmTold = false;
+/** Things explained already this night (each once: the first cough, the first red X, the light...). */
+const told = new Set<string>();
+/** Say a first-time line, as a subtitle over play, or (blocking) in the panel you read. */
+function once(key: string, blocking = false): void {
+  if (told.has(key)) return;
+  told.add(key);
+  if (blocking) convo.push(...hint(key)); else dialogue.say(hint(key));
+}
+let paT = 25, paN = 0; // the quarantine loudspeakers: when the next announcement is, and which
 const sound = new Sound();
 const hud = new Hud({
-  retry: () => begin(restartChapter(state), false),
-  newNight: () => begin(createGame(newSeed()), false),
+  retry: () => begin(fresh((husk) => restartChapter(state, husk), state.chapter), false),
+  newNight: () => begin(fresh((husk) => createGame(newSeed(), undefined, { husk }), 0), false),
 });
 view.cinematic = 0;
 let paused = false; // store or full map open
@@ -124,7 +165,7 @@ startBtn.addEventListener('click', () => {
   $('title').style.display = 'none';
   begin(state, !params.has('skipintro'));
 });
-if (debug) Object.defineProperty(window, '__outbreak', { get: () => ({ state, mode, view }) }); // test hook
+if (debug) Object.defineProperty(window, '__outbreak', { get: () => ({ state, mode, view, sound, log: rec.log() }) }); // test hook
 
 /** Start a chapter (or a night). The full intro plays once; retries and new chapters go straight
  * to the street. */
@@ -136,7 +177,8 @@ function begin(fresh: GameState, withIntro: boolean): void {
   convo.length = 0;
   document.body.classList.remove('fade');
   setChapter(fresh.chapter);
-  if (fresh.chapter === 0) warned.clear();
+  if (fresh.chapter === 0) { warned.clear(); told.clear(); }
+  paT = 25;
   paused = false;
   controls.enabled = true;
   if (cityMap.open) cityMap.toggle();
@@ -181,14 +223,14 @@ function openTalk(objectiveChanged: boolean): void {
   talk.show(lines, objectiveChanged ? nextUp() : null, () => {
     controls.reset();
     controls.enabled = !paused;
-    state.safeT = Math.max(state.safeT, SAFE_AFTER); // a moment to get moving before they come on again
+    act({ t: 'grace' }); // a moment to get moving before they come on again
   });
 }
 
 /** Down the subway stairs and up into the next district. */
 function advance(): void {
   const bonus = chapterBonus(state);
-  begin(nextChapter(state), false);
+  begin(fresh((husk) => nextChapter(state, husk), state.chapter + 1), false);
   if (bonus > 0) hud.toast(`+$${bonus} for time to spare`);
 }
 
@@ -209,6 +251,7 @@ function finish(): void {
     secondsLeft: state.remaining,
     timeLimit: state.timeLimit,
     optionalDone: state.tasks.filter((t) => !t.required && t.done).length,
+    replay: rec.log(),
   };
   void noopProgress.saveRun(anonymousSession, result);
   hud.showEnd(state);
@@ -225,7 +268,7 @@ async function openPuzzle(t: Task): Promise<void> {
   const { showPuzzle } = await import('./ui/puzzle');
   showPuzzle(t, {
     solve: (answer) => {
-      const ok = solvePuzzle(state, t.id, answer);
+      const ok = act({ t: 'solve', id: t.id, answer });
       const happened = state.events.splice(0); // outside step(): pass them on by hand
       pending.push(...happened);
       if (ok) narrate(happened);
@@ -266,12 +309,34 @@ function narrate(events: readonly GameEvent[]): void {
       }
       case 'lost':
         if (e.reason === 'caught') { view.shake(1.2); hud.hurt(); }
+        if (e.reason === 'caught' || e.reason === 'time') rememberSelf(state); // you will be here next time
         break;
       case 'player-hit': hud.hurt(); view.shake(0.4); break;
+      case 'bitten': if (e.seconds > 0.5) { hud.surge(); hud.toast(`Bitten. The infection jumps ${Math.round(e.seconds)} seconds.`); } break;
+      case 'light': hud.toast(e.on ? 'Light on' : 'Light off: they see less of you'); if (!e.on) once('light'); break;
+      case 'omen': once('omen'); break;
+      case 'halved': once('halved'); break;
+      case 'grabbed': hud.toast('It has your leg! Kill it or drag it with you.'); view.shake(0.3); break;
+      case 'burst': hud.toast('They are coming up out of the ground!'); view.shake(0.5); break;
+      case 'dormant-wake': view.shake(0.35); once('dormant'); break;
+      case 'scream': hud.toast(e.count > 0 ? `A screamer! ${e.count} more know where you are.` : 'A screamer!'); view.shake(0.5); once('scream'); break;
+      case 'cough':
+        if (e.who) { hud.toast(`${e.who} is coughing.`); once('cough', true); }
+        else if (!told.has('own-cough')) { told.add('own-cough'); hud.toast('You cough. Anything close heard that.'); }
+        break;
+      case 'checked': hud.toast(e.bitten ? `${e.name} is bitten. Leave them here (LEAVE), or they turn beside you.` : `${e.name} is clean.`); if (e.bitten) view.shake(0.3); break;
+      case 'left-behind': dialogue.say([{ who: e.name, text: 'Please. Not here. Don\'t leave me here.' }, { who: HERO, text: 'I\'m sorry.' }]); break;
+      case 'escort-turned':
+        if (e.where === 'street') { hud.toast(`${e.name} has turned! Put them down before they reach the others.`); view.shake(0.8); }
+        else if (e.where === 'left') hud.toast(`Somewhere behind you, ${e.name} has turned.`);
+        break;
+      case 'husk-down': rememberSelf(null); hud.toast('It was carrying what you carried. Take it back.'); break;
+      case 'block-fallen': if (!told.has('spread')) { told.add('spread'); hud.toast('Another block has fallen. Your map shows them in red.'); } break;
       case 'pickup':
         hud.toast(e.kind === 'ammo' ? `+${e.amount} ammo`
           : e.kind === 'bottles' ? `+${e.amount} bottles: throw one (G) to draw them away`
             : e.kind === 'jerrycan' ? 'Jerrycan: fill up a car (stand by it, REFUEL)'
+              : e.kind === 'antiviral' ? (e.amount > 0 ? `Antiviral dose: the infection held back ${e.amount} s` : 'Antiviral dose: nothing to hold back yet')
               : e.kind === 'vest' || e.kind === 'helmet' ? `${GEAR[e.kind].name}: takes part of every hit`
                 : `Picked up: ${WEAPON_NAMES[e.kind]}`);
         break;
@@ -296,7 +361,7 @@ function narrate(events: readonly GameEvent[]): void {
       case 'out-of-fuel': hud.toast('Out of fuel. It rolls to a stop.'); break;
       case 'refueled': hud.toast(e.from === 'pump' ? 'Filling up at the pump...' : 'Refuelled.'); break;
       case 'house-searched':
-        hud.toast(`${e.loot === 'medkit' ? 'First aid: +health' : e.loot === 'supplies' ? 'Cash in a drawer: +$25' : e.loot === 'ammo' ? 'A box of rounds' : e.loot === 'bottles' ? 'Empty bottles' : e.loot === 'vest' || e.loot === 'helmet' ? `A ${GEAR[e.loot].name.toLowerCase()}, still good` : 'Nothing worth taking'}${e.ambush ? '. Something moves inside!' : ''}`);
+        hud.toast(`${e.loot === 'antiviral' ? 'An antiviral dose: the infection held back' : e.loot === 'medkit' ? 'First aid: +health' : e.loot === 'supplies' ? 'Cash in a drawer: +$25' : e.loot === 'ammo' ? 'A box of rounds' : e.loot === 'bottles' ? 'Empty bottles' : e.loot === 'vest' || e.loot === 'helmet' ? `A ${GEAR[e.loot].name.toLowerCase()}, still good` : 'Nothing worth taking'}${e.ambush ? '. Something moves inside!' : ''}`);
         if (e.ambush) view.shake(0.4);
         break;
       case 'alarm-start': hud.toast('Car alarm! Everything nearby is heading for it.'); break;
@@ -319,7 +384,7 @@ function narrate(events: readonly GameEvent[]): void {
         controls.enabled = false;
         const shown = state;
         void (async () => {
-          if (!storePage) { const { StorePage: Page } = await import('./ui/store'); storePage = new Page((t) => hud.toast(t)); }
+          if (!storePage) { const { StorePage: Page } = await import('./ui/store'); storePage = new Page((t) => hud.toast(t), act); }
           if (state !== shown || state.phase !== 'playing') { paused = cityMap.open; controls.enabled = !paused; return; }
           storePage.show(state, st, () => { paused = cityMap.open; controls.enabled = !paused; });
         })();
@@ -327,6 +392,15 @@ function narrate(events: readonly GameEvent[]): void {
       }
       default: break;
     }
+  }
+  // first sight of the things worth a word: a red X, a fallen block, a stalker in your light, your last self
+  if (state.phase === 'playing') {
+    const p = state.player.pos, close = (q: { x: number; y: number }, r: number) => Math.hypot(q.x - p.x, q.y - p.y) < r;
+    if (!told.has('mark') && state.houses.some((h) => h.mark === 'infected' && !h.searched && close(h.pos, 6))) once('mark');
+    if (!told.has('fallen') && state.inFallen) { hud.toast('This block has fallen.'); once('fallen'); }
+    if (!told.has('stalker') && state.zombies.some((z) => z.frozen && close(z.pos, 13))) once('stalker');
+    for (const k of ['crawler', 'lasher'] as const) if (!told.has(k) && state.zombies.some((z) => z.kind === k && z.action !== 'dead' && close(z.pos, 9))) once(k);
+    if (!told.has('husk') && state.zombies.some((z) => z.husk && z.action !== 'dead' && close(z.pos, 14))) once('husk');
   }
   let changed = forceNext;
   const curTask = currentTask(state);
@@ -366,13 +440,17 @@ function frame(now: number): void {
     acc += dt;
     let n = 0;
     while (acc >= SIM_DT && n < MAX_STEPS_PER_FRAME) {
-      step(state, controls.read(), SIM_DT);
+      const input = quantize(controls.read());
+      step(state, input, SIM_DT);
+      rec.step(input);
       pending.push(...state.events); // step() clears events, so collect them across sub-steps
       acc -= SIM_DT;
       n++;
     }
     if (n === MAX_STEPS_PER_FRAME) acc = 0;
     narrate(pending);
+    paT -= dt;
+    if (paT <= 0 && state.phase === 'playing') { paT = 55 + Math.random() * 35; sound.pa(); dialogue.say(paLine(paN++)); }
     if (state.phase !== 'playing' && endTimer < 0) {
       // let the moment play out before the ending card
       // won and cleared play out a scene first: met and checked by the soldiers, aboard, lifting off;

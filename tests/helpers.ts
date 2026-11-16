@@ -1,6 +1,6 @@
 // Shared test moves: do a step the way a player would (pieces first, bring whoever is with you,
 // solve its puzzle, put down whoever comes for you).
-import { clearLeft, escortGroup, solvePuzzle, step, type GameState } from '../src/core/state';
+import { clearLeft, escortGroup, leaveBehind, solvePuzzle, step, type GameState } from '../src/core/state';
 import { TASK_HOLD_SECONDS } from '../src/core/config';
 import type { Input, Task } from '../src/core/types';
 
@@ -16,6 +16,8 @@ export function answerFor(t: Task): number[] | string {
 }
 
 export function doTask(g: GameState, t: Task): void {
+  // like a careful player: anyone bitten is found and left before the group goes to a door
+  if (t.needsEscort) for (const m of [...escortGroup(g)]) if (m.bitten) leaveBehind(g, m);
   t.parts?.forEach((q, i) => { if (!t.got![i]) { g.player.pos = { ...q }; step(g, IDLE, DT); } });
   g.player.pos = { ...t.pos };
   g.player.vel = { x: 0, y: 0 };

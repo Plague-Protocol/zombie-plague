@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createGame, currentTask, interactionFor, requiredDone, solvePuzzle, step, taskTarget, withVehiclesBlocked, type GameState } from '../src/core/state';
+import { createGame, currentTask, escortGroup, interactionFor, leaveBehind, requiredDone, solvePuzzle, step, taskTarget, withVehiclesBlocked, type GameState } from '../src/core/state';
 import { answerFor } from './helpers';
 import { cellOf, distanceField } from '../src/core/map';
 import { CHAPTERS } from '../src/core/config';
@@ -10,6 +10,7 @@ const DT = 1 / 30;
 /** Walks the shortest street route to the current objective (no dodging). */
 export function botInput(g: GameState, field: { target: Vec2 | null; f: Int16Array | null }): Input {
   const t = currentTask(g);
+  for (const m of [...escortGroup(g)]) if (m.bitten) leaveBehind(g, m); // like a person who looks them over: the bitten are left
   const target = requiredDone(g) || !t ? g.safehouse : taskTarget(g, t);
   const it = interactionFor(g);
   if (it?.kind === 'task' && t && it.taskId === t.id) {
@@ -20,7 +21,7 @@ export function botInput(g: GameState, field: { target: Vec2 | null; f: Int16Arr
   if (t?.kind === 'clear' && t.targets && Math.hypot(t.pos.x - g.player.pos.x, t.pos.y - g.player.pos.y) < 4) return { dx: 0, dy: 0, fire: true };
   if (g.hold.taskId) return { dx: 0, dy: 0 };
   // like a person: shoot what gets close (aim assist picks it), reload when empty, keep walking
-  const near = g.zombies.some((z) => z.action !== 'dead' && z.action !== 'rise' && Math.hypot(z.pos.x - g.player.pos.x, z.pos.y - g.player.pos.y) < 7);
+  const near = g.zombies.some((z) => z.action !== 'dead' && z.action !== 'rise' && z.action !== 'dormant' && Math.hypot(z.pos.x - g.player.pos.x, z.pos.y - g.player.pos.y) < 7);
   const fire = near && g.player.vehicleId === null;
   if (!field.target || field.target.x !== target.x || field.target.y !== target.y) { field.target = target; field.f = withVehiclesBlocked(g, () => distanceField(g.map, target)); }
   const f = field.f!;

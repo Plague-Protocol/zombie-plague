@@ -1,4 +1,4 @@
-import { clearLeft, currentTask, finalChapter, interactionFor, isGun, latchedOn, playerVehicle, requiredDone, taskTarget, type GameState } from '../core/state';
+import { clearLeft, currentTask, escortGroup, finalChapter, infection, interactionFor, isGun, latchedOn, playerVehicle, requiredDone, taskTarget, type GameState } from '../core/state';
 import { ending, exitLabel, objectiveFor, shortName, verbFor } from '../core/story';
 import { CHAPTERS, GEAR, PLAYER_HEALTH, VEHICLES, WEAPON_NAMES } from '../core/config';
 import type { Interaction } from '../core/types';
@@ -22,8 +22,34 @@ function useLabel(s: GameState, it: Interaction | null): string | null {
     case 'talk': return 'TALK';
     case 'refuel': return 'REFUEL';
     case 'alarm': return 'ALARM';
+    case 'check': return `CHECK ${escortGroup(s)[it.who]?.name ?? ''}`.trim().toUpperCase();
+    case 'leave': return `LEAVE ${escortGroup(s)[it.who]?.name ?? ''}`.trim().toUpperCase();
     case 'task': { const t = s.tasks.find((x) => x.id === it.taskId); return t ? verbFor(t) : 'USE'; }
   }
+}
+
+/** Veins growing in from the edges of the screen (drawn once; the infection sets how much of them shows). */
+function veinSvg(): string {
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const out: string[] = [];
+  const grow = (x: number, y: number, a: number, len: number, w: number, depth: number) => {
+    let d = `M${x.toFixed(1)} ${y.toFixed(1)}`;
+    for (let k = 0; k < 5; k++) {
+      a += (rnd() - 0.5) * 1.1;
+      x += Math.cos(a) * len;
+      y += Math.sin(a) * len;
+      d += `L${x.toFixed(1)} ${y.toFixed(1)}`;
+      if (depth < 2 && rnd() < 0.5) grow(x, y, a + (rnd() < 0.5 ? 0.8 : -0.8), len * 0.72, w * 0.6, depth + 1);
+    }
+    out.push(`<path d="${d}" stroke-width="${w.toFixed(1)}"/>`);
+  };
+  for (let i = 0; i < 18; i++) {
+    const t = rnd() * 100, edge = i % 4;
+    const x = edge === 0 ? 0 : edge === 1 ? 100 : t, y = edge === 2 ? 0 : edge === 3 ? 100 : t;
+    grow(x, y, Math.atan2(50 - y, 50 - x), 2.8 + rnd() * 2, 1.5 + rnd() * 1.3, 0);
+  }
+  return `<svg viewBox="0 0 100 100" preserveAspectRatio="none">${out.join('')}</svg>`;
 }
 
 export class Hud {
@@ -50,6 +76,11 @@ export class Hud {
   private reloadBtn = $('btn-reload');
   private clockLabel = document.querySelector('#clock small') as HTMLElement;
   private gear = $('gear');
+  private veins = $('veins');
+  private infBar = $('infection-bar');
+  private lightBtn = $('btn-light');
+  private lightState = $('light-state');
+  private lastInf = -1;
   private lastClock = '';
   private toastTimer = 0;
   private hurtTimer = 0;
@@ -57,6 +88,7 @@ export class Hud {
   private lastTask = '';
 
   constructor(handlers: { retry: () => void; newNight: () => void }) {
+    this.veins.innerHTML = veinSvg();
     $('retry').addEventListener('click', handlers.retry);
     $('new-night').addEventListener('click', handlers.newNight);
     window.addEventListener('keydown', (e) => {
@@ -83,6 +115,13 @@ export class Hud {
     window.setTimeout(() => this.card.classList.remove('on'), seconds * 1000);
   }
 
+  /** A bite: the clock jumps, and you see it jump. */
+  surge(): void {
+    this.timer.classList.remove('surge');
+    void this.timer.offsetWidth;
+    this.timer.classList.add('surge');
+  }
+
   hurt(): void {
     this.hurtEl.style.opacity = '1';
     clearTimeout(this.hurtTimer);
@@ -105,7 +144,15 @@ export class Hud {
     }
 
     const final = finalChapter(s);
-    const clock = `CHAPTER ${s.chapter + 1}/${CHAPTERS} · ${final ? 'LAST EVAC IN' : 'TUNNELS SEAL IN'}`;
+    const clock = `CHAPTER ${s.chapter + 1}/${CHAPTERS} · YOU TURN IN`;
+    // the infection: a bar that fills and reddens, and veins in the corners of your eyes
+    const inf = Math.round(infection(s) * 50) / 50;
+    if (inf !== this.lastInf) {
+      this.lastInf = inf;
+      this.infBar.style.width = `${inf * 100}%`;
+      this.infBar.style.background = inf < 0.34 ? '#7fd38a' : inf < 0.67 ? '#d8c13a' : '#d9443a';
+      this.veins.style.opacity = String(Math.max(0, Math.min(0.8, (inf - 0.3) / 0.7)));
+    }
     if (clock !== this.lastClock) { this.lastClock = clock; this.clockLabel.textContent = clock; }
     const cur = currentTask(s);
     const ready = requiredDone(s);
@@ -132,6 +179,11 @@ export class Hud {
       const hp = Math.round((car.health / VEHICLES[car.kind].health) * 100);
       this.carHealth.textContent = `${car.kind === 'bike' ? 'Bike' : 'Car'} ${hp}%  ·  Fuel ${fuel}%${s.pumping ? ' (filling)' : fuel === 0 ? ' (empty)' : ''}${on ? `  ·  ${on} on it!` : ''}`;
       this.carHealth.style.color = fuel < 15 || on > 0 || hp < 40 ? '#ff8a6a' : '';
+    }
+    this.lightBtn.style.display = car ? 'none' : 'flex';
+    if (this.lightBtn.classList.contains('off') === s.light) {
+      this.lightBtn.classList.toggle('off', !s.light);
+      this.lightState.textContent = s.light ? 'ON' : 'OFF';
     }
     const throwable = !car && s.arsenal.bottles > 0;
     this.throwBtn.style.display = throwable ? 'flex' : 'none';

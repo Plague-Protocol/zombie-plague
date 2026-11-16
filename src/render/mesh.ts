@@ -101,6 +101,19 @@ export class MeshBuilder {
     return this;
   }
 
+  /** Turn the vertices added since `from` a quarter turn about the vertical through (px, pz). */
+  turnY(from: number, px: number, pz: number): this {
+    for (let i = from * 3; i < this.pos.length; i += 3) {
+      const x = this.pos[i]! - px, z = this.pos[i + 2]! - pz;
+      this.pos[i] = px - z;
+      this.pos[i + 2] = pz + x;
+      const nx = this.nor[i]!, nz = this.nor[i + 2]!;
+      this.nor[i] = -nz;
+      this.nor[i + 2] = nx;
+    }
+    return this;
+  }
+
   get triangles(): number {
     return this.pos.length / 9;
   }

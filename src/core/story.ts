@@ -107,6 +107,18 @@ export function tierLines(tier: number): Line[] {
   return (content().story.tier[tier] ?? []).map(L);
 }
 
+export const PA = 'Loudspeaker';
+/** The quarantine loudspeakers, still running: the n-th announcement (they go round). */
+export function paLine(n: number): Line[] {
+  const pa = content().story.pa ?? [];
+  return pa.length ? [L(pa[n % pa.length]!)] : [];
+}
+
+/** Things said once a night, the first time they happen (a cough in the group, a red X, the light...). */
+export function hint(key: string): Line[] {
+  return (content().story.hints?.[key] ?? []).map(L);
+}
+
 
 export function safehouseLocked(missing: string[]): Line[] {
   return [L(`${EVAC}|We can't let you through yet. ${missing.length > 0 ? `You still need ${missing.join(', ')}.` : ''}`)];
@@ -145,5 +157,6 @@ export function survivorLines(v: Survivor, moment: 'asked' | 'reminder' | 'fetch
 export function ending(outcome: 'won' | LossReason, final = true): Ending {
   const e = content().story.endings;
   if (outcome === 'infected') return e.infected ?? e.caught;
+  if (outcome === 'carrier') return e.carrier ?? e.infected ?? e.caught;
   return outcome === 'time' && !final ? e.sealed : e[outcome];
 }

@@ -3,7 +3,7 @@ import { cellOf, distanceField, generateMap, PITCH, STREET, UNREACHABLE } from '
 import { chapterGroups, generateChain } from './tasks';
 import { content } from './content';
 import {
-  AMBUSH_CHANCE, AMMO_PICKUPS, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
+  AMBUSH_CHANCE, AMMO_PICKUPS, ANTIVIRAL_PICKUPS, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
   SURVIVOR_COUNT, SURVIVOR_NAMES, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLE_MIX, VEHICLES,
 } from './config';
 import type {
@@ -134,8 +134,18 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
     const r = next(hrng);
     // now and then someone left their protective gear behind
     const loot: Loot = r < 0.23 ? 'medkit' : r < 0.46 ? 'supplies' : r < 0.69 ? 'ammo' : r < 0.84 ? 'bottles' : r < 0.9 ? (r < 0.87 ? 'helmet' : 'vest') : 'empty';
-    return { id: i + 1, pos, loot, ambush: chance(hrng, AMBUSH_CHANCE), searched: false };
+    return { id: i + 1, pos, loot, ambush: chance(hrng, AMBUSH_CHANCE), searched: false, mark: null };
   });
+  // What the quarantine teams painted on the doors before they pulled out. A red X: infected inside (and
+  // whatever the team left behind when it ran). A white ring: cleared. No mark: they never got this far.
+  const mrng = fork(seed, 'marks');
+  for (const h of houses) {
+    if (h.ambush) {
+      if (!chance(mrng, 0.65)) continue;
+      h.mark = 'infected';
+      if (h.loot === 'empty' || h.loot === 'bottles' || h.loot === 'supplies') h.loot = chance(mrng, 0.6) ? 'antiviral' : 'medkit';
+    } else if (chance(mrng, 0.5)) h.mark = 'clear';
+  }
 
   // Survivors: holed up on the pavement well apart, each with something they need.
   const srng = fork(seed, 'survivors');
@@ -154,6 +164,16 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
     const fetchPos = pavement(map, far, 1) ?? pavement(map, far, -1) ?? { ...far };
     survivors.push({ id: survivors.length + 1, name: names[survivors.length]!, pos, request, reward, status: 'waiting', fetchPos, carrying: false, targets: [], skin: survivors.length % 2 });
     taken2.push(pos, fetchPos);
+  }
+
+  // Antiviral doses, dropped where the clinics' runners fell: each holds the infection back a while.
+  const arng = fork(seed, 'antiviral');
+  for (const p of shuffle(arng, map.points)) {
+    if (pickups.filter((q) => q.kind === 'antiviral').length >= ANTIVIRAL_PICKUPS) break;
+    if (dist(p, spawn) < 35 || taken2.some((q) => dist(p, q) < 14)) continue;
+    const pos = pavement(map, p, chance(arng, 0.5) ? 1 : -1) ?? { ...p };
+    taken2.push(pos);
+    pickups.push({ id: pickups.length + 1, kind: 'antiviral', pos, taken: false });
   }
 
   return { seed, map, spawn, safehouse, tasks, timeLimit, routeSeconds, vehicles, crates, pickups, stores, houses, survivors };

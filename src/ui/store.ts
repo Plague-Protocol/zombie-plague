@@ -1,5 +1,6 @@
-import { buy, equip, gunStats, isGun, meleeStats, priceOf, type GameState } from '../core/state';
-import { GEAR, GUNS, JERRYCAN_FUEL, MEDKIT_HEAL, PLAYER_HEALTH, UPGRADE_EFFECT, UPGRADE_LEVELS, WEAPON_NAMES } from '../core/config';
+import { gunStats, isGun, meleeStats, priceOf, type GameState } from '../core/state';
+import type { Command } from '../core/replay';
+import { ANTIVIRAL_SECONDS, GEAR, GUNS, JERRYCAN_FUEL, MEDKIT_HEAL, PLAYER_HEALTH, UPGRADE_EFFECT, UPGRADE_LEVELS, WEAPON_NAMES } from '../core/config';
 import type { GearKind, GunKind, MeleeKind, Store, StoreItem, UpgradeKind, WeaponKind } from '../core/types';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -65,7 +66,9 @@ export class StorePage {
   private onClose: () => void = () => {};
   private icons = new Map<WeaponKind | GearKind, string>();
 
-  constructor(private toast: (text: string) => void) {
+  /** `act` does a purchase or a swap of weapon through the game's one door for changes made outside a step
+   * (so it is written into the night's replay). */
+  constructor(private toast: (text: string) => void, private act: (c: Command) => boolean) {
     $('store-close').addEventListener('click', () => this.close());
     window.addEventListener('keydown', (e) => {
       if (this.open && (e.code === 'Escape' || e.code === 'KeyE')) this.close();
@@ -115,7 +118,7 @@ export class StorePage {
 
   private buy(item: StoreItem, what: string): void {
     if (!this.s) return;
-    if (buy(this.s, item)) this.toast(`Bought: ${what}`);
+    if (this.act({ t: 'buy', item })) this.toast(`Bought: ${what}`);
     this.render();
   }
 
@@ -164,7 +167,7 @@ export class StorePage {
           eq.className = 'equip';
           eq.textContent = a.weapon === w ? 'In hand' : 'Equip';
           eq.disabled = a.weapon === w;
-          eq.addEventListener('click', () => { if (equip(s, w)) this.toast(`${WEAPON_NAMES[w]} in hand`); this.render(); });
+          eq.addEventListener('click', () => { if (this.act({ t: 'equip', weapon: w })) this.toast(`${WEAPON_NAMES[w]} in hand`); this.render(); });
           act.appendChild(eq);
         } else {
           act.appendChild(this.priceButton({ kind: 'weapon', weapon: w }, WEAPON_NAMES[w]));
@@ -234,6 +237,11 @@ export class StorePage {
       row.innerHTML = `<span><b>Medkit</b><small>Heals ${MEDKIT_HEAL}. Your health: ${Math.round(s.player.health)}/${PLAYER_HEALTH}.</small></span>`;
       row.appendChild(this.priceButton({ kind: 'medkit' }, 'Medkit'));
       list.appendChild(row);
+      const dose = document.createElement('div');
+      dose.className = 'row';
+      dose.innerHTML = `<span><b>Antiviral dose</b><small>From the first-aid shelf. Holds the infection back ${ANTIVIRAL_SECONDS} seconds.</small></span>`;
+      dose.appendChild(this.priceButton({ kind: 'antiviral' }, 'Antiviral dose'));
+      list.appendChild(dose);
       const row2 = document.createElement('div');
       row2.className = 'row';
       row2.innerHTML = `<span><b>Bottles (3)</b><small>Throw one to draw them away. You have ${s.arsenal.bottles}.</small></span>`;

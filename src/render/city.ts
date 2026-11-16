@@ -392,19 +392,10 @@ export function buildCity(map: MapData, seed: number, lampColor = 0xffcf8a): Cit
     if (boarded) {
       s.box(cx, 1.0, b.y + b.h + 0.07, 1.2, 0.16, 0.05, plank);
       s.box(cx, 1.5, b.y + b.h + 0.07, 1.2, 0.16, 0.05, plank);
-      if (chance(rng, 0.7)) sprayX(s, cx, 1.35, b.y + b.h + 0.11);
+      chance(rng, 0.7); // (search-team sprays are gone from houses: a mark on a door now means something, see render/plague.ts)
     }
     if (!burned && chance(rng, 0.18)) smear(s, cx + range(rng, -b.w * 0.4, b.w * 0.2), b.y + b.h + 0.025);
     s.facade('x+', b.x + b.w + 0.02, cz - 0.6, cz + 0.6, 1.2, 2.2, 0x14171c);
-  }
-
-  /** The orange X a search team sprays on a door they have checked (on a z+ face). */
-  function sprayX(s: MeshBuilder, x: number, y: number, z: number): void {
-    for (const a of [0.75, -0.75]) {
-      const m = s.mark();
-      s.box(x, y, z, 1.1, 0.08, 0.01, 0xd8692a);
-      s.tiltZ(m, a, x, y);
-    }
   }
 
   /** A dark smear of blood at hand height on a z+ wall, with a couple of drips. */

@@ -1,4 +1,4 @@
-import { currentTask, finalChapter, isRevealed, requiredDone, type GameState } from '../core/state';
+import { currentTask, fallenBlocks, finalChapter, isRevealed, requiredDone, type GameState } from '../core/state';
 import { stepDef } from '../core/content';
 import { shortName } from '../core/story';
 import type { MapData, Vec2 } from '../core/types';
@@ -21,8 +21,9 @@ export function insetLeft(): number {
   return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--l')) || 0;
 }
 
-/** Static map image (roads, districts, buildings), drawn once per night. */
-export function drawBase(map: MapData): HTMLCanvasElement {
+/** The map image (roads, districts, buildings), drawn once per district and again each time a block falls:
+ * fallen blocks are red, with the street round them stained. */
+export function drawBase(map: MapData, fallen: number[] = []): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = c.height = Math.ceil(map.size * PX);
   const g = c.getContext('2d')!;
@@ -31,6 +32,13 @@ export function drawBase(map: MapData): HTMLCanvasElement {
   g.fillRect(0, 0, map.size, map.size);
   for (const b of map.blocks) {
     g.fillStyle = DISTRICT_COLORS[b.district] ?? '#333';
+    g.fillRect(b.x, b.y, b.size, b.size);
+  }
+  for (const i of fallen) {
+    const b = map.blocks[i]!;
+    g.fillStyle = 'rgba(150,24,16,.28)';
+    g.fillRect(b.x - 4.5, b.y - 4.5, b.size + 9, b.size + 9);
+    g.fillStyle = 'rgba(170,28,18,.5)';
     g.fillRect(b.x, b.y, b.size, b.size);
   }
   for (const d of map.decor) {
@@ -67,9 +75,11 @@ export function markers(s: GameState): Marker[] {
     out.push({ pos: v.pos, color: '#7fe08a', size: 6, shape: 'ring', label: v.name });
     if (v.request === 'fetch' && v.status === 'asked' && !v.carrying) out.push({ pos: v.fetchPos, color: '#7fe08a', size: 4, shape: 'dot', label: `${v.name}'s bag` });
   }
-  for (const h of s.houses) if (!h.searched) out.push({ pos: h.pos, color: '#c8d4ee', size: 2.2, shape: 'dot' });
+  for (const h of s.houses) if (!h.searched) out.push({ pos: h.pos, color: h.mark === 'infected' ? '#e0483a' : h.mark === 'clear' ? '#f2f2ee' : '#8f9ab0', size: h.mark ? 2.6 : 2.2, shape: 'dot' });
+  for (const a of s.abandoned) out.push({ pos: a.pos, color: '#c06a50', size: 3.5, shape: 'dot', label: a.name });
+  for (const p of s.pickups) if (!p.taken && p.kind === 'antiviral') out.push({ pos: p.pos, color: '#4ad27a', size: 3.5, shape: 'square', label: 'Dose' });
   for (const p of s.pickups) if (!p.taken && p.kind === 'jerrycan') out.push({ pos: p.pos, color: '#e05030', size: 3, shape: 'square' });
-  for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : p.kind === 'vest' || p.kind === 'helmet' ? '#8cc4ff' : '#f2d060', size: 3.5, shape: 'dot' });
+  for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan' && p.kind !== 'antiviral') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : p.kind === 'vest' || p.kind === 'helmet' ? '#8cc4ff' : '#f2d060', size: 3.5, shape: 'dot' });
   for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
   return out;
 }
@@ -118,6 +128,7 @@ export function drawPlayer(g: CanvasRenderingContext2D, x: number, y: number, he
 export class CityMap {
   private base: HTMLCanvasElement | null = null;
   private seed = -1;
+  private fallen = -1;
   private mini: HTMLCanvasElement;
   readonly full: HTMLCanvasElement;
   readonly overlay: HTMLElement;
@@ -148,9 +159,10 @@ export class CityMap {
   toggle: () => void;
 
   private ensureBase(s: GameState): HTMLCanvasElement {
-    if (!this.base || this.seed !== s.seed) {
-      this.base = drawBase(s.map);
+    if (!this.base || this.seed !== s.seed || this.fallen !== s.fallenN) {
+      this.base = drawBase(s.map, fallenBlocks(s));
       this.seed = s.seed;
+      this.fallen = s.fallenN;
     }
     return this.base;
   }

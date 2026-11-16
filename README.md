@@ -1,8 +1,8 @@
 # Zombie Plague
 
-A browser game: a virus has emptied Port Halden, and the last evacuation helicopter leaves on
-schedule. Find what you need, arm yourself, find a ride, and get to the evac point before it
-lifts off. This is now Zombie Plague itself (it was built as "Outbreak"); the social deduction game
+A browser horror game: a virus has emptied Port Halden, and you were bitten an hour ago. Three
+antiviral doses, three districts between you and the evacuation flight that carries the treatment.
+Each dose holds the infection back for a few minutes; when it runs out, you turn. This is now Zombie Plague itself (it was built as "Outbreak"); the social deduction game
 that had the name ([plague-celo](../plague-celo), "Infect the Room") moves to its own subdomain.
 That repo is read here, never modified.
 
@@ -33,6 +33,76 @@ npm run build      # typecheck + production build into dist/
 URL options: `?seed=123` fixed night, `?skipintro`, `?debug` perf overlay, `?dpr=1.5` cap the
 pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 
+## The plague
+
+What makes this Zombie Plague and not another zombie run. Every rule here lives in the pure game
+state (`src/core/state.ts`), so a server can run it unchanged; the renderer and sound only show it.
+
+- **The clock is your infection.** The timer is the dose wearing off (`infection()` = share of the
+  clock gone). At zero you turn (TURNED). A bite hurts and also jumps the infection ahead 8 seconds
+  (less through gear). Antiviral doses (three lying in each district, in houses the quarantine
+  teams fled, $60 at a store's first-aid shelf) hold it back 30 seconds, never past a full clock.
+- **It changes what you see and hear.** As it climbs, colour drains from the picture, veins grow in
+  from the edges of the screen and beat with your pulse, everything but your own heart goes dull,
+  and the groaning starts to sound like whispering. Past 60% you cough, and anything within 8 units
+  hears it. Past 50% the infected see less of you (up to 35% less): you are nearly one of them.
+- **Sam shows it.** A bandage over the bite from the first frame; his skin loses its colour as the
+  infection climbs; hurt or far gone, he limps; a cough doubles him over.
+- **You turn, and you stay.** Caught or turned, your last self is waiting in that chapter the next
+  time you come through it (kept on the device): your own face, far tougher than a runner, near where
+  it happened. Put it down and it drops the weapon you were holding.
+- **Real darkness, and a flashlight that is a choice** (LIGHT, or F). The sky gives shapes, not
+  detail. Light on, you see what the beam touches and they see you at full range. Light off, they
+  have to be twice as close to notice you, and so do you.
+- **Quiet, then one sound, then panic.** A director runs each district: a long quiet (38 to 58
+  seconds), then the wind drops, the lamps falter and something heavy falls nearby, and five
+  seconds later a small pack comes up out of the ground there. It holds off while you work a step,
+  drive, or are already being hunted.
+- **Three more kinds of infected.**
+  - *Screamer* (gaunt, pallid): when it has you in plain view it stops and fills its lungs for 1.4
+    seconds, then calls everything within 32 units and brings runners from further off. Hit it
+    first and it chokes. Go round it with your light off.
+  - *Dormant*: bodies lie in every street, and some of them are not dead. Walk within 3 units, or
+    make a noise close by, and it gets up. Aim assist never picks one out and shots pass over them;
+    a swing of a baton into a body finds out. Your heartbeat is the one tell: it picks up near
+    anything alive.
+  - *Stalker* (tall, nearly black): knows where you are from 40 units, comes at you fast through
+    the dark, and does not move a muscle while your beam is on it. Look away and it comes on.
+- **Half bodies and tentacles.** No new models: the crowd shader pulls a lost part in to the joint it
+  was torn off at, which leaves a raw stump.
+  - *Crawler*: the top half of one, dragging itself. Slow and low. It does little damage; it gets
+    hold of your leg and you move at 55% speed for 2.5 seconds. One gun kill in seven on a walker
+    only takes the legs, and the top half keeps coming.
+  - *Lasher*: no head, and a knot of tentacles where it was. It strikes from 3.3 units (an arm
+    reaches 1.35) after a long wind-up you can hear, and the hit drags you toward it.
+  - About one walker in six is missing an arm.
+- **Each kind has its own voice** (all synthesised, `src/audio/sound.ts`): the screamer's long
+  breath in and then a full human scream with its echo; a crawler's drag and rattle; a lasher's wet
+  clicking and the whistle and crack of its strike; a stalker's dry chitter in the dark.
+- **Hidden bites.** Someone you are bringing in may be bitten and hiding it (30% of groups in the
+  first district, 60% in the last). The bitten cough every 7 to 12 seconds; now and then someone
+  healthy has a cough too. Stand still beside them and CHECK (2.5 seconds each): clean, or bitten.
+  LEAVE the bitten where they stand, or they turn beside the others within about 75 to 115 seconds.
+  Take one to the door unnoticed and it ends there (CARRIER). If the last of them is left, you
+  bring the news to the door alone.
+- **Marks on the doors.** A red X with tape: one of them is inside, always, and so is what the
+  quarantine team dropped when it ran (often a dose). A white ring: cleared, never an ambush.
+  No mark: nobody got that far (30% as before). The map shows the marks.
+- **The outbreak spreads.** Blocks fall one neighbour at a time as your infection climbs (10% of
+  the first district at the start, 75% of the last by the end). The map shows them red; in one,
+  the air goes sick and full of spores, they see 25% further, and the quiet is shorter.
+- **The streets.** Body bags in rows on the pavement, burn sites still glowing, quarantine
+  placards, and the loudspeakers still reading out orders nobody is left to follow.
+
+**Replays.** Every night is written down as it is played (`src/core/replay.ts`): each step's input
+(the stick in 64ths, buttons as bits, runs folded together) and everything done between steps
+(purchases, weapon swaps, puzzle answers), which all go through one `command()`. `replay(log)`
+re-runs it to the same end state; the log goes out with the run result (`RunResult.replay`).
+Caveat: exact across the same JavaScript engine only, until the trig calls are made deterministic.
+
+Not built yet: anything multiplayer or staked. The build plan is
+[docs/PHASE2-BUILD-PLAN.md](docs/PHASE2-BUILD-PLAN.md).
+
 ## Playing
 
 - **Chapters:** a night crosses three districts, each a freshly generated part of the city with
@@ -40,9 +110,9 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
   the district map is always the last, and it shows the way out: a subway entrance into the next
   district. Weapons, ammo, gear, cash and kills carry over; seconds left on the clock pay $0.50
   each, and you catch your breath (+25 health). Later districts have runners in the crowd and
-  bigger waves. The third chapter ends at the helicopter. In the first two, the army seals the subway tunnels when
-  the clock runs out (SEALED IN). A retry restarts the chapter with what
-  you came into it with.
+  bigger waves. The third chapter ends at the helicopter. Each district has its own dose and so its
+  own clock; when it runs out you turn (TURNED). A retry restarts the chapter with what you came
+  into it with.
 - **People you bring in:** some steps hand you someone to protect (Nora, Leo, or the family of
   three, who follow in a line). If one of the infected gets hold of any of them for a second, it is
   over (INFECTED). You are warned when one is on them; shoot it or get between them. They are
@@ -62,7 +132,7 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
   pieces) until it sees or hears you (35% of steps in the first district, 60% in the last). Finding
   the map sets a pack hunting you from all round for 45 seconds: run for the way out. Pieces can be
   grabbed from a car or bike, and nothing is ever parked on top of one. (The route bot, which
-  shoots what comes close but never dodges, drives or buys, wins 22/40 first chapters and 7/20 last
+  shoots what comes close but never dodges, drives or buys, wins 18/40 first chapters and 6/20 last
   chapters.)
 - **The infected:** a crowded town (up to 110, about 20 drawn at once). Walkers lurch at about
   half your running speed, runners nearly match it; some run even in the first district. The dead
@@ -122,7 +192,7 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 
 Told the way Eko Lockdown tells its story: a title card, a letterboxed intro, "Speaker|line"
 dialogue, radio briefs as each step comes up, radio calls as the night gets worse, and endings
-(EVACUATED, TAKEN, LEFT BEHIND, SEALED IN). Each night deals its chapters different steps from the
+(EVACUATED, TAKEN, TURNED, INFECTED, CARRIER). Each night deals its chapters different steps from the
 pool (22 kinds now), never repeating one in a night, and each chapter ends with the map. Setting and names are invented so the game reads anywhere.
 
 ## The city

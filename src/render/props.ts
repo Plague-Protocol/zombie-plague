@@ -123,6 +123,7 @@ export function gearMesh(kind: GearKind): Object3D {
 export function pickupMesh(kind: PickupKind, yaw: number): Group {
   const g = new Group();
   const item: Object3D = kind === 'ammo' ? ammoMesh() : kind === 'bottles' ? bottlesMesh() : kind === 'jerrycan' ? jerrycanMesh()
+    : kind === 'antiviral' ? antiviralMesh()
     : kind === 'vest' || kind === 'helmet' ? gearMesh(kind) : weaponMesh(kind);
   if (kind === 'baton' || kind === 'bat' || kind === 'machete') {
     item.rotation.set(0, 0, Math.PI / 2); // lying along the ground
@@ -140,8 +141,18 @@ export function pickupMesh(kind: PickupKind, yaw: number): Group {
   const holder = new Group();
   holder.rotation.y = yaw;
   holder.add(item);
-  g.add(holder, glint(kind === 'ammo' || kind === 'jerrycan' || kind === 'vest' ? 0.75 : kind === 'bottles' || kind === 'helmet' ? 0.6 : 0.3));
+  g.add(holder, glint(kind === 'ammo' || kind === 'jerrycan' || kind === 'vest' ? 0.75 : kind === 'bottles' || kind === 'helmet' ? 0.6 : 0.3,
+    kind === 'antiviral' ? 0x8dffb0 : undefined));
   return g;
+}
+
+/** An antiviral dose: a clinic's hard case, open, an injector pen in the foam. */
+function antiviralMesh(): Mesh {
+  const b = new MeshBuilder()
+    .box(0, 0.08, 0, 0.62, 0.16, 0.42, 0xe8ece6, 0x20262a).box(0, 0.17, 0, 0.5, 0.03, 0.09, 0x4ad27a)
+    .box(0.21, 0.17, 0, 0.08, 0.035, 0.1, 0xf2f2ee).box(0, 0.3, -0.22, 0.62, 0.3, 0.04, 0xe8ece6)
+    .box(0, 0.32, -0.195, 0.2, 0.05, 0.01, 0x2f9a55).box(0, 0.32, -0.195, 0.05, 0.2, 0.01, 0x2f9a55);
+  return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true }));
 }
 
 let glintTex: CanvasTexture | null = null;

@@ -41,6 +41,12 @@
   .layer { position: fixed; inset: 0; pointer-events: none; }
   #vignette { background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.35) 85%, rgba(0,0,0,.6) 100%); }
   #hurt { background: radial-gradient(ellipse at center, rgba(120,0,0,0) 35%, rgba(150,0,0,.6) 100%); opacity: 0; transition: opacity .25s; }
+  /* the infection in your own eyes: veins creeping in from the edges, beating with your pulse */
+  #veins { opacity: 0; transition: opacity 1.5s; background: radial-gradient(ellipse at center, rgba(20,0,3,0) 42%, rgba(26,0,5,.55) 82%, rgba(14,0,3,.9) 100%); }
+  #veins svg { position: absolute; inset: 0; width: 100%; height: 100%; fill: none; stroke: #4a060c; stroke-linecap: round; animation: zp-beat 1.1s ease-in-out infinite; }
+  #veins path { vector-effect: non-scaling-stroke; }
+  @keyframes zp-beat { 0%, 100% { opacity: .65; } 12% { opacity: 1; } 30% { opacity: .75; } 42% { opacity: 1; } }
+  body.cinema #veins { opacity: 0 !important; }
   .bar { position: fixed; left: 0; right: 0; height: 0; background: #000; transition: height .9s ease; pointer-events: none; z-index: 5; }
   #lb-top { top: 0; } #lb-bot { bottom: 0; }
   body.cinema .bar { height: 11vh; }
@@ -199,6 +205,10 @@
   #ending .seed { font-size: 11px; opacity: .45; margin-top: 6px; }
   /* vitals under the clock */
   #vitals { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+  #infection { width: 120px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; margin-top: 3px; }
+  #infection-bar { height: 100%; width: 0; background: #7fd38a; transition: width .4s; }
+  #timer.surge { animation: zp-surge .6s; }
+  @keyframes zp-surge { 0% { color: #ff3020; transform: scale(1.25); } 100% { transform: scale(1); } }
   #health { width: 120px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.15); overflow: hidden; }
   #health-bar { height: 100%; width: 100%; background: #d9443a; transition: width .2s; }
   #funds { font-size: 13px; font-weight: 600; color: #9ee6a8; }
@@ -221,6 +231,10 @@
   #btn-throw { right: 206px; bottom: calc(env(safe-area-inset-bottom, 0px) + 46px); width: 56px; height: 56px; font-size: 9px;
     flex-direction: column; border-color: rgba(120,200,140,.6); }
   #btn-throw b { font-size: 14px; }
+  #btn-light { right: 170px; bottom: calc(env(safe-area-inset-bottom, 0px) + 122px); width: 52px; height: 52px; font-size: 9px; flex-direction: column;
+    border-color: rgba(255,233,196,.75); }
+  #btn-light b { font-size: 12px; }
+  #btn-light.off { border-color: rgba(255,255,255,.25); color: #99a; }
   @media (hover: hover) and (pointer: fine) { .pad { opacity: .75; } }
   /* the weapon store: a full page */
   #store { z-index: 9; background: radial-gradient(ellipse at top, #2a1714 0%, #0d0b0b 70%); justify-content: flex-start;
@@ -342,6 +356,9 @@
     #btn-use { width: 62px; height: 62px; right: calc(var(--r) + 104px); bottom: calc(var(--b) + 12px); font-size: 10px; }
     #btn-throw { width: 50px; height: 50px; right: calc(var(--r) + 186px); bottom: calc(var(--b) + 18px); font-size: 8px; }
     #btn-throw b { font-size: 12px; }
+    #btn-light { width: 46px; height: 46px; right: calc(var(--r) + 154px); bottom: calc(var(--b) + 88px); font-size: 8px; }
+    #btn-light b { font-size: 11px; }
+    #infection { width: 96px; }
     #subs { bottom: calc(var(--b) + 6px); left: 42%; width: min(36vw, 400px); }
     #talk { padding: 0 var(--r) calc(var(--b) + 8px) var(--l); }
     #talk .panel { width: min(78vw, 640px); padding: 10px 16px 8px; }
@@ -387,10 +404,11 @@
 <div id="fade"></div>
 <div id="game"></div>
 <div id="vignette" class="layer"></div>
+<div id="veins" class="layer"></div>
 <div id="hurt" class="layer"></div>
 <div id="lb-top" class="bar"></div><div id="lb-bot" class="bar"></div>
 <div id="hud">
-  <div id="clock"><small>LAST EVAC IN</small><div id="timer">0:00</div>
+  <div id="clock"><small>YOU TURN IN</small><div id="timer">0:00</div><div id="infection"><div id="infection-bar"></div></div>
     <div id="vitals"><div id="health"><div id="health-bar"></div></div><div id="funds">$0</div><div id="gear"></div><div id="car-health"></div></div>
     <button id="mute">Sound: on</button></div>
   <div id="task"></div>
@@ -409,6 +427,7 @@
 <div id="btn-use" class="pad">USE</div>
 <div id="btn-reload" class="pad">&#8635;</div>
 <div id="btn-throw" class="pad"><b id="bottles">2</b>THROW</div>
+<div id="btn-light" class="pad"><b id="light-state">ON</b>LIGHT</div>
 <div id="btn-swap" class="pad"><b id="ammo">12/24</b><span id="weapon-name">Pistol</span></div>
 <div id="store" class="screen">
   <header><div><small>Weapon store</small><h1 id="store-name">HALDEN ARMS</h1></div><div class="cash" id="store-cash"></div></header>
@@ -422,10 +441,10 @@
 <div id="title" class="screen">
   <img src="/intro/splash-mark.webp" alt="" width="120" height="120" />
   <h1>ZOMBIE PLAGUE</h1>
-  <p>Escape Port Halden &middot; one night, three districts</p>
+  <p>Bitten in Port Halden &middot; three doses, three districts</p>
   <button id="start" disabled>Loading&hellip;</button>
   <div id="ios-tip">For full screen on iPhone: tap Share (the square with an arrow), then <b>Add to Home Screen</b>, and play from the new icon.</div>
-  <small>Sound on. Drag anywhere to move, buttons to fire and use. Keyboard: WASD, Space fire, E use, R reload, Q swap, M map.</small>
+  <small>Sound on. Drag anywhere to move, buttons to fire and use. Keyboard: WASD, Space fire, E use, R reload, Q swap, F flashlight, G throw, M map.</small>
 </div>
 <div id="ending" class="screen">
   <h1 id="end-title"></h1>

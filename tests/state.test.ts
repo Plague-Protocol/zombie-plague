@@ -880,6 +880,6 @@ describe('vehicles draw a crowd', () => {
     g.zombies[0]!.actionT = 0.1;
     for (let i = 0; i < 300; i++) step(g, IDLE, DT);
     expect(g.zombies.length).toBe(0);
-    expect(g.corpses.map((c) => c.id)).toEqual([300]);
+    expect(g.corpses.at(-1)?.id).toBe(300); // after the bodies that were in the street already
   });
 });

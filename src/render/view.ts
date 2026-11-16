@@ -4,12 +4,13 @@ import {
   Vector3, WebGLRenderer, type Material,
 } from 'three';
 import { Actor, type CharacterAssets, type ClipName } from './characters';
-import { Crowd, type CrowdClip } from './crowd';
+import { Crowd, MUT, type CrowdClip } from './crowd';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
 import { ArmyGate, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
-import { currentTask, escortGroup, finalChapter, gunStats, isGun, isRevealed, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
-import { ATTACK_WINDUP, MELEE, SAFEHOUSE_RADIUS, TASK_RADIUS } from '../core/config';
+import { currentTask, escortGroup, finalChapter, gunStats, infection, isGun, isRevealed, lightOn, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
+import { ATTACK_WINDUP, COUGH_NOISE, LASH_REACH, MELEE, PLAYER_HEALTH, SAFEHOUSE_RADIUS, SCREAM_WINDUP, TASK_RADIUS } from '../core/config';
+import { plagueDressing, Spores, Tentacles, Waves } from './plague';
 import type { GameEvent, Task, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
 import { chapterInfo, stepDef } from '../core/content';
 
@@ -22,6 +23,12 @@ const POOL_LIGHTS = Math.max(0, Math.min(6, Number(params.get('lights') ?? 3)));
 /** Scenes where you crouch to work (the rest, you stand). */
 const KNEEL_SCENES = ['generator', 'gate', 'chained-gate', 'jerrycans', 'medkit', 'survivor-talk', 'fuse-box', 'junction-box', 'gas-valve', 'crossroads', 'fallen-guard', 'fallen-woman', 'fallen-soldier', 'crashed-bus', 'phone-booth'];
 const FOG = 0x0a0e16; // a dark night blue, not black: the far streets fade into it
+// Real darkness: the sky and the moon give you shapes, not detail. What you see clearly is what your light touches.
+const SKY = 2.1, MOON = 1.25;
+const SICK_FOG = 0x1a2309, SICK_SKY = 0x5c6a30; // the air where the district has fallen, and in your own eyes late on
+
+/** Where in the getting-up clip a crawler lives: flat on the ground, dragging itself, and reaching for your leg. */
+const CRAWL = { down: 0.02, drag: [0.02, 0.26], lunge: [0.1, 0.42] } as const;
 
 /** Soft dark blob for contact shadows (generated). */
 function blobTexture(): CanvasTexture {
@@ -79,9 +86,28 @@ export class GameView {
   private evac = new Evac();
   private exitDoor = new SubwayExit();
   private gate = new ArmyGate();
-  private hemi = new HemisphereLight(0x5a6c94, 0x262018, 3.8);
-  private moon = new DirectionalLight(0xa8bcff, 2.3);
+  private hemi = new HemisphereLight(0x5a6c94, 0x262018, SKY);
+  private moon = new DirectionalLight(0xa8bcff, MOON);
   private haze = 1;
+  private baseFog = new Color(FOG);
+  private baseSky = new Color(0x5a6c94);
+  private sickFog = new Color(SICK_FOG);
+  private sickSky = new Color(SICK_SKY);
+  /** How sick the air looks, 0..1 (a fallen block, or the infection in your own eyes), eased. */
+  private sick = 0;
+  /** How open your eyes are to the dark, 0..1 (rises with the light off), eased. */
+  private night = 0;
+  private spores = new Spores();
+  private waves = new Waves();
+  private tentacles = new Tentacles();
+  private playerMat: MeshLambertMaterial | null;
+  private coughT = 0;
+  private filter = '';
+  private quality = 0;
+  /** People left behind, where you left them. */
+  private left = new Map<string, Actor>();
+  /** Your last self, if it is in this district. */
+  private husk: Actor | null = null;
   /** Soldiers waiting by the helicopter: two keep watch, one checks you over before you board. */
   private soldiers: Actor[] = [];
   /** The end of a chapter, played out: walking down into the subway, or boarding the helicopter. */
@@ -132,6 +158,12 @@ export class GameView {
     }
 
     this.player = new Actor(assets, 'humanMaleA', true);
+    this.player.root.rotation.order = 'YXZ'; // so he can lean and roll about his own axes (a cough, a limp)
+    // Sam shows it: his own skin (it loses its colour as the infection climbs) and the bandage over the bite
+    this.playerMat = this.player.ownMaterial();
+    const wrap = new MeshBuilder().box(0, 0, 0, 0.3, 0.34, 0.3, 0xd6d1c2).box(0.02, 0.02, 0.1, 0.2, 0.2, 0.12, 0x6e1410).box(0, 0.19, 0, 0.32, 0.05, 0.32, 0xbdb7a6);
+    this.player.bind('LeftForeArm', 'LeftHand', new Mesh(wrap.build(), new MeshLambertMaterial({ vertexColors: true })), 0.5);
+    this.scene.add(this.spores.points, this.waves.mesh, this.tentacles.mesh);
     this.crowd = new Crowd(assets);
     this.scene.add(this.crowd.group);
     const fatigues = (assets.materials.humanMaleA as MeshLambertMaterial).clone();
@@ -179,6 +211,7 @@ export class GameView {
     const phone = window.matchMedia?.('(pointer: coarse)').matches;
     const cap = Number(params.get('dpr')) || [phone ? 1.5 : 2, 1.25, 1][level]!;
     this.limits = [{ zombies: 70, bodies: 40 }, { zombies: 45, bodies: 24 }, { zombies: 28, bodies: 12 }][level]!;
+    this.quality = level;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
     if (this.size.w) { this.size = { w: 0, h: 0 }; this.resize(); }
   }
@@ -214,6 +247,8 @@ export class GameView {
     // each chapter's own night: the docks under orange sodium lamps, the edge of town in cold fog
     const ch = chapterInfo(s.chapter), L = ch.light, hex = (c: string | undefined, d: number) => (c ? parseInt(c.slice(1), 16) : d);
     const fog = hex(L?.fog, FOG);
+    this.baseFog.setHex(fog);
+    this.baseSky.setHex(hex(L?.sky, 0x5a6c94));
     (this.scene.fog as Fog).color.setHex(fog);
     this.renderer.setClearColor(fog);
     this.hemi.color.setHex(hex(L?.sky, 0x5a6c94));
@@ -229,6 +264,9 @@ export class GameView {
     }
 
     this.crowd.reset();
+    for (const a of this.left.values()) { this.scene.remove(a.root); a.dispose(); }
+    this.left.clear();
+    if (this.husk) { this.scene.remove(this.husk.root); this.husk.dispose(); this.husk = null; }
     for (const e of this.extras) { this.scene.remove(e.actor.root); e.actor.dispose(); }
     this.extras = [];
     for (const w of this.walkers) { this.scene.remove(w.actor.root); w.actor.dispose(); }
@@ -258,6 +296,10 @@ export class GameView {
     }
     const solid = (this.city.group.children[0] as Mesh).material as Material;
     for (const st of s.stores) this.level.add(storefrontMesh(st, solid));
+    // what the plague left in the streets: marked doors, body bags, burn sites, placards
+    const dress = plagueDressing(s, solid);
+    this.level.add(dress.group);
+    this.lightSources.push(...dress.lights);
     // supply crates: olive boxes with a white stencil; opened ones sag open
     const cb = new MeshBuilder().box(0, 0.45, 0, 1.1, 0.9, 0.8, 0x4a5233, 0x56603c).box(0, 0.91, 0, 0.5, 0.02, 0.12, 0xd8d3c8).box(0, 0.91, 0, 0.12, 0.02, 0.5, 0xd8d3c8);
     this.crates = new InstancedMesh(cb.build(), this.city.group.children[0] ? ((this.city.group.children[0] as Mesh).material as Material) : new MeshBasicMaterial(), s.crates.length || 1);
@@ -563,7 +605,19 @@ export class GameView {
         }
         case 'reload': this.player.setUpper('ReloadUpper', { timeScale: 1.667 / gunStats(s.arsenal, e.weapon).reload }); break;
         case 'throw': this.lastSwing = this.time; this.player.setUpper('Swing2Upper', { restart: true, timeScale: 1.4 }); break;
-        case 'bottle-smash': this.effects.burst(new Vector3(e.pos.x, 0.4, e.pos.y), 0x9fd8b0, 12, 3); break;
+        case 'bottle-smash': this.effects.burst(new Vector3(e.pos.x, 0.4, e.pos.y), 0x9fd8b0, 12, 3); this.waves.ring(e.pos.x, e.pos.y, 9, 0x6f9a80); break;
+        case 'scream': this.waves.ring(e.pos.x, e.pos.y, 16, 0xff5a4a, 1.1); this.waves.ring(e.pos.x, e.pos.y, 9, 0xffb0a0, 0.7); break;
+        case 'cough':
+          if (e.who === null) { this.coughT = 0.55; this.waves.ring(e.pos.x, e.pos.y, COUGH_NOISE, 0x566a48, 0.6); }
+          else this.waves.ring(e.pos.x, e.pos.y, 2.2, 0x4a5a40, 0.5);
+          break;
+        case 'dormant-wake': {
+          const z = s.zombies.find((q) => q.id === e.id);
+          if (z) this.effects.burst(new Vector3(z.pos.x, 0.5, z.pos.y), 0x3a3a34, 10, 3);
+          break;
+        }
+        case 'burst': this.effects.burst(new Vector3(e.pos.x, 0.3, e.pos.y), 0x2a2620, 16, 4); break;
+        case 'antiviral': if (e.seconds > 0) this.waves.ring(s.player.pos.x, s.player.pos.y, 3, 0x4ad27a, 0.6); break;
         case 'alarm-start': {
           const b = s.map.buildings[e.car];
           if (!b) break;
@@ -659,6 +713,13 @@ export class GameView {
       else this.player.setUpper(null);
     }
     this.player.update(p.x, p.y, s.player.heading, dt, true);
+    // hurt or far gone, he limps; a cough doubles him over
+    const inf = infection(s);
+    const limp = caught || car ? 0 : Math.max(s.player.health < PLAYER_HEALTH * 0.45 ? 1 : 0, inf > 0.7 ? (inf - 0.7) / 0.3 : 0) * Math.min(1, playerSpeed(s) / 2);
+    this.coughT = Math.max(0, this.coughT - dt);
+    this.player.root.rotation.z = Math.sin(this.time * 7.5) * 0.085 * limp;
+    this.player.root.rotation.x = caught ? 0 : Math.sin((this.coughT / 0.55) * Math.PI * 2) ** 2 * 0.3 * (this.coughT > 0 ? 1 : 0) + limp * 0.06;
+    this.playerMat?.color.setRGB(1 - inf * 0.36, 1 - inf * 0.22, 1 - inf * 0.4);
     if (bike) { // on the seat, behind the tank
       this.player.root.position.x -= Math.cos(bike.heading) * 0.45;
       this.player.root.position.z -= Math.sin(bike.heading) * 0.45;
@@ -678,8 +739,29 @@ export class GameView {
       this.flashlight.target.position.set(p.x + fx * 9, 0, p.y + fz * 9);
       this.flashlight.angle = 0.5;
     }
-    this.flashlight.intensity = caught ? 0 : (car ? 110 : 70) * (0.96 + Math.sin(this.time * 31) * 0.02);
+    // off, it is off: your eyes open to the dark a little. As the quiet breaks, it gutters.
+    const lit = lightOn(s);
+    const dread = s.director.phase === 'dread' && s.phase === 'playing';
+    const gutter = dread && Math.sin(this.time * 41) + Math.sin(this.time * 17.3) > 0.9 ? 0.15 : 1;
+    this.flashlight.intensity = caught || !lit ? 0 : (car ? 130 : 105) * (0.96 + Math.sin(this.time * 31) * 0.02) * gutter;
     this.fill.position.set(p.x - fx * 0.8, 3, p.y - fz * 0.8);
+    this.fill.intensity = lit ? 9 : 5;
+    const ease = 1 - Math.exp(-1.6 * dt);
+    this.night += ((lit ? 0 : 1) - this.night) * ease;
+    const wide = (1 - this.cinematic) * 2.2; // the establishing shot is not played in: show the city
+    this.hemi.intensity = SKY * (1 + this.night * 0.12) + wide;
+    this.moon.intensity = MOON * (1 + this.night * 0.12) + wide * 0.6;
+    // the air goes sick where the district has fallen, and in your own eyes as you turn
+    const inf2 = infection(s);
+    this.sick += (Math.max(s.inFallen ? 0.6 : 0, inf2 > 0.5 ? (inf2 - 0.5) * 1.3 : 0) * this.cinematic - this.sick) * (1 - Math.exp(-0.9 * dt));
+    (this.scene.fog as Fog).color.copy(this.baseFog).lerp(this.sickFog, this.sick);
+    this.renderer.setClearColor((this.scene.fog as Fog).color);
+    this.hemi.color.copy(this.baseSky).lerp(this.sickSky, this.sick * 0.7);
+    this.spores.update(this.focus, this.time, s.inFallen && s.phase === 'playing', dt);
+    // the colour drains out of the world as the infection climbs (skipped on the lightest quality level)
+    const drain = this.quality < 2 && this.cinematic > 0.9 ? Math.round(inf2 * inf2 * 14) / 20 : 0;
+    const filter = drain > 0 ? `saturate(${(1 - drain).toFixed(2)}) contrast(${(1 + drain * 0.25).toFixed(2)})` : '';
+    if (filter !== this.filter) { this.filter = filter; this.renderer.domElement.style.filter = filter; }
 
     // --- vehicles, pickups, crates
     for (const v of s.vehicles) {
@@ -787,13 +869,40 @@ export class GameView {
       .sort((x, y) => x.d - y.d)
       .slice(0, n)
       .map((v) => v.q);
+    let huskSeen = false;
+    this.tentacles.begin(this.time);
     for (const z of near(s.zombies, this.limits.zombies)) {
       const [clip, o] = this.zombieClip(z);
-      this.crowd.draw(z.id, z.pos.x, z.pos.y, z.heading, clip, dt, o);
-      if (z.action !== 'dead') shadowAt(z.pos.x, z.pos.y);
+      if (z.husk && z.action !== 'dead') { // your last self: your own face, the colour gone out of it
+        huskSeen = true;
+        if (!this.husk) {
+          this.husk = new Actor(this.assets, 'humanMaleA');
+          this.husk.ownMaterial()?.color.setHex(0x7d9478);
+          this.scene.add(this.husk.root);
+        }
+        this.husk.play(clip, { once: o.once, timeScale: o.rate ?? 1, fade: 0.15 });
+        this.husk.update(z.pos.x, z.pos.y, z.heading, dt, true);
+      } else {
+        // a screamer is gaunt and pallid; a stalker is tall and nearly black until your light is on it
+        // a crawler is the top half of one; a lasher has no head, and what grew there instead; plenty of the rest are missing an arm
+        const look = z.kind === 'screamer' ? { tint: 0xffe6dc, bright: 1.9, wide: 0.84, tall: 1.1 }
+          : z.kind === 'stalker' ? { tint: 0x2c2832, wide: 0.9, tall: 1.12 }
+            : z.kind === 'crawler' ? { mut: MUT.legs + (z.id % 3 === 0 ? MUT.leftArm : 0) }
+              : z.kind === 'lasher' ? { mut: MUT.head, tint: 0xc08890, wide: 1.12, tall: 1.04 }
+                : z.kind === 'walker' && z.id % 6 === 0 ? { mut: z.id % 4 === 0 ? MUT.leftArm : MUT.rightArm } : null;
+        this.crowd.draw(z.id, z.pos.x, z.pos.y, z.heading, clip, dt, look ? { ...o, ...look } : o);
+        if (z.kind === 'lasher' && z.action !== 'dead') this.lash(z);
+      }
+      if (z.action !== 'dead' && z.action !== 'dormant') shadowAt(z.pos.x, z.pos.y);
     }
+    this.tentacles.end();
+    if (this.husk) this.husk.root.visible = huskSeen;
+    this.updateLeft(s, dt);
     // the dead stay where they fell, at the end of their fall
-    for (const c of near(s.corpses, this.limits.bodies)) this.crowd.draw(c.id, c.pos.x, c.pos.y, c.heading, 'Death', dt, { once: true, end: true });
+    for (const c of near(s.corpses, this.limits.bodies)) {
+      if (c.half) this.crowd.draw(c.id, c.pos.x, c.pos.y, c.heading, 'ZRise', dt, { hold: CRAWL.down, mut: MUT.legs });
+      else this.crowd.draw(c.id, c.pos.x, c.pos.y, c.heading, 'Death', dt, { once: true, end: true });
+    }
     this.crowd.end();
     for (const e of this.extras) {
       const t = s.tasks.find((x) => x.id === e.task);
@@ -814,7 +923,8 @@ export class GameView {
     this.shadows.instanceMatrix.needsUpdate = true;
 
     this.effects.update(dt);
-    this.updateLights();
+    this.waves.update(dt);
+    this.updateLights(dread);
     this.updateMarkers(s);
     this.renderer.render(this.scene, this.camera);
   }
@@ -863,6 +973,38 @@ export class GameView {
       else a.play('Idle', { fade: 0.3 });
       a.update(e.pos.x, e.pos.y, e.heading, dt, true);
     });
+  }
+
+  /** A lasher's tentacles: a knot of them writhing out of the neck and the back; when it strikes they all go for you. */
+  private lash(z: Zombie): void {
+    const strike = z.action === 'attack' ? 1 - Math.max(0, z.actionT) / ATTACK_WINDUP.lasher : 0;
+    const spread = [0, 2.2, -2.2, 3.1, 1.1, -1.0], lean = [0.3, 0.95, 0.95, 0.8, 1.25, 1.2], long = [1.5, 1.9, 1.8, 1.6, 1.3, 1.4];
+    for (let k = 0; k < 6; k++) {
+      const back = k >= 4, s = strike * (back ? 0.6 : 1);
+      this.tentacles.add(z.pos.x, back ? 1.75 : 2.3, z.pos.y, z.heading + spread[k]! * (1 - s) + (k - 2.5) * 0.09 * s,
+        lean[k]! + (1.35 - lean[k]!) * s, long[k]! + (LASH_REACH + 0.3 - long[k]!) * s * s, z.id * 1.7 + k * 2.3);
+    }
+  }
+
+  /** The ones you found bitten and left: they stay down where you left them, until they turn. */
+  private updateLeft(s: GameState, dt: number): void {
+    for (const [name, a] of this.left) {
+      if (s.abandoned.some((x) => x.name === name)) continue;
+      this.scene.remove(a.root);
+      a.dispose();
+      this.left.delete(name);
+    }
+    for (const x of s.abandoned) {
+      let a = this.left.get(x.name);
+      if (!a) {
+        a = new Actor(this.assets, x.skin);
+        a.root.scale.multiplyScalar(x.scale);
+        a.play('Kneel', { fade: 0 });
+        this.scene.add(a.root);
+        this.left.set(x.name, a);
+      }
+      a.update(x.pos.x, x.pos.y, Math.atan2(s.player.pos.y - x.pos.y, s.player.pos.x - x.pos.x), dt, true);
+    }
   }
 
   /** Walk someone to a door and in (hidden once there). */
@@ -949,6 +1091,7 @@ export class GameView {
   private playOutro(s: GameState, dt: number): void {
     const o = this.outro!;
     o.t += dt;
+    this.player.root.rotation.x = this.player.root.rotation.z = 0;
     this.player.setUpper(null);
     this.updateGun(s, false);
     let pos: Vector3, heading: number, speed = 2.4, y = 0;
@@ -1019,10 +1162,18 @@ export class GameView {
   }
 
   /** Which clip a zombie is on, and how it plays. */
-  private zombieClip(z: Zombie): [CrowdClip, { rate?: number; once?: boolean }] {
+  private zombieClip(z: Zombie): [CrowdClip, { rate?: number; once?: boolean; end?: boolean; hold?: number; pong?: readonly [number, number] }] {
     const g = (c: ClipName) => this.assets.groundSpeed.get(c) || 1;
+    if (z.kind === 'crawler') { // half a body: it never stands. Its crawl is the start of getting up, over and over
+      if (z.action === 'dead' || z.staggerT > 0) return ['ZRise', { hold: CRAWL.down }];
+      if (z.action === 'attack' || z.action === 'feed') return ['ZRise', { pong: CRAWL.lunge, rate: 2.2 }];
+      return ['ZRise', { pong: CRAWL.drag, rate: z.speed > 0.2 ? 1.1 : 0.35 }];
+    }
+    if (z.action === 'dormant') return ['Death', { once: true, end: true }]; // lying exactly like the dead
     if (z.staggerT > 0 && z.action !== 'dead') return ['Hit', { once: true }];
+    if (z.frozen) return ['ZIdle', { rate: 0.03 }]; // caught in the light: not a muscle
     switch (z.action) {
+      case 'scream': return ['ZAttack', { once: true, rate: 0.75 / SCREAM_WINDUP }]; // arms coming up as it fills its lungs
       case 'rise': return ['ZRise', { once: true }];
       case 'idle': return ['ZIdle', {}];
       case 'dead': return ['Death', { once: true, rate: 1.4 }];
@@ -1037,7 +1188,7 @@ export class GameView {
   }
 
   /** Move the few real lights to the light sources nearest the camera focus; flicker the broken ones. */
-  private updateLights(): void {
+  private updateLights(dread = false): void {
     const f = this.focus;
     const near = this.lightSources
       .map((l) => ({ l, d: (l.pos.x - f.x) ** 2 + (l.pos.z - f.z) ** 2 }))
@@ -1052,6 +1203,7 @@ export class GameView {
       let k = 1;
       if (n.l.kind === 'fire') k = 0.75 + Math.sin(t * 13 + i) * 0.12 + Math.sin(t * 29 + i * 3) * 0.1;
       else if (n.l.broken) k = Math.sin(t * 2.3 + i * 5) > 0.75 && Math.sin(t * 37) > 0 ? 0.1 : 1;
+      if (dread && n.l.kind !== 'fire') k *= Math.sin(t * 23 + i * 2.1) > 0.2 ? 0.25 : 0.8; // the lamps falter as the quiet breaks
       light.intensity = (n.l.kind === 'fire' ? 30 : n.l.kind === 'flood' ? 70 : 45) * k;
     });
   }

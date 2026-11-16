@@ -13,6 +13,26 @@ Setting: a zombie-virus outbreak in invented cities, universal on purpose so it 
 (decided 2026-11-06; earlier drafts were Lagos-first). Resident Evil-style districts, not real
 cities. (Do not use the Resident Evil name or imagery — Capcom trademark.) City 1 is Port Halden.
 
+## Identity: the plague is in you (decided 2026-11-16)
+
+The premise above is the first draft. What the game is now: the player was bitten before the night
+began, the countdown is the infection in their blood, and each district's antiviral dose is that
+district's clock. Everything distinctive hangs off that: senses that change as you turn, infected
+that notice you less late on, your last self waiting where you fell, hidden bites among the people
+you escort, quarantine marks on doors, a district that falls block by block. The rules are listed
+in the README ("The plague") and live in `src/core/state.ts`.
+
+How it carries into the later phases:
+
+- **Multiplayer (phase 2):** dead players turn and hunt the survivors; a bitten player can hide it
+  and the group decides at the safehouse door; your light and your noise give you away to players
+  as well as to the infected.
+- **Staked multiplayer (phase 3):** darkness and infection effects are drawn on the client, so the
+  server must never send a player what they cannot see or hear, and must decide sight itself
+  (`sightScale`, `inLight`).
+- **Staked solo: dropped** (2026-11-16). No counterparty, and bots would drain any pot.
+- **Replay:** built (`src/core/replay.ts`). The build plan for both phases is `docs/PHASE2-BUILD-PLAN.md`.
+
 ## Design principle: fun first, money second
 
 The game must be fun in its own right. Staking and earnings are an optional layer on top,

@@ -5,11 +5,12 @@
       "card": "DAY ONE",
       "sub": "Port Halden",
       "lines": [
-        "Narrator|Port Halden. Three days ago a virus came in on a cargo ship. Nobody gave it a name. The news just called it the fever.",
+        "Narrator|Port Halden. Three days ago a virus came in on a cargo ship. Nobody gave it a name. The news just called it the plague.",
         "Narrator|Then the fevered stopped being sick. They got up off the hospital floors and walked out into the city, hungry.",
-        "Emergency Radio|This is the emergency broadcast. The army is running one last evacuation tonight, from the far side of the city. Survivors, make your way there district by district. The subway tunnels between them are open for now, but the army is sealing them on a schedule.",
-        "Emergency Radio|The last helicopter leaves on schedule and it will not wait. If you need to defend yourself, the weapon stores have left their doors open. Halden Arms is one.",
-        "Sam|One district at a time. Find the way through, get across, and get on that helicopter. Don't stop moving."
+        "Emergency Radio|This is the emergency broadcast. The army is running one last evacuation tonight, from the far side of the city. The flight carries the treatment. Survivors, make your way there district by district.",
+        "Narrator|An hour ago, on the clinic stairs, one of them got its teeth into Sam's arm.",
+        "Sam|Three doses of antiviral from the clinic fridge. One for each district between me and that helicopter. Each one holds it back a few minutes, no more.",
+        "Sam|When a dose runs out, I turn. So: find the way through, get across, and don't get bitten again. Every bite brings it closer."
       ]
     },
     "chapters": [
@@ -61,20 +62,22 @@
     ],
     "arrive": {
       "other": [
-        "Sam|Out of the tunnel and into the docks. Cranes, containers, the rail yard. Same nightmare, more places for it to hide."
+        "Sam|Second dose, in the arm. The shaking stops. Out into the docks: cranes, containers, the rail yard. Same nightmare, more places for it to hide."
       ],
       "final": [
-        "Sam|Through the barricade. This is the edge of the city: open ground, the woods, and somewhere out there, rotors.",
-        "Emergency Radio|...final evacuation loading on schedule. Anyone still out there, this is your last chance..."
+        "Sam|The last dose. After this there is nothing between me and it but the treatment on that helicopter.",
+        "Emergency Radio|...final evacuation loading. The treatment is aboard. Anyone still out there, this is your last chance..."
       ]
     },
     "tier": [
       [],
       [
-        "Emergency Radio|Reports from downtown. They are coming out of the buildings now, hundreds of them. And some of them are running."
+        "Sam|My hands are cold and the colour is going out of things. The dose is wearing thin.",
+        "Emergency Radio|Reports from every district. They are coming out of the buildings now, hundreds of them. And some of them are running."
       ],
       [
-        "Emergency Radio|The helicopter is on the pad and loading. If you are still out there... run. Don't stop for anything."
+        "Sam|I can hear them. Not the groaning. Underneath it. It almost sounds like words.",
+        "Sam|They look at me a little longer before they come, now. As if they are not sure. Move. Move!"
       ]
     ],
     "vehicle": {
@@ -90,24 +93,73 @@
     "endings": {
       "won": {
         "title": "EVACUATED",
-        "text": "A soldier looks you over, your arms, your eyes, and waves you aboard. The helicopter lifts before the door is shut. Someone hands you water. Below, Port Halden goes dark street by street. Tonight, you are alive."
+        "text": "A soldier sees the bandage and raises his rifle. The medic pushes it down, reads your eyes, and puts the needle in before you reach the door. The helicopter lifts. Someone hands you water. Below, Port Halden goes dark street by street. Tonight, you are still you."
       },
       "caught": {
         "title": "TAKEN",
         "text": "Hands from behind, then teeth. The street lights blur. Somewhere far away, the emergency broadcast is still reading out the evacuation schedule."
       },
       "time": {
-        "title": "LEFT BEHIND",
-        "text": "You hear the rotors before you reach the corner, then the lights climb away over the harbour. The street behind you starts to move."
+        "title": "TURNED",
+        "text": "The last dose runs out within sight of the rotors. The cold reaches your chest, the colour goes, and the whispering finally makes sense. When the helicopter lifts, you watch it go and feel nothing but hunger."
       },
       "sealed": {
-        "title": "SEALED IN",
-        "text": "Somewhere under the street a siren winds down, and the subway shutters slam, one station after another. The army has sealed the tunnels. The way across is gone, and the dark around you starts to move."
+        "title": "TURNED",
+        "text": "The dose runs out in the street. The cold reaches your chest, the colour goes, and the whispering finally makes sense. Next time someone comes through this district, you will be here waiting."
       },
       "infected": {
         "title": "INFECTED",
         "text": "A cry behind you, and you turn too late. The bite is small, on the arm, and everyone in the street knows what it means. You were meant to bring them through. Somewhere far away, the broadcast keeps reading out the evacuation schedule."
+      },
+      "carrier": {
+        "title": "CARRIER",
+        "text": "The door shuts behind them, and for a moment there is only relief. Then the coughing inside stops, and the screaming starts. You brought it in with you. You never looked."
       }
+    },
+    "pa": [
+      "Loudspeaker|Attention. Port Halden is under quarantine. Remain indoors. Do not approach the infected.",
+      "Loudspeaker|A red cross on a door means infection inside. Do not enter. A white ring means the house has been cleared.",
+      "Loudspeaker|If you have been bitten, report to a quarantine post. Do not return to your family.",
+      "Loudspeaker|Burn sites are operating in every district. Do not touch the dead. Some of them are not.",
+      "Loudspeaker|Do not approach bodies that have changed. Report growths to a quarantine post. Do not touch them."
+    ],
+    "hints": {
+      "light": [
+        "Sam|Light off. They have to be nearly on top of me to notice now. So do I, to notice them."
+      ],
+      "cough": [
+        "Sam|Someone is coughing. Could be the smoke. Could be a bite they are not telling me about. I should stand close and look them over before I take them to anyone's door."
+      ],
+      "dormant": [
+        "Sam|That one was lying there the whole time. Not every body in this street is dead."
+      ],
+      "scream": [
+        "Sam|That scream carries for blocks. Next time I see one of those, I go round it in the dark or I drop it before it draws breath."
+      ],
+      "stalker": [
+        "Sam|It stops when the light is on it. It only moves when I look away."
+      ],
+      "mark": [
+        "Sam|A red X on the door. The quarantine teams marked the houses: red for infected inside, a white ring for cleared."
+      ],
+      "fallen": [
+        "Sam|This block has gone. The air is thick with it, and they are sharper here."
+      ],
+      "husk": [
+        "Sam|That jacket. That's... no. That was someone who looked a lot like me, the last time this district won."
+      ],
+      "omen": [
+        "Sam|It has gone quiet. It is never quiet for a good reason."
+      ],
+      "crawler": [
+        "Sam|Half of one, dragging itself along the road. Low enough to miss in the dark. If it gets my leg I won't outrun anything."
+      ],
+      "lasher": [
+        "Sam|No head. Something else grew there. It reaches a lot further than an arm, and it pulls. Keep well back, or get behind something."
+      ],
+      "halved": [
+        "Sam|I only took its legs. The rest of it is still coming."
+      ]
     }
   },
   "map": {

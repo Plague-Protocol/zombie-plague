@@ -26,7 +26,7 @@ export const CORPSES_KEPT = 80; // bodies kept per district (the oldest go first
 export const RISE_SECONDS = 1.5; // zombies that appear mid-run climb up off the ground first
 export const ATTACK_RANGE = 1.35; // starts a lunge
 export const ATTACK_REACH = 1.75; // the lunge lands if the player is still this close when it ends
-export const ATTACK_WINDUP = { walker: 0.6, runner: 0.4 } as const; // time to dodge
+export const ATTACK_WINDUP = { walker: 0.6, runner: 0.4, screamer: 0.7, stalker: 0.45, crawler: 0.5, lasher: 0.85 } as const; // time to dodge
 export const ATTACK_COOLDOWN = 1.0;
 export const ATTACK_DAMAGE = 34; // three lunges and you are down
 export const PLAYER_HEALTH = 100;
@@ -99,7 +99,7 @@ export const WEAPON_NAMES: Record<keyof typeof GUNS | keyof typeof MELEE, string
   baton: MELEE.baton.name, bat: MELEE.bat.name, machete: MELEE.machete.name,
 };
 export const START_AMMO = { pistol: 24, shotgun: 0, rifle: 0 } as const;
-export const ZOMBIE_HEALTH = { walker: 60, runner: 45 } as const;
+export const ZOMBIE_HEALTH = { walker: 60, runner: 45, screamer: 40, stalker: 80, crawler: 35, lasher: 110 } as const;
 export const STAGGER_SECONDS = 0.3;
 export const MELEE_KNOCKBACK = 0.7; // a solid hit shoves the zombie back this far
 export const ALERT_SECONDS = 7;
@@ -183,3 +183,75 @@ export const ESCORT_SPEED = 5.0; // a frightened nurse keeps up, just
 export const ESCORT_NEAR = 5; // close enough to count as "with you"
 export const FLARE_SECONDS = 35; // a lit flare draws them this long
 export const FLARE_RADIUS = 26;
+
+// ---- the infection. You were bitten before the night began: the clock is the virus in your blood,
+// and each district's dose holds it back for that district. Running out means turning.
+export const BITE_COST = 8; // seconds the infection jumps ahead for a full bite (gear takes its share)
+export const ANTIVIRAL_SECONDS = 30; // a dose holds it back this long (never past a full clock)
+export const ANTIVIRAL_PICKUPS = 3; // lying in each district
+export const ANTIVIRAL_PRICE = 60;
+/** Late on, they stop seeing you as prey: how much of their sight is lost, fully sick. It starts at half way. */
+export const INFECTED_CAMO = 0.35;
+// But you cough, and they hear it.
+export const COUGH_FROM = 0.6; // share of the clock gone
+export const COUGH_EVERY = [12, 22] as const; // seconds
+export const COUGH_NOISE = 8; // radius
+
+// ---- the flashlight: on, you see and are seen; off, they have to be much closer to notice you
+export const LIGHT_OFF_SIGHT = 0.5;
+export const LIGHT_RANGE = { foot: 13, car: 18 } as const; // how far the beam reaches
+export const LIGHT_HALF_ANGLE = { foot: 0.55, car: 0.62 } as const; // radians either side of where you face
+
+// ---- pacing: quiet, then one sound, then they come up around you
+export const QUIET_SECONDS = [38, 58] as const;
+export const QUIET_FIRST = [55, 75] as const; // the first quiet of a district is longer
+export const QUIET_SIGHT = 0.8; // while it is quiet they are less watchful
+export const DREAD_SECONDS = 5; // from the sound to the burst
+export const PANIC_SECONDS = 14;
+export const BURST = [{ walker: 2, runner: 0 }, { walker: 2, runner: 1 }, { walker: 3, runner: 1 }] as const; // by chapter
+export const BURST_ALERT = 14; // seconds they know where you are
+
+// ---- the other infected
+export const SCREAMERS = [2, 3, 4] as const; // per district, by chapter
+export const SCREAMER_SIGHT = 20;
+export const SCREAM_WINDUP = 1.4; // seconds from seeing you to the call: hit it first and it chokes
+export const SCREAM_RADIUS = 32; // everything this close comes
+export const SCREAM_ALERT = 14;
+export const SCREAM_EVERY = 9;
+export const SCREAM_RUNNERS = [1, 2, 2] as const; // and these come from further off, by chapter
+export const STALKERS = [1, 2, 3] as const;
+export const STALKER_SENSE = 40; // it knows where you are from this far
+export const STALKER_SPEED = 3.7;
+export const DORMANT = [5, 7, 9] as const; // bodies that are not dead, by chapter
+export const BODIES = 12; // and ones that are
+export const DORMANT_WAKE = 3.2; // walk this close and it gets up
+export const DORMANT_HEAR = 0.35; // share of a noise's radius that wakes them
+export const HUSK_HEALTH = 120;
+// Crawlers: half of one, low and slow and easy to miss in the dark. It does not bite deep; it holds on.
+export const CRAWLERS = [3, 4, 4] as const;
+export const CRAWLER_SPEED = 1.5;
+export const CRAWLER_SIGHT = 9;
+export const CRAWL_DAMAGE = 14;
+export const GRAB_SECONDS = 2.5; // it has your leg this long
+export const GRAB_SLOW = 0.55; // of your speed
+export const HALVE_CHANCE = 0.15; // a walker shot down is only cut in half, and the top half keeps coming
+// Lashers: tentacles where the head was. A long reach, a slow wind-up, and the hit drags you toward it.
+export const LASHERS = [1, 2, 2] as const;
+export const LASH_RANGE = 3.3; // it strikes from here
+export const LASH_REACH = 4.0; // and lands if you are still this close
+export const LASH_DAMAGE = 24;
+export const LASH_PULL = 6; // units/s toward it
+
+// ---- hidden bites among the people you bring in
+export const BITTEN_CHANCE = [0.3, 0.45, 0.6] as const; // per group, by chapter
+export const BITTEN_TURNS = [75, 115] as const; // seconds until they turn
+export const BITTEN_COUGH = [7, 12] as const; // seconds between their coughs
+export const HEALTHY_COUGH = [17, 27] as const; // someone healthy with a cough
+export const HEALTHY_COUGH_CHANCE = 0.3;
+export const CHECK_SECONDS = 2.5;
+export const CHECK_RADIUS = 3;
+
+// ---- the outbreak spreads: blocks fall as the night goes on (share of the district, start and end, by chapter)
+export const FALLEN = [{ from: 0.1, to: 0.45 }, { from: 0.2, to: 0.6 }, { from: 0.3, to: 0.75 }] as const;
+export const FALLEN_SIGHT = 1.25; // in a fallen block they are sharper
+export const FALLEN_QUIET = 0.6; // and the quiet is shorter

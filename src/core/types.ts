@@ -128,11 +128,38 @@ export interface Escort {
   scale: number;
   /** The rest of a group you are bringing in, each following the one in front. */
   party?: Escort[];
+  /** Bitten and hiding it: they turn when `turnT` runs out, in the street or behind the door you took them to. */
+  bitten?: boolean;
+  turnT?: number;
+  /** Seconds to their next cough (the bitten cough often; now and then someone healthy does too). */
+  coughT?: number;
+  coughEvery?: number;
+  /** What looking them over found, once you have. */
+  checked?: 'clean' | 'bitten';
 }
 
-export type ZombieKind = 'walker' | 'runner';
+/** Someone you found bitten and left where they stood. They turn in the end. */
+export interface Abandoned {
+  name: string;
+  skin: Skin;
+  scale: number;
+  pos: Vec2;
+  turnT: number;
+}
+
+/** Who you were the last time this district took you: they are still here, with what you carried. */
+export interface Husk {
+  pos: Vec2;
+  weapon: WeaponKind | null;
+}
+
+/** `screamer`: calls everything in earshot when it sees you. `stalker`: comes at you through the dark and
+ * stands still in your light. `crawler`: the top half of one, dragging itself; it gets hold of your leg.
+ * `lasher`: what the plague grows where the head was; it strikes from well out of arm's reach and pulls you in. */
+export type ZombieKind = 'walker' | 'runner' | 'screamer' | 'stalker' | 'crawler' | 'lasher';
 /** What a zombie is doing; the renderer picks its animation from this, not from guessing. */
-export type ZombieAction = 'rise' | 'idle' | 'wander' | 'chase' | 'attack' | 'feed' | 'cling' | 'dead';
+/** `dormant`: lying among the dead until you come close. `scream`: drawing breath to call the rest. */
+export type ZombieAction = 'rise' | 'idle' | 'wander' | 'chase' | 'attack' | 'feed' | 'cling' | 'dead' | 'dormant' | 'scream';
 
 export interface Zombie {
   id: number;
@@ -158,6 +185,12 @@ export interface Zombie {
   latchT?: number;
   /** How long it has had hold of someone you are protecting. */
   biteT?: number;
+  /** Seconds before a screamer can call again. */
+  screamCd?: number;
+  /** A stalker caught in your light this step (it does not move). */
+  frozen?: boolean;
+  /** Your last self in this district. */
+  husk?: boolean;
 }
 
 export type VehicleKind = 'sedan' | 'pickup' | 'van' | 'bike';
@@ -176,7 +209,7 @@ export interface Vehicle {
 
 export type GearKind = 'vest' | 'helmet';
 
-export type Loot = 'medkit' | 'supplies' | 'ammo' | 'bottles' | GearKind | 'empty';
+export type Loot = 'medkit' | 'supplies' | 'ammo' | 'bottles' | 'antiviral' | GearKind | 'empty';
 
 /** A house you can search: loot inside, and sometimes one of them. */
 export interface House {
@@ -185,6 +218,9 @@ export interface House {
   loot: Loot;
   ambush: boolean;
   searched: boolean;
+  /** What the quarantine teams painted on the door: a red X (infected inside), a white ring (cleared),
+   * or nothing (they never got this far). */
+  mark: 'infected' | 'clear' | null;
 }
 
 export type SurvivorRequest = 'clear' | 'fetch';
@@ -224,7 +260,7 @@ export type MeleeKind = 'baton' | 'bat' | 'machete';
 export type WeaponKind = GunKind | MeleeKind;
 export type UpgradeKind = 'damage' | 'mag' | 'reload';
 
-export type PickupKind = WeaponKind | GearKind | 'ammo' | 'bottles' | 'jerrycan';
+export type PickupKind = WeaponKind | GearKind | 'ammo' | 'bottles' | 'jerrycan' | 'antiviral';
 
 /** Lying in the street: walk over it to take it. */
 export interface Pickup {
@@ -241,6 +277,7 @@ export type StoreItem =
   | { kind: 'upgrade'; weapon: WeaponKind; upgrade: UpgradeKind }
   | { kind: 'gear'; gear: GearKind }
   | { kind: 'medkit' }
+  | { kind: 'antiviral' }
   | { kind: 'bottles' }
   | { kind: 'jerrycan' };
 
@@ -268,11 +305,17 @@ export type Interaction =
   | { kind: 'house'; houseId: number }
   | { kind: 'talk'; survivorId: number }
   | { kind: 'refuel'; vehicleId: number }
-  | { kind: 'alarm'; car: number };
+  | { kind: 'alarm'; car: number }
+  /** Look someone you are bringing in over for a bite (`who`: their place in the group). */
+  | { kind: 'check'; who: number }
+  /** Leave someone you found bitten. */
+  | { kind: 'leave'; who: number };
 
 /** `cleared`: through the door at the end of a chapter; the next district is loading. */
 export type Phase = 'playing' | 'cleared' | 'won' | 'lost';
-export type LossReason = 'time' | 'caught' | 'infected';
+/** `time`: the infection ran its course and you turned. `caught`: they got you first. `infected`: someone
+ * you were protecting was bitten. `carrier`: you brought someone bitten inside. */
+export type LossReason = 'time' | 'caught' | 'infected' | 'carrier';
 
 export type GameEvent =
   | { type: 'task-done'; id: TaskId }
@@ -321,7 +364,7 @@ export type GameEvent =
   | { type: 'bottle-smash'; pos: Vec2 }
   | { type: 'alarm-start'; car: number; pos: Vec2 }
   | { type: 'alarm-stop'; car: number }
-  | { type: 'work-started'; kind: 'search' | 'talk' | 'refuel' }
+  | { type: 'work-started'; kind: 'search' | 'talk' | 'refuel' | 'check' }
   | { type: 'gear-hit'; gear: GearKind; absorbed: number }
   | { type: 'gear-broken'; gear: GearKind }
   | { type: 'chapter-cleared'; chapter: number }
@@ -338,6 +381,34 @@ export type GameEvent =
   | { type: 'chase'; count: number }
   /** One of the infected is right on someone you are bringing in (once every few seconds). */
   | { type: 'escort-danger'; name: string }
+  /** You shot one in half and the top half is still coming. */
+  | { type: 'halved'; id: number }
+  /** A crawler has your leg: you are slowed for this long. */
+  | { type: 'grabbed'; seconds: number }
+  /** A bite: the infection jumps ahead by this many seconds. */
+  | { type: 'bitten'; seconds: number }
+  /** A dose: the infection is held back by this many seconds. */
+  | { type: 'antiviral'; seconds: number }
+  /** The flashlight went on or off. */
+  | { type: 'light'; on: boolean }
+  /** The quiet breaks: one sound, somewhere close. Something is about to happen there. */
+  | { type: 'omen'; pos: Vec2 }
+  /** And then it does: they come up out of the ground around you. */
+  | { type: 'burst'; pos: Vec2; count: number }
+  /** A body that was not dead. */
+  | { type: 'dormant-wake'; id: number }
+  /** A screamer has seen you and called: `count` more are coming. */
+  | { type: 'scream'; id: number; pos: Vec2; count: number }
+  /** A cough: yours (the infection, and they hear it), or someone you are bringing in. */
+  | { type: 'cough'; who: string | null; pos: Vec2 }
+  | { type: 'checked'; name: string; bitten: boolean }
+  | { type: 'left-behind'; name: string }
+  /** Someone bitten turned: beside you in the street, where you left them, or behind the door. */
+  | { type: 'escort-turned'; name: string; where: 'street' | 'left' | 'inside' }
+  /** Your last self is down, and what it carried is on the ground. */
+  | { type: 'husk-down'; id: number }
+  /** Another block has fallen to the infection (the map shows it). */
+  | { type: 'block-fallen'; block: number }
   | { type: 'won' }
   | { type: 'lost'; reason: LossReason };
 
@@ -353,4 +424,6 @@ export interface Input {
   swap?: boolean;
   /** Throw a bottle was pressed this step (edge). */
   throw?: boolean;
+  /** Flashlight on/off was pressed this step (edge). */
+  light?: boolean;
 }

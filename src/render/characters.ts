@@ -85,6 +85,7 @@ export class Actor {
   private held: Object3D | null = null;
   /** Where worn gear hangs: a frame on the bone, lined up with the body at rest, in world units. */
   private mounts = new Map<'chest' | 'head', Object3D>();
+  private body: SkinnedMesh | null = null;
 
   constructor(private assets: CharacterAssets, skin: SkinName, withXray = false) {
     this.root = clone(assets.template);
@@ -93,6 +94,7 @@ export class Actor {
       const m = o as SkinnedMesh;
       if (!m.isSkinnedMesh) return;
       m.material = assets.materials[skin];
+      this.body = m;
       if (withXray) {
         const x = new SkinnedMesh(m.geometry, assets.xray);
         x.bind(m.skeleton, m.bindMatrix);
@@ -129,6 +131,26 @@ export class Actor {
     if (!obj) return;
     obj.position.add(offset);
     mount.add(obj);
+  }
+
+  /** Give this one its own copy of its skin's material (to tint it without tinting everyone), and return it. */
+  ownMaterial(): MeshLambertMaterial | null {
+    if (!this.body) return null;
+    const m = (this.body.material as MeshLambertMaterial).clone();
+    this.body.material = m;
+    return m;
+  }
+
+  /** Wrap something round a limb, part of the way from a bone to the next one down (a bandage on the forearm).
+   * Built in world units; it rides the bone. */
+  bind(bone: string, child: string, obj: Object3D, along = 0.5): void {
+    const b = this.root.getObjectByName(bone), c = b?.getObjectByName(child);
+    if (!b || !c) return;
+    this.root.updateMatrixWorld(true);
+    obj.position.copy(c.position).multiplyScalar(along);
+    obj.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), c.position.clone().normalize());
+    obj.scale.setScalar(1 / b.getWorldScale(new Vector3()).x);
+    b.add(obj);
   }
 
   /**

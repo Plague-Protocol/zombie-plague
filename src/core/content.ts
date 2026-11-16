@@ -62,7 +62,11 @@ export interface Story {
   tier: string[][];
   /** Said the first time you get in a car, or on a bike, in a run: what the engine does. */
   vehicle?: { car: string[]; bike: string[] };
-  endings: { won: Ending; caught: Ending; time: Ending; sealed: Ending; infected?: Ending };
+  /** The quarantine loudspeakers' announcements, "Loudspeaker|line". */
+  pa?: string[];
+  /** Lines said the first time something happens in a night, by key. */
+  hints?: Record<string, string[]>;
+  endings: { won: Ending; caught: Ending; time: Ending; sealed: Ending; infected?: Ending; carrier?: Ending };
 }
 
 export interface Content {
@@ -143,7 +147,8 @@ export function validate(c: Content): string[] {
   const st = c.story;
   if (!st?.intro?.lines?.length || !st.chapters?.length || !st.arrive || !Array.isArray(st.tier) || !st.endings) out.push('the story section is incomplete');
   else {
-    [...st.intro.lines, ...st.arrive.other, ...st.arrive.final, ...st.tier.flat(), ...(st.vehicle?.car ?? []), ...(st.vehicle?.bike ?? [])].forEach((s) => line(s, 'story'));
+    [...st.intro.lines, ...st.arrive.other, ...st.arrive.final, ...st.tier.flat(), ...(st.vehicle?.car ?? []), ...(st.vehicle?.bike ?? []),
+      ...(st.pa ?? []), ...Object.values(st.hints ?? {}).flat()].forEach((s) => line(s, 'story'));
     for (const k of ['won', 'caught', 'time', 'sealed'] as const) if (!st.endings[k]?.title || !st.endings[k]?.text) out.push(`story: no ${k} ending`);
   }
   c.groups?.forEach((g, i) => {
