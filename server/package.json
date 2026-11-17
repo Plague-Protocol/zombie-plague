@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Accounts, replay-checked runs and real-time rooms for Zombie Plague. Imports the game rules from ../src/core unchanged.",
+  "description": "Accounts, replay-checked runs and real-time rooms for Zombie Plague. Imports the game rules from ../core unchanged.",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
-    "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server.mjs --external:pg-native --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "build": "tsc --noEmit -p tsconfig.build.json && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server.mjs --external:pg-native --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "start": "node --env-file-if-exists=.env dist/server.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
