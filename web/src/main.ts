@@ -37,6 +37,8 @@ type Mode = 'title' | 'intro' | 'play' | 'ending' | 'room';
 const newSeed = () => (Math.random() * 0xffffffff) >>> 0; // randomness lives here, not in core/
 /** Tonight's city, the same for everyone today (the server's word), once it is known; a random night until then or offline. */
 let tonight: number | null = null;
+/** The server answered: sign-in is possible, so the guest allowance applies. Offline, the game is simply free to play. */
+let serverUp = false;
 const nightSeed = () => tonight ?? newSeed();
 // the task content (what each step is, says and looks like) comes as data, before the first night
 setContent(await fetch('/content/tasks.json').then((r) => r.json() as Promise<Content>));
@@ -118,7 +120,7 @@ let guestT = 0;
 try { guestT = Number(localStorage.getItem('zp.guest')) || 0; } catch { /* private mode: the taste is per page */ }
 let gated = false;
 function guestTick(dt: number): void {
-  if (gated || signedIn()) return;
+  if (gated || !serverUp || signedIn()) return;
   const before = Math.floor(guestT);
   guestT += dt;
   if (Math.floor(guestT) !== before) try { localStorage.setItem('zp.guest', String(Math.floor(guestT))); } catch { /* kept for this page */ }
@@ -211,7 +213,7 @@ startBtn.addEventListener('click', () => {
   // the title shows a city while tonight's is fetched: play tonight's if it came
   begin(tonight !== null && state.night !== tonight && state.chapter === 0 ? fresh((husk) => createGame(tonight!, undefined, { husk }), 0) : state, !params.has('skipintro'));
 });
-if (!params.has('seed')) void import('./net/account').then((m) => m.tonight(content().version)).then((n) => { tonight = n; });
+void import('./net/account').then((m) => m.tonight(content().version)).then((r) => { serverUp = r !== null; if (!params.has('seed')) tonight = r?.night ?? null; });
 if (params.has('admin')) void import('./net/admin').then((m) => m.openAdmin());
 $('boardbtn').addEventListener('click', () => { void import('./net/board').then((m) => m.openBoard()); });
 if (debug) Object.defineProperty(window, '__outbreak', { get: () => ({ state, mode, view, sound, log: rec.log() }) }); // test hook

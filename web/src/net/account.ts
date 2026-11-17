@@ -85,12 +85,15 @@ export async function lastSelfFromServer(chapter: number): Promise<Husk | null> 
   } catch { return null; }
 }
 
-/** Tonight's night (everyone plays the same city on a day), if the server can be reached and runs this content. */
-export async function tonight(version: number): Promise<number | null> {
+/**
+ * Ask the server for tonight's night (everyone plays the same city on a day). null: the server cannot be reached
+ * (so nothing that needs it, sign-in included, can be asked of the player). `night` is null if it runs other content.
+ */
+export async function tonight(version: number): Promise<{ night: number | null } | null> {
   try {
     const r = await fetch(`${apiBase()}/night/today`, { signal: AbortSignal.timeout(4000) });
     if (!r.ok) return null;
     const j = (await r.json()) as { night: number; content: number };
-    return j.content === version ? j.night >>> 0 : null;
+    return { night: j.content === version ? j.night >>> 0 : null };
   } catch { return null; }
 }
