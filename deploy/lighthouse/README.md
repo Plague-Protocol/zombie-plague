@@ -5,7 +5,7 @@ runs the server and its own Postgres, and joins plague-celo's Docker network as 
 reach it. Nothing here is published to the internet except through Caddy.
 
 ```sh
-git clone https://github.com/Plague-Protocol/outbreak.git /opt/outbreak
+git clone https://github.com/Plague-Protocol/zombie-plague.git /opt/outbreak
 cd /opt/outbreak/deploy/lighthouse
 cp .env.example .env && nano .env        # POSTGRES_PASSWORD, JWT_SECRET, ALLOWED_ORIGINS, ADMIN_ADDRESSES
 docker compose up -d --build
