@@ -12,12 +12,18 @@ export interface Line {
   text: string;
 }
 
+export const HERO = 'Sam';
+let heroName = HERO;
+/** Who the player is tonight (the survivor chosen in the armoury): their name stands in for Sam's in every line. */
+export function setHero(name: string): void { heroName = name; }
+export const hero = (): string => heroName;
+
 const L = (s: string): Line => {
   const i = s.indexOf('|');
-  return { who: s.slice(0, i), text: s.slice(i + 1) };
+  let who = s.slice(0, i), text = s.slice(i + 1);
+  if (heroName !== HERO) { if (who === HERO) who = heroName; text = text.replace(/\bSam\b/g, heroName); }
+  return { who, text };
 };
-
-export const HERO = 'Sam';
 export const RADIO = 'Emergency Radio';
 export const EVAC = 'Evac';
 

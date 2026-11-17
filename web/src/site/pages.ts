@@ -254,6 +254,8 @@ export const profile: Page = {
     void import('./kit').then((k) => k.armoury()).then((a) => {
       const b = root.querySelector('[data-k=bank] .muted');
       if (b && a) b.innerHTML = `<b style="color:#e8e0cc">${fmt(a.cash)}</b> cash &middot; ${a.owned.kit.length} items owned &middot; ${a.loans.length} on loan`;
+      const card = root.querySelector<HTMLElement>('.pcard');
+      if (card && a) card.style.backgroundImage = `linear-gradient(180deg, rgba(6,11,6,0) 35%, #060b06 80%), radial-gradient(ellipse at 50% 30%, rgba(132,204,22,.16), transparent 60%), url(/survivors/${a.loadouts.ranked.survivor ?? 'sam'}.webp)`;
     });
     void api<Me>('/me').then((m) => {
       const list = root.querySelector('[data-k=runs]');

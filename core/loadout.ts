@@ -2,6 +2,7 @@
 // this (it is small); the catalogue, prices and rules are core/armoury.ts, which the site and server load.
 import { GEAR, GUNS, UPGRADE_EFFECT } from './config';
 import type { Arsenal, GunKind, UpgradeKind, WeaponKind } from './types';
+import { applySurvivor, type SurvivorId } from './survivors';
 
 /** Things you own outright and may bring: weapons beyond the pistol and baton, gear, and supplies. */
 export type KitId = 'shotgun' | 'rifle' | 'bat' | 'machete' | 'vest' | 'helmet' | 'ammo' | 'bottles' | 'cash';
@@ -14,6 +15,9 @@ export interface Loadout {
   ups: Partial<Record<UpId, number>>;
   /** The weapon in hand at the start (one you are bringing). */
   hand?: WeaponKind;
+  /** Who you play (absent: Sam), and their perk's level brought (0..3, at most the level owned). */
+  survivor?: SurvivorId;
+  grit?: number;
 }
 
 /** The two weapons everyone starts with. */
@@ -42,5 +46,6 @@ export function applyLoadout(a: Arsenal, funds: number, l: Loadout | undefined):
   if (l.kit.includes('helmet')) a.gear.helmet = GEAR.helmet.durability;
   if (l.kit.includes('bottles')) a.bottles += 2;
   if (l.hand) a.weapon = l.hand;
+  if (l.survivor) funds = applySurvivor(a, funds, l.survivor, l.grit ?? 0);
   return funds + (l.kit.includes('cash') ? 50 : 0);
 }

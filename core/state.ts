@@ -85,14 +85,15 @@ export function gunStats(a: Arsenal, w: GunKind) {
     ...base,
     damage: base.damage * (1 + UPGRADE_EFFECT.damage * u.damage),
     mag: Math.round(base.mag * (1 + UPGRADE_EFFECT.mag * u.mag)),
-    reload: base.reload * (1 - UPGRADE_EFFECT.reload * u.reload),
+    reload: base.reload * (1 - UPGRADE_EFFECT.reload * u.reload) * (1 - (a.perks?.reload ?? 0)),
+    noise: base.noise * (1 - (a.perks?.quiet ?? 0)), // a survivor's perk: quieter shooting
   };
 }
 
 /** A melee weapon's numbers with its upgrades applied. */
 export function meleeStats(a: Arsenal, w: MeleeKind) {
   const base = MELEE[w];
-  return { ...base, damage: base.damage * (1 + UPGRADE_EFFECT.damage * a.upgrades[w].damage) };
+  return { ...base, damage: base.damage * (1 + UPGRADE_EFFECT.damage * a.upgrades[w].damage) * (1 + (a.perks?.melee ?? 0)) };
 }
 
 /**
@@ -1224,7 +1225,7 @@ function interact(s: GameState): void {
       giveLoot(s, c.loot);
       break;
     }
-    case 'house': startWork(s, 'search', it.houseId, SEARCH_SECONDS); break;
+    case 'house': startWork(s, 'search', it.houseId, SEARCH_SECONDS * (1 - (s.arsenal.perks?.search ?? 0))); break;
     case 'talk': startWork(s, 'talk', it.survivorId, TALK_SECONDS); break;
     case 'refuel': startWork(s, 'refuel', it.vehicleId, REFUEL_SECONDS); break;
     case 'alarm': startAlarm(s, it.car); break;
@@ -1814,7 +1815,7 @@ export function movePlayer(s: GameState, input: Input, dt: number): void {
   let dx = input.dx, dy = input.dy;
   const len = dhypot(dx, dy);
   if (len > 1) { dx /= len; dy /= len; }
-  const top = PLAYER_SPEED * s.speedMul * (s.player.slowT > 0 ? GRAB_SLOW : 1); // a crawler on your leg
+  const top = PLAYER_SPEED * s.speedMul * (1 + (s.arsenal.perks?.speed ?? 0)) * (s.player.slowT > 0 ? GRAB_SLOW : 1); // a crawler on your leg
   const tx = dx * top, ty = dy * top; // analog: a light push walks, a full push runs
   const v = s.player.vel;
   const ex = tx - v.x, ey = ty - v.y;
@@ -2362,7 +2363,7 @@ function updateZombies(s: GameState, dt: number): void {
       if (s.player.invuln > 0) continue;
       const took = hurtPlayer(s, lash ? LASH_DAMAGE : z.kind === 'crawler' ? CRAWL_DAMAGE : ATTACK_DAMAGE);
       // every bite feeds the infection: the clock jumps ahead (less through gear)
-      const lost = Math.min(s.remaining, BITE_COST * (took / ATTACK_DAMAGE));
+      const lost = Math.min(s.remaining, BITE_COST * (took / ATTACK_DAMAGE) * (1 - (s.arsenal.perks?.bite ?? 0)));
       s.remaining -= lost;
       s.events.push({ type: 'bitten', seconds: lost });
       s.player.bitten = true;

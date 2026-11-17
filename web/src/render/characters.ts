@@ -6,7 +6,9 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 export const SKINS = ['humanMaleA', 'humanFemaleA', 'zombieMaleA', 'zombieFemaleA'] as const;
-export type SkinName = (typeof SKINS)[number];
+/** The other survivors' skins (the armoury's roster): loaded only when someone plays one. */
+export const HERO_SKINS = ['survivorMaleB', 'survivorFemaleA', 'criminalMaleA', 'cyborgFemaleA', 'skaterMaleA', 'skaterFemaleA'] as const;
+export type SkinName = (typeof SKINS)[number] | (typeof HERO_SKINS)[number];
 
 export type ClipName =
   | 'Idle' | 'Walk' | 'Jog' | 'Sprint' | 'Death' | 'Hit' | 'Aim' | 'Shoot' | 'Reload' | 'Interact' | 'Kneel' | 'Talk'
@@ -51,17 +53,8 @@ export async function loadCharacterAssets(): Promise<CharacterAssets> {
     if (c) clips.set(`${name}Upper`, new AnimationClip(`${name}Upper`, c.duration, c.tracks.filter((t) => UPPER_BONES.test(t.name))));
   }
 
-  const textures = new TextureLoader();
   const materials = {} as Record<SkinName, Material>;
-  await Promise.all(SKINS.map(async (name) => {
-    const map = await textures.loadAsync(`${base}${name}.png`);
-    map.colorSpace = SRGBColorSpace;
-    map.flipY = true; // the converted UVs use three's convention (v=0 at bottom), not glTF's
-    map.magFilter = NearestFilter;
-    map.minFilter = NearestFilter;
-    map.generateMipmaps = false;
-    materials[name] = new MeshLambertMaterial({ map });
-  }));
+  await Promise.all(SKINS.map(async (name) => { materials[name] = await skinMaterial(name); }));
   // Silhouette only where a building or prop was drawn (stencil ref 1, written by the city), so a
   // character's own limbs never show through its own body.
   const xray = new MeshBasicMaterial({
@@ -70,6 +63,20 @@ export async function loadCharacterAssets(): Promise<CharacterAssets> {
     stencilFail: KeepStencilOp, stencilZFail: KeepStencilOp, stencilZPass: KeepStencilOp,
   });
   return { template: gltf.scene, clips, groundSpeed, materials, xray, scale };
+}
+
+async function skinMaterial(name: SkinName): Promise<Material> {
+  const map = await new TextureLoader().loadAsync(`${import.meta.env.BASE_URL}assets/characters/${name}.png`);
+  map.colorSpace = SRGBColorSpace;
+  map.flipY = true; // the converted UVs use three's convention (v=0 at bottom), not glTF's
+  map.magFilter = NearestFilter;
+  map.minFilter = NearestFilter;
+  map.generateMipmaps = false;
+  return new MeshLambertMaterial({ map });
+}
+/** Make sure a skin is loaded (the roster's are fetched the first time they are worn). */
+export async function loadSkin(assets: CharacterAssets, name: SkinName): Promise<void> {
+  if (!assets.materials[name]) assets.materials[name] = await skinMaterial(name);
 }
 
 /** One animated character: own skeleton and mixer, shared geometry, clips and materials. */

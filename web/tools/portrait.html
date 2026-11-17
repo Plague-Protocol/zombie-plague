@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- A survivor's portrait for the armoury: the character in its idle pose, three-quarter view, lit like the city at night.
+     Open with `npm run dev` at /tools/portrait.html?skin=survivorFemaleA and screenshot the 600x720 frame
+     (public/survivors/*.webp were made this way). -->
+<html><head><meta charset="utf-8"><title>Survivor portrait</title>
+<style>html,body{margin:0;width:600px;height:720px;overflow:hidden;background:radial-gradient(ellipse at 50% 35%,#24301f 0%,#0c120b 60%,#060b06 100%)}canvas{display:block}</style></head>
+<body><script type="module">
+import { AmbientLight, DirectionalLight, PerspectiveCamera, Scene, Vector3, WebGLRenderer, AnimationMixer, SRGBColorSpace, TextureLoader, MeshLambertMaterial, NearestFilter, Box3, PointLight } from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+const base = '/assets/characters/';
+const q = new URLSearchParams(location.search);
+const gltf = await new GLTFLoader().loadAsync(base + 'character.glb');
+const map = await new TextureLoader().loadAsync(base + (q.get('skin') || 'humanMaleA') + '.png');
+map.colorSpace = SRGBColorSpace; map.flipY = true; map.magFilter = map.minFilter = NearestFilter; map.generateMipmaps = false;
+const mat = new MeshLambertMaterial({ map });
+const scene = new Scene();
+scene.add(new AmbientLight(0xffffff, 1.6));
+const key = new DirectionalLight(0xfff0d8, 2.0); key.position.set(-3, 5, 6); scene.add(key);
+const rim = new DirectionalLight(0xff5a4a, 0.9); rim.position.set(4, 3, -5); scene.add(rim);
+const fill = new PointLight(0x84cc16, 2.5, 10); fill.position.set(2.5, 0.6, 2.5); scene.add(fill);
+const o = gltf.scene;
+o.traverse((m) => { if (m.isSkinnedMesh) m.material = mat; });
+const h = new Box3().setFromObject(o).getSize(new Vector3()).y; o.scale.setScalar(1.8 / h);
+o.rotation.y = -0.45;
+scene.add(o);
+const clip = gltf.animations.find((c) => c.name === (q.get('clip') || 'Idle'));
+if (clip) { const mx = new AnimationMixer(o); mx.clipAction(clip).play(); mx.setTime(Number(q.get('t') || 0.4)); }
+const cam = new PerspectiveCamera(24, 600 / 720, 0.1, 50);
+cam.position.set(0.15, 1.25, 5.4); cam.lookAt(new Vector3(0, 0.98, 0));
+const r = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+r.setSize(600, 720); r.outputColorSpace = SRGBColorSpace;
+document.body.appendChild(r.domElement);
+r.render(scene, cam);
+window.__ready = true;
+</script></body></html>

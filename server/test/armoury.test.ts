@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { makeServer, wallet } from './helpers.ts';
 import { createGame, step } from '../../core/state.ts';
 import { quantize, Recorder, STEP, type NightLog } from '../../core/replay.ts';
-import { DAILY_CAP, DAILY_RATION, kitDef, loanFee, upgradePrice, type Loadout } from '../../core/armoury.ts';
+import { DAILY_CAP, DAILY_RATION, kitDef, loanFee, svPrice, upgradePrice, type Loadout } from '../../core/armoury.ts';
 import { nightOf } from '../src/content.ts';
 import { dayStart, payForRound } from '../src/armoury.ts';
 import type { Claim } from '../src/runs.ts';
@@ -98,6 +98,21 @@ describe('the armoury', () => {
     // the fee was more than the night paid: the bank is below zero, and nothing more is lent until it is paid
     expect(after.cash).toBeLessThan(0);
     expect((await t.post('/armoury/borrow', { item: 'vest' })).json().error).toMatch(/owe/);
+  });
+
+  it('unlocks a survivor, then their perk a level at a time; a loadout may only bring what is owned', async () => {
+    const t = await setup();
+    await t.store.ledger(t.id, 3000, 'grant', 'test');
+    expect((await t.post('/armoury/loadout', { ranked: { kit: [], ups: {}, survivor: 'zara' }, open: { kit: [], ups: {} } })).statusCode).toBe(400);
+    const u = await t.post('/armoury/buy', { item: 'sv.zara' });
+    expect(u.json().owned.ups['sv.zara']).toBe(1);
+    expect(u.json().cash).toBe(3000 - svPrice('zara', 1));
+    expect((await t.post('/armoury/buy', { item: 'sv.zara' })).json().owned.ups['sv.zara']).toBe(2); // perk level 1
+    expect((await t.post('/armoury/loadout', { ranked: { kit: [], ups: {}, survivor: 'zara', grit: 1 }, open: { kit: [], ups: {}, survivor: 'ama' } })).statusCode).toBe(200);
+    expect((await t.post('/armoury/loadout', { ranked: { kit: [], ups: {}, survivor: 'zara', grit: 2 }, open: { kit: [], ups: {} } })).statusCode).toBe(400);
+    // a free survivor's first purchase is their first perk level
+    expect((await t.post('/armoury/buy', { item: 'sv.ama' })).json().owned.ups['sv.ama']).toBe(2);
+    expect((await t.post('/armoury/buy', { item: 'sv.nobody' })).statusCode).toBe(400);
   });
 
   it('caps what a day can earn', async () => {

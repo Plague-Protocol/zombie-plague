@@ -444,6 +444,8 @@ export interface Arsenal {
   cans: number; // jerrycans of fuel
   /** Protective gear worn, as durability left (0 = not wearing it). */
   gear: Record<GearKind, number>;
+  /** The survivor's perk, if one is being played (from the armoury). */
+  perks?: import('./survivors').Perks;
 }
 
 /** A short job you stand still for: searching a house, talking to a survivor, refuelling a car, looking someone over. */

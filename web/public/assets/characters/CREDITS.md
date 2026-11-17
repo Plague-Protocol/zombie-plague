@@ -5,6 +5,10 @@ All CC0. Credit is not required but is given here.
 - **Body and skins:** "Animated Characters 3" by Kenney (https://www.kenney.nl), CC0
   (LICENSE-kenney-cc0.txt). Source: https://opengameart.org/content/animated-characters-3.
   The skins are the unmodified 256x256 PNGs from the pack.
+- **More survivor skins** (survivorMaleB, survivorFemaleA from "Animated Characters 1"; cyborgFemaleA, criminalMaleA,
+  skaterFemaleA, skaterMaleA from "Animated Characters 2"), by Kenney, CC0, unmodified. Sources:
+  https://opengameart.org/content/animated-characters-1 and https://opengameart.org/content/animated-characters-2.
+  The three packs share one body and UV layout, so any skin fits `character.glb`.
 - **Animations:** "Universal Animation Library" and "Universal Animation Library 2" (Standard)
   by Quaternius (https://quaternius.com), CC0 (LICENSE-quaternius-ual-cc0.txt). Sources:
   https://opengameart.org/content/universal-animation-library and

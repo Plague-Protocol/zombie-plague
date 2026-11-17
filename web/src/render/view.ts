@@ -3,7 +3,7 @@ import {
   Mesh, MeshBasicMaterial, MeshLambertMaterial, Object3D, PerspectiveCamera, PlaneGeometry, PointLight, RingGeometry, Scene, SpotLight,
   Vector3, WebGLRenderer, type Material,
 } from 'three';
-import { Actor, type CharacterAssets, type ClipName } from './characters';
+import { Actor, loadSkin, type CharacterAssets, type ClipName, type SkinName } from './characters';
 import { Crowd, MUT, type CrowdClip } from './crowd';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
@@ -208,6 +208,13 @@ export class GameView {
    * half the fill work of 2x for a small difference at arm's length), and how many of the infected
    * and the dead are drawn (the nearest; the rest are off at the edges anyway). `?dpr=` overrides.
    */
+  /** Who you are playing: the survivor's skin (fetched the first time it is worn), with its own copy to drain of colour. */
+  async setHeroSkin(skin: SkinName): Promise<void> {
+    await loadSkin(this.assets, skin);
+    this.player.setSkin(skin);
+    this.playerMat = this.player.ownMaterial();
+  }
+
   setQuality(level: number): void {
     const phone = window.matchMedia?.('(pointer: coarse)').matches;
     const cap = Number(params.get('dpr')) || [phone ? 1.5 : 2, 1.25, 1][level]!;

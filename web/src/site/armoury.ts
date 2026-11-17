@@ -4,6 +4,7 @@
 import {
   ALL_WEAPONS, DAILY_RATION, KIT, kitDef, loanFee, loadoutPoints, RANKED_POINTS, ROUND_PAY, STANDARD, UPGRADE_NAMES, upgradable, upgradePrice, weaponsOf,
   type KitId, type Loadout, type UpId,
+  MAX_GRIT, perkAt, ROSTER, SURVIVORS, svLevel, svPrice, type SurvivorId,
 } from '../../../core/armoury';
 import { UPGRADE_LEVELS, WEAPON_NAMES } from '../../../core/config';
 import type { WeaponKind } from '../../../core/types';
@@ -11,7 +12,7 @@ import { armoury, armouryPost, esc, fmt, type ArmouryView } from './kit';
 
 type Slot = 'ranked' | 'open';
 const GROUPS: Array<[string, string]> = [['weapon', 'Weapons'], ['gear', 'Gear'], ['supply', 'Supplies']];
-const clone = (l: Loadout): Loadout => ({ kit: [...l.kit], ups: { ...l.ups }, ...(l.hand ? { hand: l.hand } : {}) });
+const clone = (l: Loadout): Loadout => ({ ...l, kit: [...l.kit], ups: { ...l.ups } });
 
 export function mountArmoury(root: HTMLElement): void {
   let v: ArmouryView | null = null;
@@ -30,6 +31,8 @@ export function mountArmoury(root: HTMLElement): void {
     if (!v) return;
     const l = draft[slot], pts = loadoutPoints(l), over = slot === 'ranked' && pts > RANKED_POINTS;
     const avail = KIT.filter((k) => has(k.id));
+    const ids = Object.keys(SURVIVORS) as SurvivorId[];
+    const mine = ids.filter((id) => svLevel(v!.owned, id) > 0), who = l.survivor ?? 'sam', grit = l.grit ?? 0;
     const brings = weaponsOf(l);
     const upRows = brings.flatMap((w) => upgradable(w).map((u) => [w, u, v!.owned.ups[`${w}.${u}` as UpId] ?? 0] as const)).filter(([, , n]) => n > 0);
     root.innerHTML = `
@@ -49,6 +52,10 @@ export function mountArmoury(root: HTMLElement): void {
           <button type="button" data-a="slot:open" class="${slot === 'open' ? 'on' : ''}">Practice &middot; open</button>
         </div>
         <p class="muted" style="font-size:14px;margin:0 0 12px">${slot === 'ranked' ? `Tonight's city is ranked: everyone gets the same ${RANKED_POINTS} points to spend on what they own.` : 'Practice nights take whatever you own: no limit, and they pay half.'}</p>
+        <div class="ph">Survivor</div>
+        <div class="who">${mine.map((id) => `<button type="button" class="face${who === id ? ' on' : ''}" data-a="sv:${id}" title="${esc(ROSTER[id].perk)}"><img src="/survivors/${id}.webp" alt="" width="60" height="72" /><span>${SURVIVORS[id].name}</span></button>`).join('')}</div>
+        <label class="ups" style="margin:8px 0 14px">${SURVIVORS[who].name}'s perk<select data-a="grit">${Array.from({ length: svLevel(v.owned, who) }, (_, k) => `<option value="${k}"${grit === k ? ' selected' : ''}>${k ? `Level ${k}: ${perkAt(who, k)} (${k} pt${k > 1 ? 's' : ''})` : `Base: ${perkAt(who, 0)}`}</option>`).join('')}</select></label>
+        <div class="ph">Kit</div>
         <div class="pick">${[...STANDARD.map((w) => `<span class="chip2 on fixed">${WEAPON_NAMES[w]}</span>`), ...avail.map((k) => `<button type="button" class="chip2${l.kit.includes(k.id) ? ' on' : ''}" data-a="kit:${k.id}">${esc(k.name)} <i>${k.points}</i>${v!.owned.kit.includes(k.id) ? '' : ' <span class="tag">Borrowed</span>'}</button>`)].join('')}</div>
         ${avail.length ? '' : '<p class="muted" style="font-size:14px">You start with the pistol and baton. Buy or borrow kit below to bring more.</p>'}
         ${upRows.length ? `<div class="ph" style="margin-top:14px">Upgrades</div><div class="ups">${upRows.map(([w, u, n]) => `<label>${WEAPON_NAMES[w]} &middot; ${UPGRADE_NAMES[u]}<select data-a="up:${w}.${u}">${Array.from({ length: n + 1 }, (_, k) => `<option value="${k}"${(l.ups[`${w}.${u}` as UpId] ?? 0) === k ? ' selected' : ''}>${k ? `Level ${k} (${k} pt${k > 1 ? 's' : ''})` : 'Off'}</option>`).join('')}</select></label>`).join('')}</div>` : ''}
@@ -68,6 +75,16 @@ export function mountArmoury(root: HTMLElement): void {
       </div>
     </div>
     ${msg || err ? `<p class="${err ? 'err' : 'muted'}" style="margin:16px 0 0">${esc(err || msg)}</p>` : ''}
+
+    <div class="sec" style="margin-top:40px"><div class="kicker">Roster</div><h2 class="ph2">Survivors</h2><p class="sub">Who you play. Each has one perk that grows over three levels; a level brought into a ranked night costs a loadout point.</p>
+      <div class="grid roster">${ids.map((id) => {
+        const lv = svLevel(v!.owned, id), next = lv + 1, price = next <= MAX_GRIT + 1 ? svPrice(id, next) : 0;
+        return `<div class="card sv${lv ? ' own' : ''}"><img src="/survivors/${id}.webp" alt="" loading="lazy" width="150" height="180" /><div>
+          <div class="ph">${esc(ROSTER[id].role)}</div><h3>${SURVIVORS[id].name} ${lv ? `<span class="tag g">${lv > 1 ? `Perk ${lv - 1}` : 'Yours'}</span>` : ''}</h3>
+          <p>${esc(ROSTER[id].blurb)}</p><p style="margin-top:6px;color:#e8e0cc">${esc(ROSTER[id].perk)}: ${lv ? perkAt(id, lv - 1) : perkAt(id, 0)}${next <= MAX_GRIT + 1 && lv ? ` &rarr; ${perkAt(id, lv)}` : ''}</p>
+          <div class="buy">${next > MAX_GRIT + 1 ? '<span class="tag g">Max</span>' : `<button class="btn${lv ? ' ghost' : ''} sm" type="button" data-a="buy:sv.${id}"${v!.cash < price || busy ? ' disabled' : ''}>${lv ? `Perk ${lv}` : 'Unlock'} &middot; ${fmt(price)}</button>`}</div></div></div>`;
+      }).join('')}</div>
+    </div>
 
     ${GROUPS.map(([g, title]) => `<div class="sec" style="margin-top:40px"><div class="kicker">Shop</div><h2 class="ph2">${title}</h2><div class="grid">${KIT.filter((k) => k.group === g).map((k) => {
       const own = v!.owned.kit.includes(k.id), lent = borrowed().includes(k.id);
@@ -96,6 +113,11 @@ export function mountArmoury(root: HTMLElement): void {
     if (!b || b.tagName === 'SELECT' || !v) return;
     const [k, arg] = b.dataset.a!.split(':') as [string, string];
     if (k === 'slot') { slot = arg as Slot; draw(); }
+    else if (k === 'sv') {
+      const l = draft[slot], id = arg as SurvivorId;
+      if (id === 'sam') { delete l.survivor; delete l.grit; } else { l.survivor = id; l.grit = Math.min(l.grit ?? 0, svLevel(v.owned, id) - 1); if (!l.grit) delete l.grit; }
+      dirty = true; msg = ''; draw();
+    }
     else if (k === 'kit') {
       const l = draft[slot], id = arg as KitId;
       l.kit = l.kit.includes(id) ? l.kit.filter((x) => x !== id) : [...l.kit, id];
@@ -113,6 +135,7 @@ export function mountArmoury(root: HTMLElement): void {
     if (!a) return;
     const l = draft[slot];
     if (a === 'hand') { if (s.value === 'pistol') delete l.hand; else l.hand = s.value as WeaponKind; }
+    else if (a === 'grit') { const n = Number(s.value); if (n) { l.grit = n; l.survivor = l.survivor ?? 'sam'; } else { delete l.grit; if (l.survivor === 'sam') delete l.survivor; } }
     else if (a.startsWith('up:')) { const key = a.slice(3) as UpId, n = Number(s.value); if (n) l.ups[key] = n; else delete l.ups[key]; }
     dirty = true; msg = ''; draw();
   });

@@ -1,4 +1,4 @@
-import { HERO, RADIO, type Line } from '../../../core/story';
+import { hero, RADIO, type Line } from '../../../core/story';
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 const CHARS_PER_SEC = 70;
@@ -80,7 +80,7 @@ export class Talk {
       this.page = 'line';
       this.shown = 0;
       const radio = this.line.who === RADIO;
-      this.el.className = radio ? 'radio' : this.line.who === HERO ? 'hero' : 'other';
+      this.el.className = radio ? 'radio' : this.line.who === hero() ? 'hero' : 'other';
       this.who.textContent = radio ? 'Emergency radio' : this.line.who;
       this.render();
       return;

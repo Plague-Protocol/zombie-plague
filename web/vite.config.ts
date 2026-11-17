@@ -8,7 +8,7 @@ export default defineConfig({
     // stays in one 'game' file; only the pages it loads later (puzzle, store, full map, multiplayer) are split off.
     // The game's rules live in ../core (shared with the server); the parts only rooms use (view, codec, protocol) and the
     // armoury's catalogue (the site's Armoury page; the game takes only core/loadout.ts) stay out.
-    rolldownOptions: { output: { advancedChunks: { groups: [{ name: 'preload', test: /preload-helper|modulepreload-polyfill/, priority: 2 }, { name: 'game', test: /web\/src\/(?!ui\/(store|fullmap|puzzle|splash)|net\/|site\/|app\.ts)|^(?!.*node_modules).*\/core\/(?!view|codec|protocol|armoury)[^/]+$|node_modules\/three\// }] } } },
+    rolldownOptions: { output: { advancedChunks: { groups: [{ name: 'preload', test: /preload-helper|modulepreload-polyfill/, priority: 2 }, { name: 'game', test: /web\/src\/(?!ui\/(store|fullmap|puzzle|splash)|net\/|site\/|audio\/|app\.ts)|^(?!.*node_modules).*\/core\/(?!view|codec|protocol|armoury)[^/]+$|node_modules\/three\// }] } } },
   },
   server: { fs: { allow: ['..'] } }, // ../core is outside this folder
   test: { include: ['tests/**/*.test.ts'], setupFiles: ['tests/setup.ts'], testTimeout: 30000 },

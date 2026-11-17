@@ -186,7 +186,9 @@ html.ios-browser .ios-tip { display: block; }
 .prof { display: grid; gap: 22px; grid-template-columns: 340px 1fr; align-items: start; }
 @media (max-width: 860px) { .prof { grid-template-columns: 1fr; } }
 .pcard { position: relative; border: 1px solid rgba(107,142,35,.25); border-top: 3px solid #84cc16; border-radius: 14px; overflow: hidden;
-  background: linear-gradient(180deg, rgba(6,11,6,.2), #060b06 75%), url(/intro/bg-zombie-portrait.webp) center top / cover; padding: 150px 18px 18px; }
+  background: linear-gradient(180deg, rgba(6,11,6,0) 35%, #060b06 80%), url(/survivors/sam.webp); background-repeat: no-repeat; background-position: center top;
+  background-size: auto, auto 230px; background-color: #0a100a; padding: 200px 18px 18px; }
+.pcard[style] { background-size: auto, auto, auto 230px; }
 .pcard h2 { margin: 0; font: 400 30px 'Eater', system-ui, sans-serif; color: #e8e0cc; word-break: break-word; }
 .pcard .addr { font: 17px 'VT323', monospace; color: #8fa785; letter-spacing: .06em; word-break: break-all; }
 .pcard form { display: flex; gap: 6px; margin-top: 10px; }
@@ -258,3 +260,14 @@ ol.steps { margin: 0; padding-left: 1.3em; color: #a0bb94; } ol.steps li { margi
 .pips em { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-left: 4px; border: 1px solid #84cc16; }
 .pips em.on { background: #84cc16; }
 @media (max-width: 760px) { .tabs a { font-size: 13px; letter-spacing: .04em; } }
+
+.who { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+.face { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 4px 6px; border-radius: 10px; cursor: pointer;
+  background: #0a100a; border: 1px solid rgba(107,142,35,.25); color: #a0bb94; font: 15px 'VT323', monospace; letter-spacing: .1em; }
+.face img { width: 60px; height: 72px; object-fit: cover; }
+.face.on { border-color: #84cc16; background: rgba(132,204,22,.12); color: #e8e0cc; }
+.roster .sv { display: grid; grid-template-columns: 110px 1fr; gap: 12px; align-items: start; padding: 12px 14px 14px 6px;
+  background: radial-gradient(ellipse at 15% 40%, rgba(132,204,22,.1), transparent 55%), linear-gradient(180deg, #0d150d, #080d08); }
+.roster .sv img { width: 110px; height: 132px; object-fit: cover; }
+.roster .sv.own { border-color: rgba(132,204,22,.35); }
+.roster .sv .buy { margin-top: 10px; }

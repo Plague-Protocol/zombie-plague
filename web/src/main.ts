@@ -5,11 +5,13 @@ import {
 import { command, quantize, Recorder, STEP, type Command } from '../../core/replay';
 import type { Driver, Host } from './net/room';
 import {
-  briefFor, chapterCard, chapterLines, doneFor, escortBehind, exitLabel, exitLocked, exitOpen, HERO, hint, intro, lockedTask, objectiveFor,
+  briefFor, chapterCard, chapterLines, doneFor, escortBehind, exitLabel, exitLocked, exitOpen, hero, hint, intro, setHero, lockedTask, objectiveFor,
   paLine, partsReady, shortName, survivorLines, tierLines, vehicleLines, type Line,
 } from '../../core/story';
 import type { GameEvent, Husk, Task, TaskId } from '../../core/types';
 import type { Loadout } from '../../core/loadout';
+import { SURVIVORS } from '../../core/survivors';
+import type { SkinName } from './render/characters';
 import { chapterInfo, content, setChapter, setContent, stepDef, type Content } from '../../core/content';
 import { GameView } from './render/view';
 import { loadCharacterAssets } from './render/characters';
@@ -18,7 +20,7 @@ import { Controls } from './input/controls';
 import { Hud } from './ui/hud';
 import { Dialogue } from './ui/dialogue';
 import { Talk, type NextUp } from './ui/talk';
-import { Sound } from './audio/sound';
+import type { Sound } from './audio/sound';
 import { CityMap } from './ui/map';
 import { GEAR, WEAPON_NAMES } from '../../core/config';
 import type { StorePage } from './ui/store';
@@ -44,6 +46,12 @@ let tonight: number | null = null;
 /** The server answered: sign-in is possible, so the guest allowance applies. Offline, the game is simply free to play. */
 let serverUp = false;
 const nightSeed = () => tonight ?? newSeed();
+/** Be the survivor a loadout names (Sam if none): their skin, and their name in every line. */
+function wear(l: Loadout | undefined): void {
+  const sv = SURVIVORS[l?.survivor ?? 'sam'];
+  setHero(sv.name);
+  void view.setHeroSkin(sv.skin as SkinName);
+}
 /** What the player chose in the armoury for this night (signed in only): the ranked loadout for tonight's city, the open one
  * for any other. The site keeps the server's copy on this device. Nothing chosen is the standard kit. */
 function loadoutFor(night: number): Loadout | undefined {
@@ -52,7 +60,7 @@ function loadoutFor(night: number): Loadout | undefined {
     const a = JSON.parse(localStorage.getItem('zp.armoury') ?? 'null') as { address: string; loadouts: { ranked: Loadout; open: Loadout } } | null;
     if (!me || !a || a.address !== me.address) return undefined;
     const l = night === tonight ? a.loadouts.ranked : a.loadouts.open;
-    return l.kit.length || l.hand || Object.values(l.ups).some(Boolean) ? l : undefined;
+    return l.kit.length || l.hand || l.survivor || Object.values(l.ups).some(Boolean) ? l : undefined;
   } catch { return undefined; }
 }
 // the task content (what each step is, says and looks like) comes as data, before the first night
@@ -120,10 +128,14 @@ function once(key: string, blocking = false): void {
   if (blocking) convo.push(...hint(key)); else dialogue.say(hint(key));
 }
 let paT = 25, paN = 0; // the quarantine loudspeakers: when the next announcement is, and which
-const sound = new Sound();
+// The sound engine is its own chunk, fetched as soon as the game is (nothing makes a sound before a night starts):
+// until it is in, a tap's wish to start or mute it is remembered and carried out when it arrives.
+let sound: Sound | null = null, soundOn = false, soundMuted = false;
+void import('./audio/sound').then((m) => { sound = new m.Sound(); if (soundMuted) sound.setMuted(true); if (soundOn) sound.start(); });
+const startSound = () => { soundOn = true; sound?.start(); };
 const hud = new Hud({
   retry: () => begin(fresh((husk) => restartChapter(state, husk), state.chapter, rec.loadout), false),
-  newNight: () => { const n = nightSeed(), l = loadoutFor(n); begin(fresh((husk) => createGame(n, undefined, { husk, loadout: l }), 0, l), false); },
+  newNight: () => { const n = nightSeed(), l = loadoutFor(n); wear(l); begin(fresh((husk) => createGame(n, undefined, { husk, loadout: l }), 0, l), false); },
 });
 view.cinematic = 0;
 let paused = false; // store or full map open
@@ -148,8 +160,9 @@ const storeOpen = () => storePage?.open ?? false;
 const cityMap = new CityMap((open) => { paused = open || storeOpen(); controls.enabled = !paused; });
 
 $('mute').addEventListener('click', () => {
-  sound.setMuted(!sound.muted);
-  $('mute').textContent = `Sound: ${sound.muted ? 'off' : 'on'}`;
+  soundMuted = !soundMuted;
+  sound?.setMuted(soundMuted);
+  $('mute').textContent = `Sound: ${soundMuted ? 'off' : 'on'}`;
 });
 // Frame rate: 30 a second on phones (half the drawing, and plenty for this game), 60 on a computer.
 // Nothing to set: `?fps=30|60` overrides, for testing.
@@ -183,18 +196,18 @@ const roomHost: Host = {
   toast: (t) => hud.toast(t),
   enter(shadow, driver) {
     state = shadow; roomDriver = driver; mode = 'room';
-    playing();
+    playing(); wear(undefined); // rooms play the classic hero for now
     hud.reset(); setChapter(0); paused = false; controls.enabled = true; hud.cinema(false); convo.length = 0;
   },
   refreshStore: () => storePage?.refresh(),
 };
 /** The multiplayer lobby, over the site (it reads fine upright): straight into quick play or a new room if asked, or a room by its code. */
 export function openRooms(opts: { join?: string; act?: 'quick' | 'create' } = {}): void {
-  sound.start();
+  startSound();
   void import('./net/room').then((m) => m.openLobby(roomHost, opts));
 }
 // an invite link (?join=CODE, or ?staked=USDT:5 for a staked room) opens the lobby straight away
-if (params.has('join') || params.has('staked')) void import('./net/room').then((m) => { document.addEventListener('pointerdown', () => sound.start(), { once: true }); m.openLobby(roomHost, { join: params.get('join') ?? undefined, staked: params.get('staked') ?? undefined }); });
+if (params.has('join') || params.has('staked')) void import('./net/room').then((m) => { document.addEventListener('pointerdown', startSound, { once: true }); m.openLobby(roomHost, { join: params.get('join') ?? undefined, staked: params.get('staked') ?? undefined }); });
 // signed in on this device: ask the server where your last selves are waiting
 if (localStorage.getItem('zp.account')) void import('./net/account').then(async (m) => { for (let c = 0; c < 3; c++) serverSelves.set(c, await m.lastSelfFromServer(c)); });
 // Phones play in landscape. Where the browser allows it (Android, from a tap), go full screen and
@@ -220,10 +233,11 @@ document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.prev
  * the same for everyone and on the board; or, for practice, a city nobody else has. */
 export function playSolo(practice = false): void {
   void goLandscape();
-  sound.start();
+  startSound();
   playing();
   // tonight's city (once the server has said which it is) with the ranked loadout; a practice night with the open one
   const seed = practice || tonight === null ? newSeed() : tonight, l = loadoutFor(seed);
+  wear(l);
   begin(fresh((husk) => createGame(seed, undefined, { husk, loadout: l }), 0, l), !params.has('skipintro'));
 }
 void import('./net/account').then((m) => m.tonight(content().version)).then((r) => { serverUp = r !== null; if (!params.has('seed')) tonight = r?.night ?? null; });
@@ -389,7 +403,7 @@ function narrate(events: readonly GameEvent[]): void {
         else if (!told.has('own-cough')) { told.add('own-cough'); hud.toast('You cough. Anything close heard that.'); }
         break;
       case 'checked': hud.toast(e.bitten ? `${e.name} is bitten. Leave them here (LEAVE), or they turn beside you.` : `${e.name} is clean.`); if (e.bitten) view.shake(0.3); break;
-      case 'left-behind': dialogue.say([{ who: e.name, text: 'Please. Not here. Don\'t leave me here.' }, { who: HERO, text: 'I\'m sorry.' }]); break;
+      case 'left-behind': dialogue.say([{ who: e.name, text: 'Please. Not here. Don\'t leave me here.' }, { who: hero(), text: 'I\'m sorry.' }]); break;
       case 'escort-turned':
         if (e.where === 'street') { hud.toast(`${e.name} has turned! Put them down before they reach the others.`); view.shake(0.8); }
         else if (e.where === 'left') hud.toast(`Somewhere behind you, ${e.name} has turned.`);
@@ -515,7 +529,7 @@ function frame(now: number): void {
     guestTick(dt);
     narrate(pending);
     paT -= dt;
-    if (paT <= 0 && state.phase === 'playing') { paT = 55 + Math.random() * 35; sound.pa(); dialogue.say(paLine(paN++)); }
+    if (paT <= 0 && state.phase === 'playing') { paT = 55 + Math.random() * 35; sound?.pa(); dialogue.say(paLine(paN++)); }
     if (state.phase !== 'playing' && endTimer < 0) {
       // let the moment play out before the ending card
       // won and cleared play out a scene first: met and checked by the soldiers, aboard, lifting off;
@@ -546,7 +560,7 @@ function frame(now: number): void {
   dialogue.update(dt);
   talk.update(dt);
   hud.update(state, view);
-  sound.update(state, pending, dt, (x, y) => view.screenX({ x, y }));
+  sound?.update(state, pending, dt, (x, y) => view.screenX({ x, y }));
   view.react(state, pending);
   pending.length = 0;
   if ((mode === 'play' || mode === 'room') && (still || miniTick++ % 3 === 0)) cityMap.drawMini(state);

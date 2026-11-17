@@ -5,8 +5,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
-  DAILY_CAP, DAILY_RATION, earnedFor, EMPTY_LOADOUT, KIT, kitDef, loadoutProblem, loanFee, ROUND_PAY, upgradable, upgradePrice,
-  type KitId, type Loadout, type UpId,
+  DAILY_CAP, DAILY_RATION, earnedFor, EMPTY_LOADOUT, KIT, kitDef, loadoutProblem, loanFee, MAX_GRIT, ROUND_PAY, SURVIVORS, svLevel, svPrice,
+  upgradable, upgradePrice, type KitId, type Loadout, type SurvivorId, type UpId,
 } from '../../core/armoury.ts';
 import { UPGRADE_LEVELS } from '../../core/config.ts';
 import type { WeaponKind, UpgradeKind } from '../../core/types.ts';
@@ -72,7 +72,10 @@ const loadoutSchema = z.object({
   kit: z.array(kitId).max(KIT.length),
   ups: z.record(upId, z.number().int().min(0).max(UPGRADE_LEVELS)),
   hand: z.enum(['pistol', 'shotgun', 'rifle', 'baton', 'bat', 'machete']).optional(),
+  survivor: z.enum(Object.keys(SURVIVORS) as [SurvivorId, ...SurvivorId[]]).optional(),
+  grit: z.number().int().min(0).max(MAX_GRIT).optional(),
 });
+const svId = z.string().regex(new RegExp(`^sv\\.(${Object.keys(SURVIVORS).join('|')})$`));
 
 export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: Auth; now?: () => Date }): void {
   const now = d.now ?? (() => new Date());
@@ -94,11 +97,16 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
   app.post('/armoury/buy', async (req, reply) => {
     const id = await who(req);
     if (!id) return reply.code(401).send({ error: 'sign in' });
-    const body = z.object({ item: z.union([kitId, upId]) }).safeParse(req.body);
+    const body = z.object({ item: z.union([kitId, upId, svId]) }).safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: 'unknown item' });
     const item = body.data.item, bank = await d.store.bank(id);
     let level = 1, price: number;
-    if (item.includes('.')) {
+    if (item.startsWith('sv.')) { // a survivor: unlock, then each perk level
+      const sv = item.slice(3) as SurvivorId;
+      level = svLevel(bank.owned, sv) + 1;
+      if (level > MAX_GRIT + 1) return reply.code(409).send({ error: 'already at the top level' });
+      price = svPrice(sv, level);
+    } else if (item.includes('.')) {
       const [w, u] = item.split('.') as [WeaponKind, UpgradeKind];
       if (!upgradable(w).includes(u)) return reply.code(400).send({ error: 'that weapon does not take that upgrade' });
       level = (bank.owned.ups[item as UpId] ?? 0) + 1;

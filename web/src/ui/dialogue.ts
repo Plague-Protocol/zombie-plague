@@ -1,4 +1,4 @@
-import { HERO, RADIO, type Line } from '../../../core/story';
+import { RADIO, type Line } from '../../../core/story';
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 const CHARS_PER_SEC = 55;
@@ -90,7 +90,7 @@ export class Dialogue {
     this.hold = Math.max(1.8, this.line.text.split(' ').length * 0.28) + (this.cutscene ? 1.2 : 0);
     const kind = this.line.who === RADIO || this.line.who === 'Clinic' ? 'radio' : this.line.who === 'Narrator' ? 'narr' : '';
     this.who.className = `who ${kind}`;
-    this.who.textContent = this.line.who === 'Narrator' ? '' : this.line.who === HERO ? HERO : this.line.who;
+    this.who.textContent = this.line.who === 'Narrator' ? '' : this.line.who;
     this.text.className = `text ${kind}`;
     this.box.classList.add('on');
     this.render();

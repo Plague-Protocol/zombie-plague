@@ -8,6 +8,9 @@
 import { GUNS, UPGRADE_LEVELS, GEAR } from './config';
 import type { UpgradeKind, WeaponKind } from './types';
 import { isWeapon, weaponsOf, type KitId, type Loadout, type UpId } from './loadout';
+import { isSurvivor, MAX_GRIT, SURVIVORS, type SurvivorId } from './survivors';
+
+export { MAX_GRIT, SURVIVORS, type SurvivorId } from './survivors';
 
 export { applyLoadout, ALL_WEAPONS, STANDARD, weaponsOf, type KitId, type Loadout, type UpId } from './loadout';
 
@@ -39,13 +42,39 @@ export const RANKED_POINTS = 8;
 export const EMPTY_LOADOUT: Loadout = { kit: [], ups: {} };
 
 /** What an account owns: kit by id, upgrades by level. */
-export interface Owned { kit: KitId[]; ups: Partial<Record<UpId, number>> }
+export interface Owned { kit: KitId[]; ups: Partial<Record<UpId | SvId, number>> }
+/** A survivor owned, kept with the upgrades: the level is 1 + the perk level owned (1 = unlocked, perk at 0). */
+export type SvId = `sv.${SurvivorId}`;
+
+/** The roster as the shop shows it. Sam and Ama come free. */
+export const ROSTER: Record<SurvivorId, { price: number; role: string; blurb: string; perk: string }> = {
+  sam: { price: 0, role: 'The night porter', blurb: 'Bitten on the clinic stairs. Knows the doses are in the fridge.', perk: 'Reloads faster' },
+  ama: { price: 0, role: 'The nurse', blurb: 'Knows where people hide what matters.', perk: 'Searches houses faster' },
+  kola: { price: 700, role: 'The dock worker', blurb: 'Thick-skinned in every sense.', perk: 'A bite costs less of the clock' },
+  zara: { price: 700, role: 'The courier', blurb: 'Ten years of red lights and back alleys.', perk: 'Moves faster' },
+  rook: { price: 1000, role: 'The fence', blurb: 'Never fired a shot anyone heard.', perk: 'Quieter gunfire' },
+  vex: { price: 1000, role: 'The mechanic', blurb: 'Half the arm is hers. The other half is steel.', perk: 'Harder melee hits' },
+  tayo: { price: 500, role: 'The street seller', blurb: 'Always has a little put away.', perk: 'Starts with more money' },
+  mimi: { price: 500, role: 'The skater', blurb: 'Can land a bottle in a bin from forty metres.', perk: 'Starts with more bottles' },
+};
+const PERK_WORDS: Record<string, string> = { reload: 'faster reloads', search: 'faster searching', bite: 'less lost to a bite', speed: 'faster on foot', quiet: 'quieter shots', melee: 'more melee damage' };
+/** What a survivor's perk does at a level, in words. */
+export function perkAt(id: SurvivorId, level: number): string {
+  const sv = SURVIVORS[id], v = sv.at[level]!;
+  if (sv.perk === 'funds') return '+$' + v + ' at the start';
+  if (sv.perk === 'bottles') return '+' + v + (v === 1 ? ' bottle' : ' bottles');
+  return v ? Math.round(v * 100) + '% ' + PERK_WORDS[sv.perk] : 'no perk yet';
+}
+/** A survivor's owned level (1 + perk level; 0 = not owned). Sam and Ama are everyone's. */
+export const svLevel = (owned: Owned, id: SurvivorId): number => Math.max(owned.ups[('sv.' + id) as SvId] ?? 0, ROSTER[id].price === 0 ? 1 : 0);
+/** The price of the next step for a survivor: unlocking, then each perk level. */
+export const svPrice = (id: SurvivorId, nextLevel: number): number => (nextLevel === 1 ? ROSTER[id].price : 400 * (nextLevel - 1));
 
 export function loadoutPoints(l: Loadout): number {
   let p = 0;
   for (const id of l.kit) p += kitDef(id).points;
   for (const n of Object.values(l.ups)) p += (n ?? 0) * UPGRADE_POINTS;
-  return p;
+  return p + (l.grit ?? 0); // a point per perk level
 }
 
 const KIT_IDS = new Set(KIT.map((k) => k.id));
@@ -72,6 +101,12 @@ export function loadoutProblem(l: unknown, owned: Owned, ranked: boolean, borrow
     if (n! > 0 && !brings.includes(w)) return `an upgrade for a ${w} you are not bringing`;
   }
   if (x.hand !== undefined && !brings.includes(x.hand)) return 'the weapon in hand is not one you are bringing';
+  if (x.survivor !== undefined || x.grit !== undefined) {
+    if (!isSurvivor(x.survivor)) return 'unknown survivor';
+    const g = x.grit ?? 0;
+    if (!Number.isInteger(g) || g < 0 || g > MAX_GRIT) return 'bad perk level';
+    if (svLevel(owned, x.survivor) < 1 + g) return SURVIVORS[x.survivor].name + (g ? ' at perk level ' + g : '') + ' is not yours';
+  }
   if (ranked && loadoutPoints(x) > RANKED_POINTS) return `over the ranked budget (${loadoutPoints(x)} of ${RANKED_POINTS} points)`;
   return null;
 }
