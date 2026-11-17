@@ -1,0 +1,41 @@
+# The server and its database. Every variable the server reads is named here on purpose: a variable that is
+# only in .env and not listed under `environment:` is silently ignored (plague-celo lost time to exactly that).
+# Run from the repository root:  docker compose -f server/docker-compose.yml --env-file server/.env up --build
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: outbreak
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: outbreak
+    volumes:
+      - outbreak_pg:/var/lib/postgresql/data
+    restart: unless-stopped
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    depends_on: [postgres]
+    environment:
+      PORT: 8787
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?set ALLOWED_ORIGINS}
+      DATABASE_URL: postgres://outbreak:${POSTGRES_PASSWORD}@postgres:5432/outbreak
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      CONTENT_DIR: /app/content
+      CELO_RPC: ${CELO_RPC:-}
+      CHAIN_ID: ${CHAIN_ID:-42220}
+      # Staked rooms: off unless STAKED=true (then ROOMS_ADDRESS, BACKEND_KEY and CELO_RPC are required).
+      STAKED: ${STAKED:-false}
+      STAKE_STACKS: ${STAKE_STACKS:-}
+      ADMIN_ADDRESSES: ${ADMIN_ADDRESSES:-}
+      ROOMS_ADDRESS: ${ROOMS_ADDRESS:-}
+      BACKEND_KEY: ${BACKEND_KEY:-}
+      STAKED_MIN_ACCOUNT_HOURS: ${STAKED_MIN_ACCOUNT_HOURS:-24}
+      STAKED_MIN_OK_RUNS: ${STAKED_MIN_OK_RUNS:-3}
+    ports:
+      - "8787:8787"
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+volumes:
+  outbreak_pg:

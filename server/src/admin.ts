@@ -1,0 +1,91 @@
+// The admin page's API. Who is an admin: a signed-in account (wallet-signed, see auth.ts) whose address is in
+// ADMIN_ADDRESSES, or holds the admin role on any stake contract. Reads are cheap; the two actions are the ones an
+// operator needs when something sticks (a room, a settlement). Pausing a contract and taking fees out are NOT here:
+// those are on-chain admin acts, sent from the admin's own wallet straight to the contracts.
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
+import type { Auth } from './auth.ts';
+import type { Chain } from './chain.ts';
+import type { Hub } from './rooms.ts';
+import type { Staked } from './staked.ts';
+import type { Store } from './store.ts';
+
+export interface AdminDeps {
+  store: Store;
+  auth: Auth;
+  hub: Hub;
+  staked?: Staked;
+  chains: Record<string, Chain>;
+  /** Lower-case addresses always let in (works without any contract). */
+  admins: string[];
+  startedAt: number;
+  db: 'postgres' | 'memory';
+  content: () => number;
+}
+
+export function registerAdmin(app: FastifyInstance, d: AdminDeps): void {
+  const cache = new Map<string, { ok: boolean; at: number }>();
+  /** The asking account's address if it is an admin, else null. On-chain answers are kept a minute. */
+  async function admin(req: FastifyRequest): Promise<string | null> {
+    const id = await d.auth.accountOf(req.headers.authorization?.replace(/^Bearer /, ''));
+    const acc = id ? await d.store.accountById(id) : null;
+    if (!acc) return null;
+    if (d.admins.includes(acc.address)) return acc.address;
+    const hit = cache.get(acc.address);
+    if (hit && Date.now() - hit.at < 60_000) return hit.ok ? acc.address : null;
+    let ok = false;
+    for (const c of Object.values(d.chains)) { try { if (await c.isAdmin(acc.address)) { ok = true; break; } } catch { /* chain down: not proven */ } }
+    cache.set(acc.address, { ok, at: Date.now() });
+    return ok ? acc.address : null;
+  }
+  const big = (v: bigint) => v.toString();
+
+  app.get('/admin/overview', async (req, reply) => {
+    const who = await admin(req);
+    if (!who) return reply.code(403).send({ error: 'not_admin' });
+    const rooms = [...d.hub.rooms.values()];
+    const stacks = await Promise.all(Object.entries(d.chains).map(async ([symbol, c]) => {
+      try {
+        const [st, gas] = await Promise.all([c.status(), c.gas()]);
+        return { symbol, rooms: st.rooms, paused: st.paused, feeManager: st.feeManager, fees: big(st.fees), held: big(st.held), roomCount: big(st.roomCount), gas: big(gas) };
+      } catch (e) { return { symbol, error: String((e as Error).message ?? e).slice(0, 200) }; }
+    }));
+    return {
+      you: who,
+      server: { uptimeS: Math.round((Date.now() - d.startedAt) / 1000), rssMb: Math.round(process.memoryUsage().rss / 1048576), db: d.db, content: d.content(), node: process.version },
+      players: await d.store.adminCounts(),
+      rooms: rooms.map((r) => ({
+        code: r.code, state: r.state, seats: r.seats.length, connected: r.live, stack: r.staked?.stack ?? null, onChain: r.staked?.roomId ?? null,
+        elapsedS: r.game ? Math.round(r.game.elapsed) : 0,
+      })),
+      stacks,
+      settlements: await d.store.settlementsAll(50),
+      suspicious: await d.store.failedAccounts(7, 20),
+    };
+  });
+
+  // A room that is stuck (nobody left in it, a round that will not end): close it. Everyone in it is told.
+  app.post('/admin/rooms/:code/close', async (req, reply) => {
+    if (!(await admin(req))) return reply.code(403).send({ error: 'not_admin' });
+    const code = String((req.params as { code: string }).code);
+    const room = d.hub.rooms.get(code) ?? d.hub.rooms.get(code.toUpperCase());
+    if (!room) return reply.code(404).send({ error: 'no_room' });
+    for (const s of room.seats) s.conn?.send({ t: 'err', code: 'no-room' });
+    d.hub.remove(room);
+    return { closed: room.code, note: room.staked ? 'A staked room that started is not settled by closing it: its players can reclaim after the window, or retry its settlement once it is recorded.' : undefined };
+  });
+
+  // Try a settlement again (one that failed, or is stuck as sent). The contract refuses a room already settled.
+  app.post('/admin/settlements/:ref/retry', async (req, reply) => {
+    if (!(await admin(req))) return reply.code(403).send({ error: 'not_admin' });
+    if (!d.staked) return reply.code(409).send({ error: 'staked_off' });
+    const ref = z.string().regex(/^[A-Za-z0-9]{1,8}:\d{1,18}$/).safeParse((req.params as { ref: string }).ref);
+    if (!ref.success) return reply.code(400).send({ error: 'bad_ref' });
+    const s = await d.store.settlement(ref.data);
+    if (!s) return reply.code(404).send({ error: 'no_settlement' });
+    if (s.status === 'done') return { status: 'done', tx: s.tx };
+    await d.store.updateSettlement(ref.data, { status: 'sent', error: null });
+    await d.staked.pay(ref.data);
+    return await d.store.settlement(ref.data);
+  });
+}
