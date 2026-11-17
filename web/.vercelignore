@@ -1,0 +1,7 @@
+# Never upload these to Vercel (the CLI does not rely on .gitignore)
+.env
+.env.*
+node_modules/
+dist/
+.vite/
+.DS_Store
