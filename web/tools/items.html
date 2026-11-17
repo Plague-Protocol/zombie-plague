@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- An armoury item's picture: the game's own mesh for it, framed and lit. Open with `npm run dev` at
+     /tools/items.html?item=shotgun and screenshot the canvas (public/armoury/*.webp were made this way). -->
+<html><head><meta charset="utf-8"><title>Armoury item</title>
+<style>html,body{margin:0;width:640px;height:400px;overflow:hidden;background:transparent}canvas{display:block}</style></head>
+<body><script type="module">
+import { AmbientLight, Box3, BoxGeometry, DirectionalLight, Group, Mesh, MeshLambertMaterial, PerspectiveCamera, PointLight, Scene, Sprite, SRGBColorSpace, Vector3, WebGLRenderer } from 'three';
+import { loadModels } from '/src/render/models.ts';
+import { gearMesh, pickupMesh, weaponMesh } from '/src/render/props.ts';
+
+const item = new URLSearchParams(location.search).get('item') || 'shotgun';
+await loadModels();
+const obj = new Group();
+if (['pistol', 'shotgun', 'rifle', 'baton', 'bat', 'machete'].includes(item)) {
+  const m = weaponMesh(item);
+  m.rotation.set(0, -0.35, 0.12); // side on, turned a little toward you
+  obj.add(m);
+} else if (item === 'vest' || item === 'helmet') {
+  const m = gearMesh(item);
+  m.rotation.y = item === 'vest' ? 0.5 : -0.6;
+  obj.add(m);
+} else if (item === 'ammo' || item === 'bottles') {
+  const p = pickupMesh(item, 0.5);
+  const glints = []; p.traverse((o) => { if (o instanceof Sprite) glints.push(o); });
+  for (const g of glints) g.removeFromParent(); // no glint (and it must not count when framing)
+  obj.add(p);
+} else if (item === 'cash') { // a few bundles of banknotes, banded
+  const note = new MeshLambertMaterial({ color: 0x7fa65a }), band = new MeshLambertMaterial({ color: 0xe8dcc0 });
+  [[0, 0, 0, 0.1], [0.05, 0.09, 0.04, -0.15], [-0.04, 0.18, -0.02, 0.35]].forEach(([x, y, z, r]) => {
+    const b = new Group();
+    b.add(new Mesh(new BoxGeometry(0.62, 0.09, 0.3), note), new Mesh(new BoxGeometry(0.1, 0.095, 0.305), band));
+    b.position.set(x, y, z); b.rotation.y = r; obj.add(b);
+  });
+}
+const scene = new Scene();
+scene.add(new AmbientLight(0xffffff, 1.5));
+const key = new DirectionalLight(0xfff0d8, 2.4); key.position.set(-2, 5, 6); scene.add(key);
+const rim = new DirectionalLight(0xff5a4a, 1.0); rim.position.set(4, 2, -5); scene.add(rim);
+const fill = new PointLight(0x84cc16, 3, 10); fill.position.set(2, -1, 3); scene.add(fill);
+scene.add(obj);
+// frame it: centre the item, and back the camera off until it fills about two thirds of the frame
+const box = new Box3().setFromObject(obj), size = box.getSize(new Vector3()), mid = box.getCenter(new Vector3());
+obj.position.sub(mid);
+const cam = new PerspectiveCamera(30, 640 / 400, 0.01, 100);
+const span = Math.max(size.x / (640 / 400), size.y, size.z * 0.6);
+const d = (span / 0.66) / (2 * Math.tan((30 * Math.PI) / 360));
+cam.position.set(d * 0.18, d * 0.42, d); cam.lookAt(0, 0, 0);
+const r = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+r.setSize(640, 400); r.outputColorSpace = SRGBColorSpace;
+document.body.appendChild(r.domElement);
+r.render(scene, cam);
+window.__ready = true;
+</script></body></html>

@@ -62,27 +62,27 @@ export const home: Page = {
       <a class="tile" href="/profile"><span class="ico b">${ICON.user}</span><h3>Profile</h3><p>${me ? 'Your name, your standing, your last nights' : 'Sign in to keep a record'}</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/how-to-play"><span class="ico g">${ICON.book}</span><h3>How to play</h3><p>The night &middot; The controls &middot; Scoring &middot; Questions</p><span class="go">${ICON.chev}</span></a>
     </div>
-    <div class="split sec">
-      <div>
-        <div class="kicker">How a night goes</div>
-        <h2 class="ph2">Three districts. One clock.</h2>
-        <p class="sub">Every chapter is a district with jobs to do before the way out opens. Leave one with time to spare and it pays, in cash for the stores ahead.</p>
-        <div class="grid">${DISTRICTS}</div>
+    <div class="sec">
+      <div class="kicker">How a night goes</div>
+      <h2 class="ph2">Three districts. One clock.</h2>
+      <p class="sub">Every chapter is a district with jobs to do before the way out opens. Leave one with time to spare and it pays, in cash for the stores ahead.</p>
+      <div class="grid districts">${DISTRICTS}</div>
+    </div>
+    <div class="split sec" style="align-items:stretch">
+      <div class="card" style="display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));align-items:center">
+        <div>
+          <div class="kicker">Multiplayer</div>
+          <h2 class="ph2">Not everyone gets out</h2>
+          <p class="sub" style="margin-bottom:16px">The same streets with up to seven others in them, and one exit with seats for half of you. The server runs the round, so what happens is what happened.</p>
+          <a class="btn red" href="/play">Find a room</a>
+        </div>
+        <img src="/intro/bg-zombie-portrait.webp" alt="" loading="lazy" style="width:100%;border-radius:12px;aspect-ratio:4/3;object-fit:cover;filter:saturate(.8) brightness(.8)" />
       </div>
       <div class="panel">
         <h3>Top of tonight</h3>
         <ol id="top5"><li class="msg">Loading the board&hellip;</li></ol>
         <a class="btn ghost sm" href="/ranks">All rankings</a>
       </div>
-    </div>
-    <div class="sec card" style="display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));align-items:center">
-      <div>
-        <div class="kicker">Multiplayer</div>
-        <h2 class="ph2">Not everyone gets out</h2>
-        <p class="sub" style="margin-bottom:16px">The same streets with up to seven others in them, and one exit with seats for half of you. The server runs the round, so what happens is what happened.</p>
-        <a class="btn red" href="/play">Find a room</a>
-      </div>
-      <img src="/intro/bg-zombie-portrait.webp" alt="" loading="lazy" style="width:100%;border-radius:12px;aspect-ratio:16/10;object-fit:cover;filter:saturate(.8) brightness(.8)" />
     </div>
   </div>`;
   },
