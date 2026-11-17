@@ -1,4 +1,6 @@
-// Zombie Plague's sound, synthesised in code (no audio files), in the spirit of Eko Lockdown's Sounds.cs.
+// Zombie Plague's sound. The voices of the dead and the living, guns, flesh and feet are real recordings
+// (public/sfx, CC0 and CC-BY: see public/sfx/CREDITS.md), fetched in the background after the first tap; until
+// they arrive, and for everything else, the sound is synthesised in code in the spirit of Eko Lockdown's Sounds.cs.
 // Wind and a low drone under everything, distant sirens, zombie groans placed in stereo, a scream
 // when one lunges, footsteps paced to the player's speed, a heartbeat when time or distance is short,
 // and stingers. Starts on the first tap (browsers require a user gesture).
@@ -25,6 +27,9 @@ export class Sound {
   private t = 0;
   private engine: { osc: OscillatorNode; osc2: OscillatorNode; gain: GainNode; lp: BiquadFilterNode } | null = null;
   muted = false;
+  /** Recorded takes by bank (groan, shriek, pistol...), filled in as they decode. */
+  private bank = new Map<string, AudioBuffer[]>();
+  private lastTake = new Map<string, number>();
 
   /** Call from a user gesture. Safe to call more than once. */
   start(): void {
@@ -53,10 +58,51 @@ export class Sound {
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
 
     this.ambience();
+    void this.loadSamples();
     document.addEventListener('visibilitychange', () => {
       if (!this.ctx) return;
       if (document.hidden) void this.ctx.suspend(); else void this.ctx.resume();
     });
+  }
+
+  /** Fetch the recordings. Each bank becomes playable as soon as its first take decodes; a failure only means the synth plays. */
+  private async loadSamples(): Promise<void> {
+    const base = `${(import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/'}sfx/`;
+    let manifest: Record<string, number>;
+    try { manifest = (await (await fetch(`${base}manifest.json`)).json()) as Record<string, number>; } catch { return; }
+    // the sounds heard first go first
+    const order = ['groan', 'step', 'pistol', 'growl', 'scream', 'shriek', 'cough', 'punch', 'crack', 'hurt', 'shotgun', 'rifle', 'breath', 'male', 'eat'];
+    const names = Object.keys(manifest).sort((a, b) => (order.indexOf(a) + 99) % 99 - (order.indexOf(b) + 99) % 99);
+    for (const name of names) {
+      await Promise.all(Array.from({ length: manifest[name]! }, async (_, i) => {
+        try {
+          const buf = await this.ctx!.decodeAudioData(await (await fetch(`${base}${name}-${i + 1}.mp3`)).arrayBuffer());
+          const list = this.bank.get(name) ?? [];
+          list.push(buf);
+          this.bank.set(name, list);
+        } catch { /* that take is missing: the others (or the synth) cover it */ }
+      }));
+    }
+  }
+
+  /**
+   * Play a recorded take from a bank into `out`, never the same take twice running, a little higher or lower each
+   * time. Returns false if the bank has not loaded, so the caller can synthesise instead.
+   */
+  private sample(name: string, out: AudioNode, vol: number, rate = 1, at = this.ctx!.currentTime, spread = 0.06): AudioBufferSourceNode | null {
+    const list = this.bank.get(name);
+    if (!list?.length || vol <= 0) return null;
+    let k = Math.floor(Math.random() * list.length);
+    if (list.length > 1 && k === this.lastTake.get(name)) k = (k + 1) % list.length;
+    this.lastTake.set(name, k);
+    const src = this.ctx!.createBufferSource();
+    src.buffer = list[k]!;
+    src.playbackRate.value = rate * (1 + (Math.random() * 2 - 1) * spread);
+    const g = this.ctx!.createGain();
+    g.gain.value = vol;
+    src.connect(g).connect(out);
+    src.start(at);
+    return src;
   }
 
   setMuted(m: boolean): void {
@@ -141,6 +187,8 @@ export class Sound {
   }
 
   groan(pan: number, vol: number, angry: boolean): void {
+    // the walkers' voices vary: deeper and slower for most, the angry ones pushed up
+    if (this.sample(angry ? 'growl' : 'groan', this.panner(pan), vol * 1.6, angry ? 1 : 0.88, undefined, 0.1)) return;
     const ctx = this.ctx!, at = ctx.currentTime;
     const dur = angry ? 0.7 : 1.1 + Math.random() * 0.5;
     const base = (angry ? 120 : 85) + Math.random() * 30;
@@ -179,6 +227,7 @@ export class Sound {
   }
 
   scream(pan: number, vol: number): void {
+    if (this.sample('scream', this.panner(pan), vol * 1.5, 0.95, undefined, 0.08)) return;
     const ctx = this.ctx!, at = ctx.currentTime;
     const n = this.noiseSrc(at, 0.6);
     const bp = ctx.createBiquadFilter();
@@ -193,6 +242,7 @@ export class Sound {
   }
 
   footstep(vol: number): void {
+    if (this.sample('step', this.sfx, vol * 2.2, 1, undefined, 0.1)) return;
     const ctx = this.ctx!, at = ctx.currentTime;
     const n = this.noiseSrc(at, 0.08);
     const lp = ctx.createBiquadFilter();
@@ -222,6 +272,7 @@ export class Sound {
   cough(pan: number, vol: number, own: boolean): void {
     const ctx = this.ctx!, t0 = ctx.currentTime;
     const out = own ? this.master : this.panner(pan);
+    if (this.sample('cough', out, vol * 1.8, own ? 0.95 : 1.05)) return;
     const n = 2 + (Math.random() < 0.5 ? 1 : 0);
     for (let k = 0; k < n; k++) {
       const at = t0 + k * (0.2 + Math.random() * 0.06);
@@ -329,6 +380,11 @@ export class Sound {
     bus.connect(echo);
     echo.connect(fb).connect(echo);
     echo.connect(wet).connect(out);
+    // a woman's scream, and under it the same scream an octave and more down: what is screaming is not a person now
+    if (this.sample('shriek', bus, vol * 1.6, 0.94, at, 0.04)) {
+      this.sample('shriek', bus, vol * 0.7, 0.6, at + 0.02, 0.02);
+      return;
+    }
     this.voice(bus, at, dur, 520, [[0, 0.8], [0.18, 1.25], [0.9, 1.4], [1.25, 1.95], [1.6, 1.7], [dur, 1.1]], vol, 0.55);
     this.voice(bus, at + 0.04, dur - 0.1, 392, [[0, 0.9], [0.3, 1.2], [1.3, 1.5], [dur, 0.9]], vol * 0.5, 0.9, [800, 1300, 2600]);
   }
@@ -336,6 +392,10 @@ export class Sound {
   /** The breath a screamer draws first: a long rising gasp. Hearing it is your one warning. */
   inhale(pan: number, vol: number, dur: number): void {
     const ctx = this.ctx!, at = ctx.currentTime;
+    if (this.sample('breath', this.panner(pan), vol * 2.2, 0.8)) {
+      this.voice(this.panner(pan), at, dur, 160, [[0, 0.8], [dur, 1.7]], vol * 0.15, 1, [600, 1100, 2400]);
+      return;
+    }
     const n = this.noiseSrc(at, dur);
     const bp = ctx.createBiquadFilter();
     bp.type = 'bandpass';
@@ -352,6 +412,7 @@ export class Sound {
 
   /** A person's scream cut short: someone turning, something that was lying still getting up beside you. */
   cry(pan: number, vol: number): void {
+    if (this.sample('male', this.panner(pan), vol * 1.4)) return;
     this.voice(this.panner(pan), this.ctx!.currentTime, 0.75, 330, [[0, 1], [0.12, 1.5], [0.5, 1.2], [0.75, 0.7]], vol, 0.8);
   }
 
@@ -442,6 +503,7 @@ export class Sound {
   /** Something soft torn in two. */
   tear(pan: number, vol: number): void {
     const ctx = this.ctx!, at = ctx.currentTime;
+    if (this.sample(Math.random() < 0.5 ? 'eat' : 'crack', this.panner(pan), vol * 1.6)) { this.thud(vol * 0.5); return; }
     const n = this.noiseSrc(at, 0.4);
     const bp = ctx.createBiquadFilter();
     bp.type = 'bandpass';
@@ -598,7 +660,9 @@ export class Sound {
     const g = ctx.createGain();
     this.env(g, at, 0.22, 0.04, 0.12);
     n.connect(bp).connect(g).connect(this.sfx);
-    if (hits > 0) {
+    if (hits > 0 && this.sample('punch', this.sfx, heavy ? 0.75 : 0.6, heavy ? 0.85 : 1, at + 0.06)) {
+      if (heavy) this.sample('crack', this.sfx, 0.4, 1, at + 0.08);
+    } else if (hits > 0) {
       const t = at + 0.08;
       const o = ctx.createOscillator();
       o.frequency.setValueAtTime(heavy ? 140 : 180, t);
@@ -668,6 +732,7 @@ export class Sound {
   }
 
   gunshot(kind: GunKind): void {
+    if (this.sample(kind, this.sfx, kind === 'shotgun' ? 0.85 : kind === 'rifle' ? 0.7 : 0.6, 1, undefined, 0.03)) return;
     const ctx = this.ctx!, at = ctx.currentTime;
     const big = kind === 'shotgun', sharp = kind === 'rifle';
     const n = this.noiseSrc(at, big ? 0.5 : 0.25);
@@ -783,6 +848,9 @@ export class Sound {
       else if (e.type === 'pickup' || e.type === 'purchase') this.chime();
       else if (e.type === 'vehicle-crash') this.thud(Math.min(0.5, e.force / 25));
       else if (e.type === 'zombie-killed' && car) this.thud(0.3);
+      else if (e.type === 'zombie-killed') this.sample('hurt', this.panner(0), 0.32, 0.85, undefined, 0.12); // its last sound
+      else if (e.type === 'down') this.cry(0, 0.35); // a player falls (rooms)
+      else if (e.type === 'turned') this.sample('growl', this.panner(panOf(e.pos.x, e.pos.y)), 0.5, 0.8);
       else if (e.type === 'tier-up' || e.type === 'burst') this.stinger();
       else if (e.type === 'omen') this.omen(panOf(e.pos.x, e.pos.y));
       else if (e.type === 'light') this.click(e.on);
