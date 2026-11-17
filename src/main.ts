@@ -3,6 +3,7 @@ import {
   taskTarget, type GameState,
 } from './core/state';
 import { command, quantize, Recorder, STEP, type Command } from './core/replay';
+import type { Driver, Host } from './net/room';
 import {
   briefFor, chapterCard, chapterLines, doneFor, escortBehind, exitLabel, exitLocked, exitOpen, HERO, hint, intro, lockedTask, objectiveFor,
   paLine, partsReady, shortName, survivorLines, tierLines, vehicleLines, type Line,
@@ -31,15 +32,21 @@ let splashOn = !document.documentElement.classList.contains('intro-seen');
 if (splashOn) void import('./ui/splash').then((m) => m.runSplash()).then(() => { splashOn = false; });
 const debug = params.has('debug');
 
-type Mode = 'title' | 'intro' | 'play' | 'ending';
+type Mode = 'title' | 'intro' | 'play' | 'ending' | 'room';
 
 const newSeed = () => (Math.random() * 0xffffffff) >>> 0; // randomness lives here, not in core/
+/** Tonight's city, the same for everyone today (the server's word), once it is known; a random night until then or offline. */
+let tonight: number | null = null;
+const nightSeed = () => tonight ?? newSeed();
 // the task content (what each step is, says and looks like) comes as data, before the first night
 setContent(await fetch('/content/tasks.json').then((r) => r.json() as Promise<Content>));
 // Your last self: where a district took you, and what you had in hand. It is waiting there the next time
 // you come through that chapter (kept on this device until you put it down).
 const HUSK_KEY = 'zp.husk';
+/** What the server says of your last selves, when you are signed in (it, not this device, is believed). */
+const serverSelves = new Map<number, Husk | null>();
 function lastSelf(chapter: number): Husk | null {
+  if (serverSelves.has(chapter)) return serverSelves.get(chapter)!;
   try {
     const h = JSON.parse(localStorage.getItem(HUSK_KEY) ?? 'null') as (Husk & { chapter: number }) | null;
     return h && h.chapter === chapter && h.pos ? { pos: h.pos, weapon: h.weapon } : null;
@@ -54,6 +61,7 @@ function rememberSelf(s: GameState | null): void {
 // The night is written down as it is played (every step's input, and everything done between steps),
 // so it can be re-run and checked. It goes out with the run's result.
 let rec!: Recorder;
+let roomDriver: Driver | null = null;
 /** Make a chapter's state (with your last self, if it is waiting there) and start its page of the log. */
 function fresh(make: (husk: Husk | null) => GameState, chapter: number): GameState {
   const husk = lastSelf(chapter);
@@ -64,6 +72,7 @@ function fresh(make: (husk: Husk | null) => GameState, chapter: number): GameSta
 }
 /** The one door for changes made outside a step (a purchase, a puzzle answer): done, and written down. */
 function act(c: Command): boolean {
+  if (roomDriver) return roomDriver.act(c); // in a room the server does it
   rec.command(c);
   return command(state, c);
 }
@@ -98,10 +107,25 @@ let paT = 25, paN = 0; // the quarantine loudspeakers: when the next announcemen
 const sound = new Sound();
 const hud = new Hud({
   retry: () => begin(fresh((husk) => restartChapter(state, husk), state.chapter), false),
-  newNight: () => begin(fresh((husk) => createGame(newSeed(), undefined, { husk }), 0), false),
+  newNight: () => begin(fresh((husk) => createGame(nightSeed(), undefined, { husk }), 0), false),
 });
 view.cinematic = 0;
 let paused = false; // store or full map open
+// Guests get a taste: this many seconds of play on this device, then the game waits for a sign-in.
+const GUEST_SECONDS = 180;
+const signedIn = () => { try { return !!localStorage.getItem('zp.account'); } catch { return false; } };
+let guestT = 0;
+try { guestT = Number(localStorage.getItem('zp.guest')) || 0; } catch { /* private mode: the taste is per page */ }
+let gated = false;
+function guestTick(dt: number): void {
+  if (gated || signedIn()) return;
+  const before = Math.floor(guestT);
+  guestT += dt;
+  if (Math.floor(guestT) !== before) try { localStorage.setItem('zp.guest', String(Math.floor(guestT))); } catch { /* kept for this page */ }
+  if (guestT < GUEST_SECONDS || mode !== 'play') return; // a room round is never cut off: the lobby asks next time
+  gated = true; paused = true; controls.enabled = false;
+  void import('./net/gate').then((m) => m.showGate(() => { gated = false; paused = cityMap.open || storeOpen(); controls.reset(); controls.enabled = !paused && !talk.open; }));
+}
 /** The weapon store's page, loaded the first time you walk into one (it is not in the main bundle). */
 let storePage: StorePage | null = null;
 const storeOpen = () => storePage?.open ?? false;
@@ -140,6 +164,27 @@ const quality = (() => {
 
 startBtn.disabled = false;
 startBtn.textContent = 'Begin';
+const multiBtn = $('multi') as HTMLButtonElement;
+multiBtn.disabled = false;
+const roomHost: Host = {
+  view, controls,
+  toast: (t) => hud.toast(t),
+  enter(shadow, driver) {
+    state = shadow; roomDriver = driver; mode = 'room';
+    $('title').style.display = 'none';
+    hud.reset(); setChapter(0); paused = false; controls.enabled = true; hud.cinema(false); convo.length = 0;
+  },
+  refreshStore: () => storePage?.refresh(),
+};
+multiBtn.addEventListener('click', () => {
+  void goLandscape();
+  sound.start();
+  void import('./net/room').then((m) => m.openLobby(roomHost));
+});
+// an invite link (?join=CODE, or ?staked=USDT:5 for a staked room) opens the lobby straight away
+if (params.has('join') || params.has('staked')) void import('./net/room').then((m) => { document.addEventListener('pointerdown', () => sound.start(), { once: true }); m.openLobby(roomHost, { join: params.get('join') ?? undefined, staked: params.get('staked') ?? undefined }); });
+// signed in on this device: ask the server where your last selves are waiting
+if (localStorage.getItem('zp.account')) void import('./net/account').then(async (m) => { for (let c = 0; c < 3; c++) serverSelves.set(c, await m.lastSelfFromServer(c)); });
 // Phones play in landscape. Where the browser allows it (Android, from a tap), go full screen and
 // lock the orientation; everywhere else a "turn your phone" screen covers portrait and the game waits.
 const touch = document.documentElement.classList.contains('mobile'); // set in index.html
@@ -163,8 +208,12 @@ startBtn.addEventListener('click', () => {
   void goLandscape();
   sound.start();
   $('title').style.display = 'none';
-  begin(state, !params.has('skipintro'));
+  // the title shows a city while tonight's is fetched: play tonight's if it came
+  begin(tonight !== null && state.night !== tonight && state.chapter === 0 ? fresh((husk) => createGame(tonight!, undefined, { husk }), 0) : state, !params.has('skipintro'));
 });
+if (!params.has('seed')) void import('./net/account').then((m) => m.tonight(content().version)).then((n) => { tonight = n; });
+if (params.has('admin')) void import('./net/admin').then((m) => m.openAdmin());
+$('boardbtn').addEventListener('click', () => { void import('./net/board').then((m) => m.openBoard()); });
 if (debug) Object.defineProperty(window, '__outbreak', { get: () => ({ state, mode, view, sound, log: rec.log() }) }); // test hook
 
 /** Start a chapter (or a night). The full intro plays once; retries and new chapters go straight
@@ -214,6 +263,7 @@ function nextUp(): NextUp | null {
 
 /** Open the Talk panel with what this frame had to say; the game holds until it is read. */
 function openTalk(objectiveChanged: boolean): void {
+  if (mode === 'room') { dialogue.say(convo.splice(0)); return; } // nothing waits for anyone in a room
   if (convo.length === 0 && !objectiveChanged) return;
   if (state.phase !== 'playing') { convo.length = 0; return; }
   const lines = convo.splice(0);
@@ -254,6 +304,7 @@ function finish(): void {
     replay: rec.log(),
   };
   void noopProgress.saveRun(anonymousSession, result);
+  if (localStorage.getItem('zp.account')) void import('./net/account').then(async (m) => { const up = await m.uploadRun(result); if (up?.score !== undefined) hud.toast(`Tonight's score: ${up.score.toLocaleString()}`); for (let c = 0; c < 3; c++) serverSelves.set(c, await m.lastSelfFromServer(c)); });
   hud.showEnd(state);
 }
 
@@ -448,6 +499,7 @@ function frame(now: number): void {
       n++;
     }
     if (n === MAX_STEPS_PER_FRAME) acc = 0;
+    guestTick(dt);
     narrate(pending);
     paT -= dt;
     if (paT <= 0 && state.phase === 'playing') { paT = 55 + Math.random() * 35; sound.pa(); dialogue.say(paLine(paN++)); }
@@ -458,6 +510,11 @@ function frame(now: number): void {
       endTimer = state.phase === 'won' || state.phase === 'cleared' ? 30 : state.lossReason !== 'time' ? 2.6 : 1.2; // a scene ends when it has played
       if (state.phase === 'cleared' || state.phase === 'won') hud.cinema(true);
     }
+  } else if (mode === 'room') {
+    acc = 0;
+    pending.push(...roomDriver!.frame(dt)); // the server runs the room: this draws it, walks you, and passes on what happened
+    guestTick(dt);
+    narrate(pending);
   } else {
     acc = 0;
   }
@@ -479,7 +536,7 @@ function frame(now: number): void {
   sound.update(state, pending, dt, (x, y) => view.screenX({ x, y }));
   view.react(state, pending);
   pending.length = 0;
-  if (mode === 'play' && (still || miniTick++ % 3 === 0)) cityMap.drawMini(state);
+  if ((mode === 'play' || mode === 'room') && (still || miniTick++ % 3 === 0)) cityMap.drawMini(state);
   if (mode === 'play' && !still && !paused) quality.tick(dt); else quality.reset(); // the minimap at 20/s is plenty
   cityMap.drawFull(state);
 

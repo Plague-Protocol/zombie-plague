@@ -96,6 +96,11 @@ export class StorePage {
     this.el.style.display = 'flex';
   }
 
+  /** Draw the page again from the state it was given (a purchase in a room comes back from the server a moment later). */
+  refresh(): void {
+    if (this.open) this.render();
+  }
+
   close(): void {
     if (!this.open) return;
     this.el.style.display = 'none';

@@ -125,6 +125,7 @@
     background: #6b8e23; color: #060b06; letter-spacing: .22em; text-transform: uppercase; box-shadow: 0 0 24px rgba(107,142,35,.55); }
   #ending button + button { background: transparent; color: #a8c46a; }
   #title button:disabled { opacity: .45; box-shadow: none; }
+  #title #multi, #title #boardbtn { margin-top: 4px; background: transparent; color: #a8c46a; box-shadow: none; }
   @keyframes zp-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
 
   /* ── the cold open (src/ui/splash.ts); painted before any script runs ── */
@@ -443,6 +444,8 @@
   <h1>ZOMBIE PLAGUE</h1>
   <p>Bitten in Port Halden &middot; three doses, three districts</p>
   <button id="start" disabled>Loading&hellip;</button>
+  <button id="multi" disabled>Multiplayer</button>
+  <button id="boardbtn">Leaderboard</button>
   <div id="ios-tip">For full screen on iPhone: tap Share (the square with an arrow), then <b>Add to Home Screen</b>, and play from the new icon.</div>
   <small>Sound on. Drag anywhere to move, buttons to fire and use. Keyboard: WASD, Space fire, E use, R reload, Q swap, F flashlight, G throw, M map.</small>
 </div>
