@@ -6,8 +6,35 @@ something is a decision, it has been made; where a fact could not be checked fro
 marked **VERIFY** and you must confirm it before relying on it.
 
 Scope: free multiplayer (work packages W0 to W3) and staked multiplayer (W4, W5).
-Out of scope: staked solo (dropped by the owner), G$ rewards (a separate plan; W1 gives it the
-verified-run endpoint it needs), new single-player content.
+Out of scope: staked solo (dropped by the owner), any GoodDollar or G$ integration (dropped
+2026-11-17 after the grant application was rejected; the project is Celo and MiniPay only), new
+single-player content.
+
+## 0. Status (2026-11-17)
+
+| Package | State |
+|---|---|
+| W0 deterministic replay | **Done and checked in two engines.** `src/core/dmath.ts`; fixtures replay to the same fingerprints in Node and in JavaScriptCore (Safari's engine): `tools/engine-check.ts` |
+| W1 backend | **Done.** Postgres through `pg` and plain SQL (not Prisma: no generate step to run under `ignore-scripts`, and far fewer dependencies). Sign-in: an injected wallet (MiniPay, MetaMask) in `src/net/account.ts`, or Google / passkey through thirdweb's embedded wallet in `src/net/social.ts` (a lazy chunk, needs `VITE_THIRDWEB_CLIENT_ID`; that wallet signs in but holds no stake money here). **Not yet seen with a real Google account or passkey** (a popup needs a person) |
+| W2 core for several players | **Done**, with the cuts listed below |
+| W3 real-time server and client | **Done.** Traffic measured: 4.2 to 5.5 KB/s per player with up to 10 infected in view (budget 6). Prediction error with 150 ms round trip and 30 ms jitter: median 0.06, 95th percentile 0.18 units (budget 0.5) |
+| W4 stake contracts | **Done, tested, and deployed to Celo Sepolia** (addresses and evidence in `docs/DEPLOYMENTS.md`). Modelled on plague-celo's staked rooms (see section 8). 27 Foundry tests, including a 1,200-action campaign and invariants. Not on mainnet |
+| After the packages | **Added on the owner's request:** a 3-minute guest allowance then sign-in (`src/net/gate.ts`); multiplayer for signed-in players only (enforced by the server); Quick play into public rooms and invite links (`?join=CODE`, `?staked=USDT:5`); leaderboards scored from the server's replay (`server/src/score.ts`, `boards.ts`, `src/net/board.ts`: tonight, week, streak, rooms); an admin page (`?admin`; `server/src/admin.ts`, `src/net/admin.ts`); one stake contract per token (USDm and USDT). **A gap found and fixed:** the game played a random city every night, so the nightly board could never compare two runs; it now plays tonight's city from `/night/today` when the server is reachable |
+| W5 staked rooms | **Built and proven on Celo Sepolia, switched off by default** (`STAKED=false`). The owner told us to build it; the legal view is still the gate for turning it on for real money. Server: `server/src/chain.ts`, `staked.ts`. Client: `src/net/stake.ts` and the staked lobby. Details and what is not covered: section 9 |
+
+What was cut or changed in W2, on purpose: rooms have **no vehicles** (the per-driver rules for latching, fuel, swarm and breach are deep), **no escort steps** (their groups are left out of a room's pool), and **no last self**. Players have a sixth status, `down` (out of health, lying still three seconds before turning). **Puzzle answers are allowed in rooms** (section 7.2 below said otherwise; a puzzle step is unsolvable without them). **CHECK on another player is built:** stand still beside a living player, hold the action button, and you learn whether they had been bitten when you looked (`Player.bitten`, `Player.checks`; others' `exposed` flag, shown as "(bitten)" on their name). They are not told, and the answer goes stale if they are bitten later. The step for zombies is "nearest living player" and waves/director look at a rotating living player.
+
+What the browser test found that unit tests did not: frames were handled concurrently, so a `create` sent right behind a `hello` was processed before the hello finished (the seat was named "Guest"). They are now handled in order (`server/src/ws.ts`, with a regression test).
+
+Run the pieces:
+
+```sh
+npm test                                   # game rules, rooms, codec, fixtures
+cd server && npm test                      # accounts, replay checks, rooms over real sockets, staked rooms (TEST_DATABASE_URL adds Postgres)
+cd contracts && forge test                 # the stake contracts (27 tests)
+npx rolldown tools/engine-check.ts --format iife --platform neutral -o /tmp/e.js && \
+  /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc /tmp/e.js   # the cross-engine check
+```
 
 ## 1. Ground rules
 
@@ -56,7 +83,7 @@ Facts about the single-player state that shape the work:
 | Package | Result | Depends on |
 |---|---|---|
 | W0 | Replays verify across JavaScript engines | none |
-| W1 | Backend: accounts, verified runs, progress, last-self | W0 |
+| W1 | Backend: accounts, replay-checked runs, progress, last-self | W0 |
 | W2 | Core rules for several players in one district | W0 |
 | W3 | Real-time server and the multiplayer client | W1, W2 |
 | W4 | Stake escrow contract, tested, on Celo Sepolia | none (can run beside W1 to W3) |
@@ -108,14 +135,13 @@ Do not copy core files. Do not make the root a workspace; the client's install m
 bitten by relying on `env_file`): `DATABASE_URL`, `JWT_SECRET`, `ALLOWED_ORIGINS`, `PORT`,
 `CELO_RPC`, `CHAIN_ID`, `CONTENT_DIR`.
 
-**Database** (`server/prisma/schema.prisma`, Postgres):
+**Database** (the tables are `SCHEMA` in `server/src/store.ts`: plain SQL through `pg`, created on connect; the Prisma sketch below shows the shape):
 
 ```prisma
 model Account {
   id        String   @id @default(cuid())
   address   String   @unique   // lower-case 0x address (thirdweb in-app wallet or MiniPay)
   name      String?
-  verified  Boolean  @default(false) // GoodDollar: set by a server-side check only
   createdAt DateTime @default(now())
   runs      Run[]
 }
@@ -132,7 +158,7 @@ model Run {
   kills      Int
   hash       String   // hashState of the replayed end state
   log        Bytes    // gzip of the NightLog JSON
-  verified   Boolean  // the server's replay reached the claimed outcome
+  replayOk   Boolean  // the server's replay reached the claimed outcome
   createdAt  DateTime @default(now())
   @@index([accountId, createdAt])
   @@index([night, outcome, secondsLeft])
@@ -161,11 +187,11 @@ runs with `window.ethereum`; there is no sign-in screen.
 | `GET /health` | `{ok: true}` |
 | `GET /night/today` | `{night, content}`: the day's shared seed (`fnv(UTC date)`) and content version |
 | `GET /last-self?chapter=n` | The account's `Husk` for that chapter, or `null` |
-| `POST /runs {result: RunResult}` | Verify (below), store, update `LastSelf`, return `{verified, hash}` |
-| `GET /leaderboard?night=n` | Top 50 verified wins for that night, by `secondsLeft` |
-| `GET /me` | Account, verified flag, best runs |
+| `POST /runs {result: RunResult}` | Check by replay (below), store, update `LastSelf`, return `{replayOk, hash}` |
+| `GET /leaderboard?night=n` | Top 50 replay-checked wins for that night, by `secondsLeft` |
+| `GET /me` | Account, `okRuns`, recent runs |
 
-**Verifying a run** (`server/src/verify.ts`):
+**Checking a run** (`server/src/verify.ts`):
 
 1. Reject if the gzip log exceeds 400 KB, if `log.chapters.length > 3`, or if any chapter's step
    count exceeds `ceil(timeLimit / STEP) + 1` (compute `timeLimit` from `generateLevel`).
@@ -173,7 +199,7 @@ runs with `window.ethereum`; there is no sign-in screen.
    with that version's file before replaying.
 3. Replace each chapter's `husk` with the server's own `LastSelf` for that account and chapter. The
    client's value is never trusted (a fabricated last-self could drop a weapon).
-4. `replay(log)` in a worker thread with a 5 second limit. A throw or a timeout is `verified:
+4. `replay(log)` in a worker thread with a 5 second limit. A throw or a timeout is `replayOk:
    false`.
 5. Compare the end state's `phase`, `lossReason`, `chapter`, and `remaining` (within 1e-6) with the
    claim. Store `hashState`.
@@ -334,22 +360,22 @@ Client to server:
 
 ```ts
 { t: 'hello', token: string | null, name: string }        // null token: guest, free rooms only
-{ t: 'create', verifiedOnly: boolean }                     // -> 'room'
+{ t: 'create' }                                            // -> 'room' (free rooms only)
 { t: 'join', code: string }                                // 5-letter room code
 { t: 'start' }                                             // host only
 { t: 'in', seq: number, i: [dx64, dy64, buttons] }         // dx, dy in 64ths; buttons as in replay.ts
-{ t: 'cmd', c: Command }                                   // buy, equip (no solve, no grace in rooms)
+{ t: 'cmd', c: Command }                                   // buy, equip, solve (a puzzle answer); no grace in rooms
 { t: 'leave' }
 ```
 
 Server to client:
 
 ```ts
-{ t: 'room', code, seats: Array<{ seat, name, verified, ready }>, you: seat, host: seat, state: 'lobby' | 'playing' | 'ended' }
+{ t: 'room', code, seats: Array<{ seat, name, ready }>, you: seat, host: seat, state: 'lobby' | 'playing' | 'ended' }
 { t: 'begin', seed, players: n, content, tick: 0 }         // the client generates the same level from the seed
 { t: 'snap', tick, ack: seq, v: PlayerView }               // 15 Hz
 { t: 'end', placements, logId }
-{ t: 'err', code: 'full' | 'no-room' | 'started' | 'verified-only' | 'rate' | 'bad' }
+{ t: 'err', code: 'full' | 'no-room' | 'started' | 'rate' | 'bad' }
 ```
 
 The map, tasks, stores and houses are never sent: `begin` carries the seed and the client calls
@@ -379,7 +405,7 @@ snapshot. Report the measured number either way.
   light cone of those whose `light` is true (reuse the spot light pool, nearest two only), and a
   turned player with the husk's tint.
 - UI (`ui/lobby.ts`, lazily loaded): title screen gets a `Multiplayer` button; a lobby page with
-  create, join by code, the seat list, verified badges, start; an end page with placements.
+  create, join by code, the seat list, start; an end page with placements.
 - The talk panel is never opened in a room; `convo` lines are sent to `dialogue.say`.
 
 **Accept.**
@@ -393,139 +419,63 @@ snapshot. Report the measured number either way.
 - Startup JS is still at or under 240 KB gzip; report the size of each new chunk.
 - Bandwidth per player-second, measured and reported.
 
-## 8. W4: the stake escrow contract
+## 8. W4: the stake contracts (built)
 
-**Layout.** `contracts/` at the repo root: Foundry, `solc 0.8.28`, `evm_version = "cancun"`,
-optimizer 200 runs, OpenZeppelin Contracts Upgradeable v5 (as a git submodule under
-`contracts/lib`, pinned to a release tag).
+`contracts/` is its own Foundry project (`solc 0.8.28`, `cancun`, OpenZeppelin v5.4.0 as submodules).
 
-**One contract, `StakeEscrow`, behind a UUPS proxy.** It holds stakes and pays out on a signed
-result. It contains no game logic, so game changes never need an upgrade.
+It follows plague-celo's staked rooms, as the owner asked, rather than the operator-opened design this plan first had:
 
-```solidity
-// Roles: DEFAULT_ADMIN_ROLE (upgrade, set fee, set roles), OPERATOR_ROLE (open, start, settle,
-// cancel), SIGNER_ROLE (its key signs results), PAUSER_ROLE.
-struct Room { address token; uint96 stake; uint8 seats; uint8 joined; uint40 openedAt; uint40 startedAt; RoomState state; }
-enum RoomState { None, Open, Started, Settled, Cancelled }
+| plague-celo | here |
+|---|---|
+| `PlagueGame.createRoom / joinRoom / startGame / expireRoom` by players from their own wallets | `PlagueRooms.createRoom / joinRoom / startGame / expireRoom`, same shape and names, plus `leaveRoom`, `cancelRoom`, `reclaim`, `claim` |
+| `PotEscrow`: custody apart from the game contract | the same file, copied unchanged (`contracts/src/PotEscrow.sol`) |
+| `FeeManager`, 1.5% fee | the same file, copied unchanged; fee 150 bps, admin-settable up to 500 |
+| the game plays on-chain; `backendSigner` calls a few functions | the game is played by the server, so the contract holds no game logic; `BACKEND_ROLE` calls `settle` |
+| not upgradeable | UUPS proxy (storage append-only, `__gap`), so the server's interface can change without moving money |
 
-function openRoom(bytes32 roomId, address token, uint96 stake, uint8 seats) external;      // OPERATOR
-function join(bytes32 roomId) external;                                                    // player; pulls `stake`
-function leave(bytes32 roomId) external;                                                   // player; only while Open; refunds in full
-function start(bytes32 roomId) external;                                                   // OPERATOR; needs joined >= 2
-function settle(bytes32 roomId, address[] calldata winners, uint256[] calldata amounts, bytes calldata sig) external; // OPERATOR
-function cancel(bytes32 roomId) external;                                                  // OPERATOR; credits every player their stake
-function reclaim(bytes32 roomId) external;                                                 // player; if Started and not Settled after RECLAIM_AFTER
-function withdraw(address token) external;                                                 // anyone; pays out their credited balance
-```
+`PlagueRooms` (13,668 bytes of 24,576):
 
-Rules the code must enforce:
+- A player creates a room (2 to 8 seats, a stake between `minStake` and `maxStake`, an expiry of at least 60 s) and stakes as seat one; others `joinRoom`. The host `startGame`s with at least two.
+- `settle(roomId, winners, logHash)` is callable only by the server key. Every winner must have staked in that room and appear once. Pot minus the fee is split equally; dust goes to the fee. **Empty `winners` refunds everyone in full with no fee.** `logHash` is in the event so a round can be audited against its stored log.
+- A waiting room that passes its expiry can be refunded by anyone (`expireRoom`); the host can `cancelRoom`; a non-host can `leaveRoom` while waiting.
+- If the server never settles a started room, any player takes their own stake back with `reclaim` after `reclaimAfter` (default 6 hours, minimum 1 hour).
+- Payouts go out at settlement; if the token refuses one recipient (a blocklist) that amount is kept for them to `claim` and the room still settles.
+- Admin: fee (capped), stake limits, open-room cap, reclaim window, `pause` (stops new rooms and joins only), `setPlumbing` (only when no room holds money).
+- **What the server key can and cannot do.** It can choose which of a room's players win. It cannot pay anyone who did not stake in that room, touch a waiting room, exceed the fee cap, or stop `reclaim`.
+- **Trust.** The proxy admin can upgrade the contract and `PotEscrow`'s admin has an emergency valve (copied from plague-celo). For real money both must be a multisig behind a timelock. The deploy script hands them to `ADMIN`; use a multisig there, never a single key.
 
-- `token` must be on an admin-managed allowlist. Start with USDm (cUSD) on Celo mainnet,
-  `0x765DE816845861e75A25fCA122bb6898B8B1282a`, 18 decimals (from plague-celo's deployment notes).
-- `stake` is bounded: `MIN_STAKE <= stake <= maxStake[token]` (admin-set; start at the equivalent
-  of 2 USDm).
-- `settle` verifies an EIP-712 signature by a `SIGNER_ROLE` address over
-  `Result(bytes32 roomId, address[] winners, uint256[] amounts, bytes32 logHash)`, with the chain
-  id and the proxy address in the domain. `logHash` is the keccak256 of the stored round log; emit
-  it in the event so a round can be audited.
-- Every winner must have joined that room. `sum(amounts) + fee == stake * joined`, where
-  `fee = pot * feeBps / 10_000` and `feeBps <= 500`. The fee is credited to `feeRecipient`.
-- If `winners` is empty (nobody escaped), every player is credited their full stake and no fee is
-  taken.
-- Payouts are **credited, then pulled** with `withdraw`. `settle` never transfers to players, so
-  one reverting recipient cannot block a room.
-- `reclaim` is the player's protection against a dead operator: `RECLAIM_AFTER = 24 hours` after
-  `startedAt` with no settlement, any player can take their stake back.
-- `ReentrancyGuard` on every function that moves tokens; `SafeERC20`; checks-effects-interactions.
-- Storage: append-only layout, a `uint256[50] __gap`, no constructor logic (`_disableInitializers`
-  in the constructor, `initialize(admin, feeRecipient)`).
-- Keep the implementation well under 24,576 bytes; report the size.
+The player-facing selectors are the MiniPay allowlist surface and must not change after submission: `createRoom(uint8,uint96,uint40)`, `joinRoom(uint256)`, `leaveRoom(uint256)`, `cancelRoom(uint256)`, `startGame(uint256)`, `expireRoom(uint256)`, `reclaim(uint256)`, `claim(uint256)`, plus the token's `approve`. **VERIFY** the current allowlist process with the owner.
 
-Player-facing selectors are `join(bytes32)`, `leave(bytes32)`, `reclaim(bytes32)`,
-`withdraw(address)` plus the token's `approve`. **These are the MiniPay allowlist surface. Do not
-rename or re-type them after they are submitted.** (**VERIFY** the current allowlist process with
-the owner; plague-celo went through it once.)
+Not deployed. `contracts/script/Deploy.s.sol` builds everything (`ADMIN`, `BACKEND`, `TOKEN`, `MIN_STAKE`, `MAX_STAKE`); it was run against a local chain and the wiring read back with `cast`. Deploying to Celo Sepolia needs a funded key and the owner's go-ahead; mainnet only on the owner's explicit instruction. After any broadcast check the chain, not the broadcast file (`cast code <proxy>`): plague-celo's `broadcast/` once recorded a mainnet address with no bytecode.
 
-**Tests** (`contracts/test/StakeEscrow.t.sol`), at least these:
+## 9. W5: staked rooms (built, off by default)
 
-1. Happy path: open, three joins, start, settle with two winners, both withdraw; balances and fee
-   exact to the wei.
-2. A signature from a non-signer, a signature for a different room, a different chain id, and a
-   replayed settle all revert.
-3. A winner who never joined reverts. Amounts that do not sum reverts. `feeBps` over 500 cannot be
-   set.
-4. Nobody escaped: full refunds, zero fee.
-5. `leave` while open refunds; `leave` after start reverts.
-6. `reclaim` before 24 hours reverts; after, it pays once; then `settle` reverts.
-7. A token that reverts on transfer to one recipient does not block the others (pull pattern).
-8. Upgrade: deploy V1, join a room, upgrade to a V2 that adds a variable, the room is intact; a
-   non-admin cannot upgrade.
-9. Fuzz: for any stake and 2 to 8 players and any valid split, `sum(credits) == pot`.
-10. Invariant: the contract's token balance always equals the sum of open stakes and unwithdrawn
-    credits.
+**What gates turning it on for real money (not for testnet):**
 
-**Deploy.** Script `contracts/script/Deploy.s.sol`. Celo Sepolia (chain 11142220) first, verified
-on Blockscout. Check the result with `cast code <address>`; plague-celo's `broadcast/` folder once
-recorded a mainnet address with no bytecode, so never trust a broadcast file alone. Mainnet only
-on the owner's explicit instruction, with `DEFAULT_ADMIN_ROLE` held by a multisig behind a
-timelock (48 hours), not by a single key.
+1. A legal view that real-money skill and PvP games may be offered where the owner intends to, and that it does not conflict with MiniPay's listing rules.
+2. The owner has accepted the weaker defence below in place of one-account-per-person (no proof of personhood: GoodDollar was dropped). They said so on 2026-11-17.
+3. Mainnet admin is a multisig behind a timelock, and `PlagueRooms` has had a security review. Today the Sepolia admin and the settle key are the same test key.
 
-**Accept.** `forge test` output with all tests passing, `forge build --sizes` showing the size,
-the Sepolia proxy and implementation addresses with verified links, and a `cast` transcript of one
-full room on Sepolia.
+**Eligibility, computed on the server from its own records, never sent by the client** (`eligible()` in `server/src/staked.ts`): the account is at least 24 hours old, has at least 3 replay-checked free runs, has had no failed replay in 7 days, and is not already in another staked room. Tunable by `STAKED_MIN_ACCOUNT_HOURS` and `STAKED_MIN_OK_RUNS`. The contract's `maxStake` and the exit seats are the rest of the defence. This slows a farm of wallets down; it does not stop one person running several. Say so plainly in the player-facing rules and the owner-facing notes.
 
-## 9. W5: staked rooms
+**How it works (what was built):**
 
-**Two gates. Do not start W5 until the owner confirms both.**
+- `server/src/chain.ts`: `Chain` (read a room, read a stake, settle, read gas) and `ViemChain`. Reads are always fresh.
+- `server/src/staked.ts`: `Staked.seat` seats a socket only if the chain shows its wallet staked in that room (`stakedIn > 0` and in the player list) and the account is eligible. A timer (`poll`, every 3 s) starts the rooms the chain started, with a seat for everyone who staked (a stake whose owner has not arrived is held like a dropped seat, then given up on after the reconnect window), and closes rooms the chain cancelled. The chain starts a staked room: neither the seats nor the host can.
+- Settlement: when a round ends, the wallets of the seats with status `escaped` are the winners, and `logHash` is the sha256 of the stored round log. What is owed is written to the `settlement` table **before** the transaction is sent (idempotent on room id); a failed send is left open and `resume()` retries it on start-up and every minute; the contract refuses a room already settled. No winners means the contract refunds everyone in full.
+- `/health` reports the backend key's gas and goes 503 under 0.5 CELO. The page shows the staked lobby only if its build knows the contracts **and** `/health` says staked rooms are on and healthy.
+- Client (`src/net/stake.ts`, no library): approve exactly the stake, create or join, start, leave, cancel, with the injected wallet. The joiner's amount is read from the chain (the room's stake), never typed. MiniPay picks its own fee currency (no `gas`, no `feeCurrency` is sent; plague-celo learned that). The selectors are checked against the real ABI in `server/test/stake.test.ts`.
+- Anyone can call `expireRoom` on a waiting room that ran past its expiry; nothing in this repo does it automatically.
 
-1. A legal view that real-money skill and PvP games may be offered where the owner intends to, and
-   that it does not conflict with MiniPay's listing rules.
-2. One account per person: staked rooms require `Account.verified`. Verification is a server-side
-   read of GoodDollar's identity contract on Celo (`getWhitelistedRoot(address) != address(0)`;
-   **VERIFY** the function name, the contract address and the SDK against GoodDollar's current
-   documentation before writing code). Never accept a "verified" flag from the client.
+**Proven (Celo Sepolia, evidence in `docs/DEPLOYMENTS.md`):** two of three escape and `settle` lands with the exact split and fee; a round where nobody escapes refunds all three in full; the page's own staking code creates, joins, starts, leaves and cancels against the real contracts. **Not proven on a live chain:** `reclaim` (shortest window is one hour; covered by the Foundry tests) and a killed server (covered with a fake chain: a failed settlement is retried after a restart and paid once).
 
-**Flow.**
+**Still to do before real money:**
 
-1. `POST /stake/rooms {stake, seats}` (verified accounts only): the server picks
-   `roomId = keccak256(randomBytes(32))`, calls `openRoom`, waits for one confirmation, returns
-   `{roomId, code}`.
-2. The client approves the token and calls `join(roomId)` from the player's own wallet. In MiniPay
-   pay fees in the stable token with `feeCurrency`; outside it the in-app wallet has no CELO, so
-   staked rooms need sponsored gas (**decision for the owner**: thirdweb gas sponsorship, or
-   MiniPay only at launch; default to MiniPay only).
-3. The server watches `Joined` with viem and seats a socket only when the address in its JWT has a
-   confirmed join for that room. Seating never trusts a client message.
-4. When the seats are filled (or the host starts with at least two), the server calls `start`,
-   waits one confirmation, then sends `begin`.
-5. At `end` the server computes the split (below), signs the EIP-712 `Result` with the signer key,
-   calls `settle`, and sends the transaction hash in `{t: 'end'}`.
-6. A room that never starts is `cancel`led after 10 minutes.
-
-**Split.** Pot minus fee, shared equally among the escaped. Nobody escaped: full refunds.
-Disconnected players count as `dead`.
-
-**Keys.** `OPERATOR` and `SIGNER` are two different keys in two different environment variables;
-the operator pays gas in native CELO and holds nothing else. Add a balance check to `/health` that
-reports when the operator has under 0.5 CELO. Every on-chain call is idempotent on `roomId` and
-recorded in a `ChainTx` table (`roomId`, `kind`, `hash`, `status`) so a restart resumes instead of
-repeating.
-
-**Fair play in staked rooms** (already provided by W2 and W3; verify, do not rebuild):
-
-- The server is authoritative and sends only `viewFor`. Confirm with a modified client that
-  requests nothing extra can be learned: log every field received and diff it against `viewFor`.
-- Aim assist runs on the server (`aimTarget`), so an aimbot gains nothing.
-- The round log is stored and its hash is in the settlement event.
-- Collusion (two accounts feeding one) is limited by one account per person and by the exit having
-  fewer seats than players; it is not eliminated. Say so in the owner-facing notes.
-- Rate limits: one staked room per account at a time; `maxStake` enforced on-chain.
-
-**Accept.** On Celo Sepolia, with test tokens: three verified test accounts stake, play a scripted
-round, two escape, `settle` lands, both withdraw the right amounts, the fee recipient has the fee;
-a second round where nobody escapes refunds all three; a third where the server is killed after
-`start` and each player recovers their stake with `reclaim` after the timeout (use `vm.warp` in a
-fork test, since 24 hours cannot be waited out). Transaction hashes for each.
+1. A real Google / passkey sign-in tried by a person, and MiniPay's own wallet (`personal_sign`, `eth_sendTransaction`, no `gas`) tried on a phone. Neither can be done from a terminal. **VERIFY** what MiniPay itself binds an account to before telling players anything about it.
+2. Fair play to verify, not rebuild: the server sends only `viewFor`; aim assist runs on the server; the round log is stored and its hash is in the settlement event. Diff what a modified client could read against `viewFor`.
+3. Staking from a Google/passkey wallet is not offered (that wallet has no funds and needs thirdweb's transaction path). MiniPay or another injected wallet only.
+4. The replay still runs in-process (serialised), not in a worker; fine at launch volumes, revisit before a crowd.
+5. The Docker image has never been built (no Docker daemon in the build environment; the file set was simulated). Build it once on the host before relying on it.
 
 ## 10. Hosting
 

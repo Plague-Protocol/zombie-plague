@@ -31,7 +31,7 @@ How it carries into the later phases:
   server must never send a player what they cannot see or hear, and must decide sight itself
   (`sightScale`, `inLight`).
 - **Staked solo: dropped** (2026-11-16). No counterparty, and bots would drain any pot.
-- **Replay:** built (`src/core/replay.ts`). The build plan for both phases is `docs/PHASE2-BUILD-PLAN.md`.
+- **Replay:** built (`src/core/replay.ts`), exact across engines. Multiplayer rooms, the server and the stake contracts are built; staked rooms are the one package left (`docs/PHASE2-BUILD-PLAN.md`, section 9).
 
 ## Design principle: fun first, money second
 
@@ -51,9 +51,11 @@ never the reason to play. Where earning is possible it is a small bonus, not the
 - **MiniPay is the easy path:** no sign-in step at all, so MiniPay users go straight to
   playing. Sign-in is for everyone outside MiniPay.
 - **Why:** traction and retention need an account to attach progress to, and the same
-  account is the base for staking and the one-account-per-person city lock later.
+  account is the base for staking and for the city lock later.
 - **Limits:** a Google or passkey account is friction against multi-accounting, not proof
-  of personhood. Do not treat it as sybil resistance for real-money rewards.
+  of personhood, and this project has no proof-of-personhood layer (GoodDollar was dropped
+  2026-11-17; the focus is Celo and MiniPay). Do not treat any account as sybil resistance for
+  real-money play.
 - **Gas:** an in-app wallet has no CELO. Anything that goes on-chain for these users
   needs sponsored gas. Not needed until phase 3.
 
@@ -129,8 +131,9 @@ Real-money earnings wait until there is a funded source for them.
      one large contract), and plan storage layout (gaps, no reordering) from day one.
    - Consider holding funds in a minimal escrow with a narrow settlement interface, so
      most game-logic upgrades never touch custody.
-4. **One account per person** is needed for the city lock to mean anything.
-   Proof-of-personhood is the likely route.
+4. **One account per person cannot be enforced.** The city lock and staked rooms can only be
+   made harder to farm (account age, a history of replay-checked free runs, stake caps; see
+   docs/PHASE2-BUILD-PLAN.md, W5), not closed. Decide whether that is acceptable before staking.
 5. **Real-money skill/PvP games are regulated in many places** and may conflict with
    MiniPay listing rules. Get a view before designing the payout.
 6. **Camping safe-zone entrances** will be the first PvP exploit. Plan for it (entry

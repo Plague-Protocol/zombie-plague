@@ -30,7 +30,7 @@ npm test           # unit tests
 npm run build      # typecheck + production build into dist/
 ```
 
-URL options: `?seed=123` fixed night, `?skipintro`, `?debug` perf overlay, `?dpr=1.5` cap the
+URL options: `?server=ws://host:8787` the multiplayer server, `?seed=123` fixed night, `?skipintro`, `?debug` perf overlay, `?dpr=1.5` cap the
 pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 
 ## The plague
@@ -100,8 +100,84 @@ state (`src/core/state.ts`), so a server can run it unchanged; the renderer and 
 re-runs it to the same end state; the log goes out with the run result (`RunResult.replay`).
 Caveat: exact across the same JavaScript engine only, until the trig calls are made deterministic.
 
-Not built yet: anything multiplayer or staked. The build plan is
-[docs/PHASE2-BUILD-PLAN.md](docs/PHASE2-BUILD-PLAN.md).
+## Multiplayer
+
+Free rooms of 2 to 8 players in one district at once, run by a server. Tap **Multiplayer** on the title
+screen, make a room (a five-letter code) or join one, and the host starts it. The steps are shared (anyone
+doing one does it for everyone); the exit has seats for half of those who started; the dose of each player
+ticks down separately and a player who runs out, or is shot down, **turns** and hunts the rest as one of
+them. A bullet or a swing does half damage to a living player (none in the first 20 seconds or near the
+exit). Rooms have no vehicles and nobody to escort.
+
+What a browser is told is what its player could see (`src/core/view.ts`): other players and infected out
+of sight, other players' health and clocks, and noises too far to hear never leave the server. Snapshots go
+out at 15 a second in a compact form (`src/net/codec.ts`), 4 to 6 KB/s per player. Your own walking is
+predicted so the controls answer at once, and corrected when the server's word comes back; everything else
+is drawn a tenth of a second in the past, between two snapshots (`src/net/room.ts`, loaded only when you tap
+Multiplayer).
+
+Sign in with the wallet the page has (MiniPay, MetaMask) to be known by name, put your nights on the
+leaderboard and have your last self follow you from device to device; guests can play free rooms.
+
+## The server
+
+`server/` (Node 22, Fastify, `ws`, Postgres through `pg`). It imports the game's rules from `src/core`
+unchanged, so the rules a browser plays are the rules the server checks.
+
+- **Accounts:** a wallet signs a one-time nonce; the server hands back a token (`server/src/auth.ts`).
+- **Runs are checked by replay:** a finished night uploads with its log; the server replays it (the same
+  rules, with a last self taken from its own records, not the client's) and believes the claim only if the
+  replay ends the way it says (`server/src/runs.ts`). Only replayed wins reach the leaderboard.
+- **Rooms:** 30 ticks a second, one `viewFor` per seat, every round logged and its fingerprint kept
+  (`server/src/rooms.ts`). Replaying a stored round gives the same end, which is how a dispute is settled.
+- **The day's night:** `GET /night/today`: one seed for everyone, from the date.
+
+```sh
+cd server && cp .env.example .env     # set JWT_SECRET (32+ characters) at least
+npm install && npm run dev            # http and ws on :8787; no DATABASE_URL = in memory
+npm test                              # 35 tests (TEST_DATABASE_URL=postgres://... adds the Postgres ones)
+docker compose -f server/docker-compose.yml --env-file server/.env up --build   # server + Postgres (image build not yet tried: no docker daemon was running)
+```
+
+The browser finds the server at `?server=ws://host:port`, `VITE_SERVER_URL`, or the page's host on :8787.
+
+## Replays are exact across engines
+
+The rules use their own sin, cos, atan2 and hypot (`src/core/dmath.ts`), because the standard ones may
+differ in their last bit between V8 and Safari's JavaScriptCore. `tests/fixtures/replay-v1.json` holds a
+night and a room round with their fingerprints; `tools/engine-check.ts` replays them in any engine and was
+run in JavaScriptCore (every iPhone browser) and Node with identical results.
+
+## Staked rooms: built and proven on Celo Sepolia, off by default
+
+`contracts/` holds the stake contracts, modelled on plague-celo's staked rooms: players create and join rooms
+from their own wallets, stakes sit in a separate custody contract, a 1.5% fee goes to a separate fee
+contract, an unstarted room refunds on expiry, and the server settles a finished round by naming the players
+who got out. The server seats a player only if the chain shows their stake, starts the round when the chain
+says so, and pays the winners with a settlement written down before it is sent. `forge test` (27 tests).
+
+Deployed to **Celo Sepolia** (not mainnet): addresses and the acceptance run, with transaction hashes, are in
+[docs/DEPLOYMENTS.md](docs/DEPLOYMENTS.md). Staked rooms stay switched off (`STAKED=false`) until the owner
+has a legal view and the mainnet admin is a multisig; see [docs/PHASE2-BUILD-PLAN.md](docs/PHASE2-BUILD-PLAN.md)
+section 9. The weaker "one person, many wallets" defence (account age, finished nights, no recent failed
+replay) slows a farm down and does not stop one person running several.
+
+**Stake tokens:** USDm and USDT, one contract each (USDT has 6 decimals). **Admin:** open the game with `?admin`
+signed in as a wallet in `ADMIN_ADDRESSES` or one holding the contracts' admin role: health, players, live rooms,
+settlements (retry), failed replays, and per token the fees, escrow and gas, with pause and fee withdrawal sent from
+the admin wallet.
+
+## Leaderboard, sign-in, invites
+
+Guests get three minutes of play, then sign in to go on. Multiplayer is for signed-in players. Every night is
+tonight's city (the same for everyone on a day). A run's score comes from the server's own replay of it: districts
+cleared, getting out and the time left, kills (capped), people helped, optional steps, accuracy, a clean night, less
+bites, doses and people you let turn. Boards: tonight, the week, streaks, rooms; each shows your rank, a title, and
+how far it is to the next place. Rooms: Quick play into an open public room, or a private room joined by code or an
+invite link (`?join=CODE`). Recorded sounds and their licences: `public/sfx/CREDITS.md`.
+
+**Sign-in:** an injected wallet (MiniPay, MetaMask), or Google / passkey (thirdweb, set `VITE_THIRDWEB_CLIENT_ID`;
+that wallet signs in but cannot stake). Copy `.env.example` (page) and `server/.env.example` (server).
 
 ## Playing
 
