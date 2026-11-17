@@ -15,7 +15,7 @@ import {
   Matrix4, type Material, MeshBasicMaterial, MeshLambertMaterial, Quaternion, RGBAFormat, type SkinnedMesh, Vector3, Vector4,
 } from 'three';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import type { CharacterAssets, ClipName } from './characters';
+import { HEIGHT, type CharacterAssets, type ClipName } from './characters';
 
 export type CrowdClip = 'ZIdle' | 'ZWalk' | 'Sprint' | 'ZAttack' | 'Hit' | 'Death' | 'ZRise';
 const CLIPS: CrowdClip[] = ['ZIdle', 'ZWalk', 'Sprint', 'ZAttack', 'Hit', 'Death', 'ZRise'];
@@ -34,6 +34,31 @@ const PARTS = [
 
 interface Baked { start: number; rows: number }
 interface Track { clip: CrowdClip; t0: number; rate: number; yaw: number; seen: number }
+
+// What makes them not people: the skin drained to a grey-green, patches of black rot and of old blood that sit on the
+// body (noise over its rest pose, in world units) and differ from one to the next, darker hands and mouth-level smears.
+const ROT_NOISE = `
+float rotHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float rotNoise(vec3 x) {
+  vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(rotHash(i), rotHash(i + vec3(1,0,0)), f.x), mix(rotHash(i + vec3(0,1,0)), rotHash(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(rotHash(i + vec3(0,0,1)), rotHash(i + vec3(1,0,1)), f.x), mix(rotHash(i + vec3(0,1,1)), rotHash(i + vec3(1,1,1)), f.x), f.y), f.z);
+}`;
+const ROT_COLOUR = `
+{
+  float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+  float pale = smoothstep(0.45, 0.8, lum); // the brightest of the skin is skin: make it a corpse's
+  vec3 dead = mix(vec3(lum) * vec3(0.62, 0.66, 0.6) * 0.7, vec3(0.62, 0.68, 0.66) * lum * 1.05, pale);
+  vec3 q = vRot * 2.4;
+  float n = rotNoise(q) * 0.65 + rotNoise(q * 2.7) * 0.35;
+  dead = mix(dead, vec3(0.06, 0.055, 0.04), smoothstep(0.55, 0.78, n) * 0.9);
+  float h = vRot.z / 2.8; // up the body at rest
+  float bib = smoothstep(0.32, 0.48, h) * (1.0 - smoothstep(0.62, 0.7, h)); // from the mouth down the chest
+  float b = rotNoise(q * 1.6 + 11.0) + bib * 0.35;
+  dead = mix(dead, vec3(0.3, 0.015, 0.02), smoothstep(0.62, 0.84, b) * 0.95);
+  dead *= 0.8 + 0.35 * rotNoise(q * 6.0);
+  diffuseColor.rgb = dead;
+}`;
 
 export class Crowd {
   readonly group = new Group();
@@ -55,6 +80,8 @@ export class Crowd {
   private frame = 0;
   private m = new Matrix4();
   private q = new Quaternion();
+  private lean = new Quaternion();
+  private side = new Vector3(1, 0, 0);
   private up = new Vector3(0, 1, 0);
   private s: Vector3;
   private sv = new Vector3();
@@ -111,8 +138,13 @@ export class Crowd {
      * The silhouette (`xray`) draws the same pose, flat and only for instances flagged near: the rest are put
      * outside the screen before a single pixel of them is drawn.
      */
+    // the rot's noise runs in world units over the body at rest: the mesh's own units, scaled to a character's height
+    sm.geometry.computeBoundingBox();
+    const rest = sm.geometry.boundingBox!.getSize(new Vector3());
+    const rotScale = HEIGHT / Math.max(rest.x, rest.y, rest.z, 1e-6);
     const patch = (m: MeshLambertMaterial | MeshBasicMaterial, xray: boolean) => {
       m.onBeforeCompile = (shader) => {
+        shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>\n#define ROT_SCALE ${rotScale.toFixed(6)}`);
         shader.uniforms.boneTex = { value: tex };
         shader.uniforms.joints = { value: joints };
         shader.vertexShader = shader.vertexShader
@@ -125,6 +157,7 @@ attribute float mut;
 attribute float near;
 uniform vec4 joints[4];
 varying float vStump;
+varying vec3 vRot;
 uniform highp sampler2D boneTex;
 mat4 crowdBone(float b) {
   ivec2 p = ivec2(int(b) * 4, int(animRow));
@@ -134,7 +167,8 @@ mat4 crowdSkin() {
   return skinWeight.x * crowdBone(skinIndex.x) + skinWeight.y * crowdBone(skinIndex.y) + skinWeight.z * crowdBone(skinIndex.z) + skinWeight.w * crowdBone(skinIndex.w);
 }`)
           .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = normalize(mat3(crowdSkin()) * normal);')
-          .replace('#include <begin_vertex>', `vec3 transformed = (crowdSkin() * vec4(position, 1.0)).xyz;
+          .replace('#include <begin_vertex>', `vRot = position * ROT_SCALE + vec3(float(gl_InstanceID) * 3.7, 0.0, float(gl_InstanceID) * 1.3); // the body at rest (so the rot stays put on it as it moves), shifted so no two rot alike
+vec3 transformed = (crowdSkin() * vec4(position, 1.0)).xyz;
 vStump = 0.0;
 float bits = mut;
 for (int k = 3; k >= 0; k--) {
@@ -149,8 +183,8 @@ for (int k = 3; k >= 0; k--) {
           .replace('#include <project_vertex>', xray ? '#include <project_vertex>\nif (near < 0.5) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);' : '#include <project_vertex>');
         if (!xray) {
           shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\nvarying float vStump;')
-            .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.015, 0.02), clamp(vStump, 0.0, 1.0));');
+            .replace('#include <common>', `#include <common>\nvarying float vStump;\nvarying vec3 vRot;\n${ROT_NOISE}`)
+            .replace('#include <color_fragment>', `#include <color_fragment>\n${ROT_COLOUR}\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.015, 0.02), clamp(vStump, 0.0, 1.0));`);
         }
       };
     };
@@ -205,6 +239,7 @@ for (int k = 3; k >= 0; k--) {
    */
   draw(id: number, x: number, z: number, heading: number, clip: CrowdClip, dt: number,
     o: { rate?: number; once?: boolean; restart?: boolean; end?: boolean; y?: number; tint?: number; bright?: number; wide?: number; tall?: number;
+      /** Lean forward by this much (radians): the hunch of something that is not a person any more. */ hunch?: number;
       /** What it has lost (MUT bits). */ mut?: number;
       /** Stand still at this point of the clip (0..1). */ hold?: number;
       /** Play back and forth between these two points of the clip (0..1): a crawl made from the start of getting up. */ pong?: readonly [number, number];
@@ -237,7 +272,9 @@ for (int k = 3; k >= 0; k--) {
     this.muts[skin]!.setX(n, o.mut ?? 0);
     this.nears[skin]!.setX(n, o.near ? 1 : 0);
     this.q.setFromAxisAngle(this.up, t.yaw);
-    this.m.compose(this.at.set(x, o.y ?? 0, z), this.q, this.sv.set(this.s.x * (o.wide ?? 1), this.s.y * (o.tall ?? 1), this.s.z * (o.wide ?? 1)));
+    if (o.hunch) this.q.multiply(this.lean.setFromAxisAngle(this.side, o.hunch)); // pitched forward over its feet
+    const gaunt = o.hunch ? 0.92 : 1;
+    this.m.compose(this.at.set(x, o.y ?? 0, z), this.q, this.sv.set(this.s.x * (o.wide ?? 1) * gaunt, this.s.y * (o.tall ?? 1) / gaunt, this.s.z * (o.wide ?? 1) * gaunt));
     this.meshes[skin]!.setMatrixAt(n, this.m);
     this.meshes[skin]!.setColorAt(n, this.tint.setHex(o.tint ?? 0xffffff).multiplyScalar(o.bright ?? 1));
     this.counts[skin] = n + 1;

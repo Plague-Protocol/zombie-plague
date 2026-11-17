@@ -84,6 +84,16 @@ export const home: Page = {
         <a class="btn ghost sm" href="/ranks">All rankings</a>
       </div>
     </div>
+    <div class="sec card deduce">
+      <div>
+        <div class="kicker">Our other game &middot; Deduce</div>
+        <h2 class="ph2">Who in the room is infected?</h2>
+        <p class="sub" style="margin-bottom:14px">Surviving the streets is one thing. Reading people is another. In Deduce, one player is secretly Patient Zero and turns someone new every round. The rest of you have to talk, vote and find them before the room is lost.</p>
+        <ul><li>Lie, scheme, and frame the innocent, or catch the one who does</li><li>Vote someone out every round; a wrong guess spreads it</li><li>Stake USDm on Celo and the survivors split the pot</li></ul>
+        <a class="btn red" href="https://deduce.zplague.xyz" target="_blank" rel="noopener">Test your instincts on Deduce &rarr;</a>
+      </div>
+      <div class="vote" aria-hidden="true"><span>?</span><span>?</span><span class="sus">!</span><span>?</span><span class="sus">?</span><span>?</span></div>
+    </div>
   </div>`;
   },
   mount(root) {

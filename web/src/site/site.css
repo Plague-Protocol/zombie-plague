@@ -266,11 +266,30 @@ ol.steps { margin: 0; padding-left: 1.3em; color: #a0bb94; } ol.steps li { margi
   background: #0a100a; border: 1px solid rgba(107,142,35,.25); color: #a0bb94; font: 15px 'VT323', monospace; letter-spacing: .1em; }
 .face img { width: 60px; height: 72px; object-fit: cover; }
 .face.on { border-color: #84cc16; background: rgba(132,204,22,.12); color: #e8e0cc; }
-.roster .sv { display: grid; grid-template-columns: 110px 1fr; gap: 12px; align-items: start; padding: 12px 14px 14px 6px;
-  background: radial-gradient(ellipse at 15% 40%, rgba(132,204,22,.1), transparent 55%), linear-gradient(180deg, #0d150d, #080d08); }
-.roster .sv img { width: 110px; height: 132px; object-fit: cover; }
+.roster .sv { display: flex; flex-direction: column; }
 .roster .sv.own { border-color: rgba(132,204,22,.35); }
-.roster .sv .buy { margin-top: 10px; }
+.svart { position: relative; display: flex; justify-content: center; align-items: flex-end; height: 176px; margin: -18px -18px 14px;
+  background: radial-gradient(ellipse at 50% 70%, rgba(132,204,22,.16), transparent 62%), linear-gradient(180deg, #0a120a, #060b06);
+  border-bottom: 1px solid rgba(107,142,35,.16); }
+.svart img { height: 168px; width: auto; filter: drop-shadow(0 8px 12px rgba(0,0,0,.7)); }
+.svart .tag { position: absolute; top: 10px; right: 10px; }
+.roster .sv .perk { margin-top: 10px; color: #e8e0cc; font-size: 14px; }
+.roster .sv .perk b { display: block; font: 15px 'VT323', monospace; letter-spacing: .14em; text-transform: uppercase; color: #84cc16; font-weight: 400; }
+.roster .sv .buy { margin-top: auto; padding-top: 14px; }
+.roster .sv .buy .btn { width: 100%; }
+.slotnote { margin: 0 0 14px; font-size: 14px; color: #a0bb94; border-left: 3px solid #6b8e23; padding: 6px 10px; background: rgba(107,142,35,.06); border-radius: 0 6px 6px 0; }
+.slotnote b { color: #e8e0cc; }
+/* the other game: a pitch for Deduce */
+.deduce { display: grid; grid-template-columns: 1.2fr .8fr; gap: 22px; align-items: center; border: 1px solid rgba(204,20,20,.35);
+  background: radial-gradient(ellipse at 85% 50%, rgba(204,20,20,.18), transparent 60%), linear-gradient(135deg, #140808, #0a0606 60%); }
+.deduce ul { margin: 0 0 18px; padding: 0; list-style: none; display: grid; gap: 6px; color: #d4c9b2; font-size: 15px; }
+.deduce li::before { content: '\25B8  '; color: #ff6b5e; }
+.deduce .vote { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.deduce .vote span { aspect-ratio: 1; border-radius: 12px; display: flex; align-items: center; justify-content: center; font: 400 28px 'Eater', system-ui;
+  background: #120a0a; border: 1px solid rgba(204,20,20,.3); color: #d4c9b2; }
+.deduce .vote span.sus { border-color: #ff6b5e; color: #ff6b5e; box-shadow: 0 0 18px rgba(204,20,20,.4); }
+@media (max-width: 760px) { .deduce { grid-template-columns: 1fr; } .deduce .vote { max-width: 260px; } }
+
 
 /* item pictures (public/armoury, rendered from the game's own meshes by tools/items.html) */
 .itemart { display: flex; align-items: center; justify-content: center; margin: -18px -18px 14px; height: 150px;

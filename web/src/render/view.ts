@@ -272,6 +272,7 @@ export class GameView {
     }
 
     this.crowd.reset();
+    this.zMoved.clear();
     for (const a of this.left.values()) { this.scene.remove(a.root); a.dispose(); }
     this.left.clear();
     if (this.husk) { this.scene.remove(this.husk.root); this.husk.dispose(); this.husk = null; }
@@ -885,8 +886,13 @@ export class GameView {
       .map((v) => v.q);
     let huskSeen = false;
     this.tentacles.begin(this.time);
+    const k = 1 - Math.exp(-dt * 8);
     for (const z of near(s.zombies, this.limits.zombies)) {
-      const [clip, o] = this.zombieClip(z);
+      const was = this.zMoved.get(z.id);
+      const inst = was && dt > 0 ? Math.hypot(z.pos.x - was.x, z.pos.y - was.y) / dt : z.speed;
+      const moved = was ? was.v + (Math.min(inst, 20) - was.v) * k : z.speed;
+      this.zMoved.set(z.id, { x: z.pos.x, y: z.pos.y, v: moved });
+      const [clip, o] = this.zombieClip(z, moved);
       if (z.husk && z.action !== 'dead') { // your last self: your own face, the colour gone out of it
         huskSeen = true;
         if (!this.husk) {
@@ -906,7 +912,8 @@ export class GameView {
                 : z.kind === 'walker' && z.id % 6 === 0 ? { mut: z.id % 4 === 0 ? MUT.leftArm : MUT.rightArm } : null;
         // close to you and behind a building: its silhouette shows through, as yours does (not the street beyond)
         const close = z.action !== 'dead' && Math.hypot(z.pos.x - s.player.pos.x, z.pos.y - s.player.pos.y) < XRAY_NEAR;
-        this.crowd.draw(z.id, z.pos.x, z.pos.y, z.heading, clip, dt, { ...o, ...look, near: close });
+        const hunch = z.kind === 'crawler' || z.action === 'dead' || z.action === 'dormant' || z.action === 'rise' ? 0 : z.kind === 'runner' ? 0.32 : 0.22;
+        this.crowd.draw(z.id, z.pos.x, z.pos.y, z.heading, clip, dt, { hunch, ...o, ...look, near: close });
         if (z.kind === 'lasher' && z.action !== 'dead') this.lash(z);
       }
       if (z.action !== 'dead' && z.action !== 'dormant') shadowAt(z.pos.x, z.pos.y);
@@ -1178,12 +1185,16 @@ export class GameView {
   }
 
   /** Which clip a zombie is on, and how it plays. */
-  private zombieClip(z: Zombie): [CrowdClip, { rate?: number; once?: boolean; end?: boolean; hold?: number; pong?: readonly [number, number] }] {
+  /** Each drawn zombie's last place and how fast it has really been moving (smoothed). */
+  private zMoved = new Map<number, { x: number; y: number; v: number }>();
+
+  /** `moved`: how fast it is really going (held back at a safe spot it wants to run but cannot). */
+  private zombieClip(z: Zombie, moved = z.speed): [CrowdClip, { rate?: number; once?: boolean; end?: boolean; hold?: number; pong?: readonly [number, number] }] {
     const g = (c: ClipName) => this.assets.groundSpeed.get(c) || 1;
     if (z.kind === 'crawler') { // half a body: it never stands. Its crawl is the start of getting up, over and over
       if (z.action === 'dead' || z.staggerT > 0) return ['ZRise', { hold: CRAWL.down }];
       if (z.action === 'attack' || z.action === 'feed') return ['ZRise', { pong: CRAWL.lunge, rate: 2.2 }];
-      return ['ZRise', { pong: CRAWL.drag, rate: z.speed > 0.2 ? 1.1 : 0.35 }];
+      return ['ZRise', { pong: CRAWL.drag, rate: Math.min(z.speed, moved) > 0.2 ? 1.1 : 0.35 }];
     }
     if (z.action === 'dormant') return ['Death', { once: true, end: true }]; // lying exactly like the dead
     if (z.staggerT > 0 && z.action !== 'dead') return ['Hit', { once: true }];
@@ -1197,9 +1208,10 @@ export class GameView {
       case 'feed': return ['ZAttack', { rate: 0.8 }];
       case 'cling': return ['ZAttack', { rate: 1.1 }]; // clawing at the car
       default:
-        if (z.kind === 'runner' && z.speed > 2) return ['Sprint', { rate: z.speed / g('Sprint') }];
-        if (z.speed > 0.1) return ['ZWalk', { rate: z.speed / g('ZWalk') }];
-        return ['ZIdle', {}];
+        { const sp = Math.min(z.speed, moved);
+          if (z.kind === 'runner' && sp > 2) return ['Sprint', { rate: sp / g('Sprint') }];
+          if (sp > 0.25) return ['ZWalk', { rate: sp / g('ZWalk') }];
+          return ['ZIdle', {}]; }
     }
   }
 

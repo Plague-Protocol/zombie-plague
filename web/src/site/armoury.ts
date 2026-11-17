@@ -48,10 +48,12 @@ export function mountArmoury(root: HTMLElement): void {
         <div class="ph">Loadout</div>
         <h3>What you carry in</h3>
         <div class="seg" style="grid-template-columns:1fr 1fr;margin:10px 0 14px">
-          <button type="button" data-a="slot:ranked" class="${slot === 'ranked' ? 'on' : ''}">Ranked &middot; ${loadoutPoints(draft.ranked)}/${RANKED_POINTS}</button>
-          <button type="button" data-a="slot:open" class="${slot === 'open' ? 'on' : ''}">Practice &middot; open</button>
+          <button type="button" data-a="slot:ranked" class="${slot === 'ranked' ? 'on' : ''}">Ranked &middot; ${loadoutPoints(draft.ranked)}/${RANKED_POINTS} pts</button>
+          <button type="button" data-a="slot:open" class="${slot === 'open' ? 'on' : ''}">Practice &middot; no limit</button>
         </div>
-        <p class="muted" style="font-size:14px;margin:0 0 12px">${slot === 'ranked' ? `Tonight's city is ranked: everyone gets the same ${RANKED_POINTS} points to spend on what they own.` : 'Practice nights take whatever you own: no limit, and they pay half.'}</p>
+        <p class="slotnote">${slot === 'ranked'
+          ? `<b>Used for tonight's city and multiplayer rooms</b>, the nights that count on the leaderboard. To keep it fair, everyone gets the same ${RANKED_POINTS} points to spend on what they own: owning more gives you choice, not more power.`
+          : '<b>Used for practice nights</b>: a random city that is not on the leaderboard. Bring anything you own, with no points limit, to try kit out or learn the streets. Practice nights bank half the cash.'}</p>
         <div class="ph">Survivor</div>
         <div class="who">${mine.map((id) => `<button type="button" class="face${who === id ? ' on' : ''}" data-a="sv:${id}" title="${esc(ROSTER[id].perk)}"><img src="/survivors/${id}.webp" alt="" width="60" height="72" /><span>${SURVIVORS[id].name}</span></button>`).join('')}</div>
         <label class="ups" style="margin:8px 0 14px">${SURVIVORS[who].name}'s perk<select data-a="grit">${Array.from({ length: svLevel(v.owned, who) }, (_, k) => `<option value="${k}"${grit === k ? ' selected' : ''}>${k ? `Level ${k}: ${perkAt(who, k)} (${k} pt${k > 1 ? 's' : ''})` : `Base: ${perkAt(who, 0)}`}</option>`).join('')}</select></label>
@@ -79,10 +81,12 @@ export function mountArmoury(root: HTMLElement): void {
     <div class="sec" style="margin-top:40px"><div class="kicker">Roster</div><h2 class="ph2">Survivors</h2><p class="sub">Who you play. Each has one perk that grows over three levels; a level brought into a ranked night costs a loadout point.</p>
       <div class="grid roster">${ids.map((id) => {
         const lv = svLevel(v!.owned, id), next = lv + 1, price = next <= MAX_GRIT + 1 ? svPrice(id, next) : 0;
-        return `<div class="card sv${lv ? ' own' : ''}"><img src="/survivors/${id}.webp" alt="" loading="lazy" width="150" height="180" /><div>
-          <div class="ph">${esc(ROSTER[id].role)}</div><h3>${SURVIVORS[id].name} ${lv ? `<span class="tag g">${lv > 1 ? `Perk ${lv - 1}` : 'Yours'}</span>` : ''}</h3>
-          <p>${esc(ROSTER[id].blurb)}</p><p style="margin-top:6px;color:#e8e0cc">${esc(ROSTER[id].perk)}: ${lv ? perkAt(id, lv - 1) : perkAt(id, 0)}${next <= MAX_GRIT + 1 && lv ? ` &rarr; ${perkAt(id, lv)}` : ''}</p>
-          <div class="buy">${next > MAX_GRIT + 1 ? '<span class="tag g">Max</span>' : `<button class="btn${lv ? ' ghost' : ''} sm" type="button" data-a="buy:sv.${id}"${v!.cash < price || busy ? ' disabled' : ''}>${lv ? `Perk ${lv}` : 'Unlock'} &middot; ${fmt(price)}</button>`}</div></div></div>`;
+        return `<div class="card sv${lv ? ' own' : ''}">
+          <div class="svart"><img src="/survivors/${id}.webp" alt="" loading="lazy" width="150" height="180" />${lv ? `<span class="tag g">${lv > 1 ? `Perk ${lv - 1}` : 'Yours'}</span>` : ''}</div>
+          <div class="ph">${esc(ROSTER[id].role)}</div><h3>${SURVIVORS[id].name}</h3>
+          <p>${esc(ROSTER[id].blurb)}</p>
+          <p class="perk"><b>${esc(ROSTER[id].perk)}</b>${lv ? perkAt(id, lv - 1) : perkAt(id, 0)}${next <= MAX_GRIT + 1 && lv ? ` &rarr; ${perkAt(id, lv)}` : ''}</p>
+          <div class="buy">${next > MAX_GRIT + 1 ? '<span class="tag g">Fully upgraded</span>' : `<button class="btn${lv ? ' ghost' : ''} sm" type="button" data-a="buy:sv.${id}"${v!.cash < price || busy ? ' disabled' : ''}>${lv ? `Perk ${lv}` : 'Unlock'} &middot; ${fmt(price)}</button>`}</div></div>`;
       }).join('')}</div>
     </div>
 
