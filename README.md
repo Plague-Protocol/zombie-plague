@@ -9,25 +9,38 @@ That repo is read here, never modified.
 ## The cold open
 
 The first visit in a session opens on Zombie Plague's splash, ported from plague-celo
-(`src/ui/splash.ts`, markup and styles in `index.html`): the logo gate over a looping clip, then a
+(`web/src/ui/splash.ts`, markup and styles in `index.html`): the logo gate over a looping clip, then a
 transmission from Port Halden Command typed out in three acts (nine lines; the scream is keyed to
 the third, the act changes drive the fades; the commander is infected, and the last fragment after
 the "…" is the tell), then the title slams in. It loads in its own chunk while the game loads; the
 gate clip waits for the page to load and is never fetched on a slow or data-saving connection.
 Skip is always there; `?skipintro` skips it too. The 3D scene does not render underneath it.
-Art, clips and sounds come from plague-celo's `public/` (`public/intro/`); the faces are Eater and
-VT323 (SIL Open Font License 1.1, licences in `public/intro/fonts/`).
+Art, clips and sounds come from plague-celo's `web/public/` (`web/public/intro/`); the faces are Eater and
+VT323 (SIL Open Font License 1.1, licences in `web/public/intro/fonts/`).
 
 Status: phase 1 slice (one city, single player, no sign-in, no backend, no wallet).
 Design: [docs/DESIGN.md](docs/DESIGN.md).
 
+## Layout
+
+One repository, one history. The game's rules are shared code, so the page and the server can never disagree about them.
+
+| Folder | What | Run |
+|---|---|---|
+| `core/` | The game's rules (pure, deterministic, no dependencies) and the wire protocol. The page plays them; the server replays and runs them unchanged. | tested from `web/` |
+| `web/` | The game page (Vite, three.js): rendering, sound, input, UI, lobby, leaderboard, admin page. Deployed to Vercel (`vercel.json` at the root builds `web/`). | below |
+| `server/` | Accounts, replay-checked runs, leaderboards, real-time rooms, staked-room settlement, admin API. One Docker image. | [The server](#the-server) |
+| `contracts/` | The stake contracts (Foundry). | `forge test` |
+| `deploy/`, `docs/` | Static hosting notes; design, plans, deployments. | |
+
 ## Run
 
 ```sh
+cd web
 npm install        # scripts are disabled by .npmrc; versions are exact-pinned
 npm run dev        # http://localhost:5173 (also on your LAN, for testing on a phone)
-npm test           # unit tests
-npm run build      # typecheck + production build into dist/
+npm test           # unit tests (the rules in ../core, and the page)
+npm run build      # typecheck + production build into web/dist/
 ```
 
 URL options: `?server=ws://host:8787` the multiplayer server, `?seed=123` fixed night, `?skipintro`, `?debug` perf overlay, `?dpr=1.5` cap the
@@ -36,7 +49,7 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 ## The plague
 
 What makes this Zombie Plague and not another zombie run. Every rule here lives in the pure game
-state (`src/core/state.ts`), so a server can run it unchanged; the renderer and sound only show it.
+state (`core/state.ts`), so a server can run it unchanged; the renderer and sound only show it.
 
 - **The clock is your infection.** The timer is the dose wearing off (`infection()` = share of the
   clock gone). At zero you turn (TURNED). A bite hurts and also jumps the infection ahead 8 seconds
@@ -76,7 +89,7 @@ state (`src/core/state.ts`), so a server can run it unchanged; the renderer and 
   - *Lasher*: no head, and a knot of tentacles where it was. It strikes from 3.3 units (an arm
     reaches 1.35) after a long wind-up you can hear, and the hit drags you toward it.
   - About one walker in six is missing an arm.
-- **Each kind has its own voice** (all synthesised, `src/audio/sound.ts`): the screamer's long
+- **Each kind has its own voice** (all synthesised, `web/src/audio/sound.ts`): the screamer's long
   breath in and then a full human scream with its echo; a crawler's drag and rattle; a lasher's wet
   clicking and the whistle and crack of its strike; a stalker's dry chitter in the dark.
 - **Hidden bites.** Someone you are bringing in may be bitten and hiding it (30% of groups in the
@@ -94,7 +107,7 @@ state (`src/core/state.ts`), so a server can run it unchanged; the renderer and 
 - **The streets.** Body bags in rows on the pavement, burn sites still glowing, quarantine
   placards, and the loudspeakers still reading out orders nobody is left to follow.
 
-**Replays.** Every night is written down as it is played (`src/core/replay.ts`): each step's input
+**Replays.** Every night is written down as it is played (`core/replay.ts`): each step's input
 (the stick in 64ths, buttons as bits, runs folded together) and everything done between steps
 (purchases, weapon swaps, puzzle answers), which all go through one `command()`. `replay(log)`
 re-runs it to the same end state; the log goes out with the run result (`RunResult.replay`).
@@ -109,11 +122,11 @@ ticks down separately and a player who runs out, or is shot down, **turns** and 
 them. A bullet or a swing does half damage to a living player (none in the first 20 seconds or near the
 exit). Rooms have no vehicles and nobody to escort.
 
-What a browser is told is what its player could see (`src/core/view.ts`): other players and infected out
+What a browser is told is what its player could see (`core/view.ts`): other players and infected out
 of sight, other players' health and clocks, and noises too far to hear never leave the server. Snapshots go
-out at 15 a second in a compact form (`src/net/codec.ts`), 4 to 6 KB/s per player. Your own walking is
+out at 15 a second in a compact form (`core/codec.ts`), 4 to 6 KB/s per player. Your own walking is
 predicted so the controls answer at once, and corrected when the server's word comes back; everything else
-is drawn a tenth of a second in the past, between two snapshots (`src/net/room.ts`, loaded only when you tap
+is drawn a tenth of a second in the past, between two snapshots (`web/src/net/room.ts`, loaded only when you tap
 Multiplayer).
 
 Sign in with the wallet the page has (MiniPay, MetaMask) to be known by name, put your nights on the
@@ -121,7 +134,7 @@ leaderboard and have your last self follow you from device to device; guests can
 
 ## The server
 
-`server/` (Node 22, Fastify, `ws`, Postgres through `pg`). It imports the game's rules from `src/core`
+`server/` (Node 22, Fastify, `ws`, Postgres through `pg`). It imports the game's rules from `core`
 unchanged, so the rules a browser plays are the rules the server checks.
 
 - **Accounts:** a wallet signs a one-time nonce; the server hands back a token (`server/src/auth.ts`).
@@ -135,7 +148,7 @@ unchanged, so the rules a browser plays are the rules the server checks.
 ```sh
 cd server && cp .env.example .env     # set JWT_SECRET (32+ characters) at least
 npm install && npm run dev            # http and ws on :8787; no DATABASE_URL = in memory
-npm test                              # 35 tests (TEST_DATABASE_URL=postgres://... adds the Postgres ones)
+npm test                              # TEST_DATABASE_URL=postgres://... adds the Postgres ones
 docker compose -f server/docker-compose.yml --env-file server/.env up --build   # server + Postgres (image build not yet tried: no docker daemon was running)
 ```
 
@@ -143,9 +156,9 @@ The browser finds the server at `?server=ws://host:port`, `VITE_SERVER_URL`, or 
 
 ## Replays are exact across engines
 
-The rules use their own sin, cos, atan2 and hypot (`src/core/dmath.ts`), because the standard ones may
-differ in their last bit between V8 and Safari's JavaScriptCore. `tests/fixtures/replay-v1.json` holds a
-night and a room round with their fingerprints; `tools/engine-check.ts` replays them in any engine and was
+The rules use their own sin, cos, atan2 and hypot (`core/dmath.ts`), because the standard ones may
+differ in their last bit between V8 and Safari's JavaScriptCore. `web/tests/fixtures/replay-v1.json` holds a
+night and a room round with their fingerprints; `web/tools/engine-check.ts` replays them in any engine and was
 run in JavaScriptCore (every iPhone browser) and Node with identical results.
 
 ## Staked rooms: built and proven on Celo Sepolia, off by default
@@ -174,7 +187,7 @@ tonight's city (the same for everyone on a day). A run's score comes from the se
 cleared, getting out and the time left, kills (capped), people helped, optional steps, accuracy, a clean night, less
 bites, doses and people you let turn. Boards: tonight, the week, streaks, rooms; each shows your rank, a title, and
 how far it is to the next place. Rooms: Quick play into an open public room, or a private room joined by code or an
-invite link (`?join=CODE`). Recorded sounds and their licences: `public/sfx/CREDITS.md`.
+invite link (`?join=CODE`). Recorded sounds and their licences: `web/public/sfx/CREDITS.md`.
 
 **Sign-in:** an injected wallet (MiniPay, MetaMask), or Google / passkey (thirdweb, set `VITE_THIRDWEB_CLIENT_ID`;
 that wallet signs in but cannot stake). Copy `.env.example` (page) and `server/.env.example` (server).
@@ -293,18 +306,18 @@ Nothing is deployed until you choose to.
 
 ## Layout
 
-- `src/core/` pure game logic: RNG, city, task chain, state/step (movement, vehicles, weapons,
+- `core/` pure game logic: RNG, city, task chain, state/step (movement, vehicles, weapons,
   zombies), story text. No DOM, no three.js, no wall clock, no `Math.random` (a test enforces this)
   so it can move to a server in phase 2.
-- `src/render/` three.js view; only reads `GameState`. `city.ts` builds the city in chunks
+- `web/src/render/` three.js view; only reads `GameState`. `city.ts` builds the city in chunks
   (culled when off screen), `props.ts` vehicles, guns, the store, the evac helicopter and effects.
-- `src/audio/` sound synthesised in code with Web Audio (wind, sirens, groans, gunshots, engine).
-- `src/input/`, `src/ui/` controls, HUD, dialogue, store, minimap and city map (plain DOM/canvas).
-- `src/seams/` empty interfaces for sign-in (`AuthSession`) and progress (`ProgressStore`).
+- `web/src/audio/` sound synthesised in code with Web Audio (wind, sirens, groans, gunshots, engine).
+- `web/src/input/`, `web/src/ui/` controls, HUD, dialogue, store, minimap and city map (plain DOM/canvas).
+- `web/src/seams/` empty interfaces for sign-in (`AuthSession`) and progress (`ProgressStore`).
 
 ## Task content (data, not code)
 
-Every step lives in `public/content/tasks.json`, which the game fetches at start, along with the story
+Every step lives in `web/public/content/tasks.json`, which the game fetches at start, along with the story
 around them (intro, chapter cards, radio calls, endings). The mechanics are code; a step is an entry
 that picks one and supplies everything else:
 
@@ -315,10 +328,10 @@ that picks one and supplies everything else:
   must be with you at the door), `lure` (draws them to it for a while), `horde` (the noise brings a wave).
 - Words: `objective`, `short`, `verb` (the Use button), `brief` and `done` as `"Speaker|line"`, with
   `{code}` filled in per night (door codes, phone numbers); `final` replaces the words in the last chapter.
-- Looks: `scene` (a preset in `src/render/view.ts`: a pharmacy, a phone booth, a crashed bus...) and
-  `item` (from the library in `src/render/props.ts`).
+- Looks: `scene` (a preset in `web/src/render/view.ts`: a pharmacy, a phone booth, a crashed bus...) and
+  `item` (from the library in `web/src/render/props.ts`).
 
-A group is one or more steps done in order. `src/core/content.ts` checks a file before it is used
+A group is one or more steps done in order. `core/content.ts` checks a file before it is used
 (unknown kinds, missing lines, a line without a speaker, an escort that starts but never ends). New
 steps that reuse the mechanics, scenes and items need no code at all. The file carries a `version`,
 so a backend can serve it later and a replayed run can be checked against the same content. Puzzle
@@ -328,20 +341,20 @@ answers are checked in the core (`solvePuzzle`), not on the page.
 
 Bodies and skins: Kenney "Animated Characters 3" (CC0). Animations: Quaternius "Universal
 Animation Library" 1 and 2 (CC0): locomotion, death, hit, pistol aim/shoot/reload, interact,
-kneel, two one-handed melee swings, and the zombie idle, shuffle, lunge and rise. `tools/convert-characters.mjs` retargets them
+kneel, two one-handed melee swings, and the zombie idle, shuffle, lunge and rise. `web/tools/convert-characters.mjs` retargets them
 onto the Kenney skeleton and measures each walk/run cycle's ground speed so feet never slide. Gun
 poses play on the upper body only, over whatever the legs are doing. Credits:
-`public/assets/characters/CREDITS.md`. Preview clips at `/tools/preview.html` under `npm run dev`.
+`web/public/assets/characters/CREDITS.md`. Preview clips at `/tools/preview.html` under `npm run dev`.
 
 ## Vehicles and weapons
 
-Our own models, drawn in code by `tools/build-models.mjs` (side profiles extruded with rounded
-edges, turned wheels and bats) into `public/assets/models/models.glb`: sedan, pickup, van, a
+Our own models, drawn in code by `web/tools/build-models.mjs` (side profiles extruded with rounded
+edges, turned wheels and bats) into `web/public/assets/models/models.glb`: sedan, pickup, van, a
 motorbike, pistol, shotgun, rifle, baton, bat and machete. Each is one
 vertex-coloured mesh (one draw call; vehicles add one for their lights). Parts in the marker colour
 (magenta) take a **finish** at load: a car's paint, a gun's furniture. That is the hook for personal
-assets: same model, the owner's finish (`modelGeometry(name, finish)` in `src/render/models.ts`).
-Rebuild with `node tools/build-models.mjs public/assets/models/models.glb`; look at them (with a
+assets: same model, the owner's finish (`modelGeometry(name, finish)` in `web/src/render/models.ts`).
+Rebuild with `node web/tools/build-models.mjs web/public/assets/models/models.glb`; look at them (with a
 colour picker) at `/tools/models.html` under `npm run dev`.
 
 ## Performance budget
@@ -351,7 +364,7 @@ colour picker) at `/tools/models.html` under `npm run dev`.
 | Draw calls | <= 40 | 16 with 24 zombies and 6 bodies on screen: the whole crowd is 2 calls (was one per zombie) |
 | Triangles | <= 50,000 | ~34,500-41,700 (the debris of the abandoned city adds a few thousand) |
 | Real lights | small | hemisphere + moon + flashlight/headlights + fill + 3 pooled + muzzle flash |
-| Zombies drawn | the nearest 70 and 40 bodies (full), 45/24 (phones start here), 28/12 (lightest) | batched: animations baked into a bone texture at load (`src/render/crowd.ts`), posed on the GPU, no per-zombie animation work on the CPU |
+| Zombies drawn | the nearest 70 and 40 bodies (full), 45/24 (phones start here), 28/12 (lightest) | batched: animations baked into a bone texture at load (`web/src/render/crowd.ts`), posed on the GPU, no per-zombie animation work on the CPU |
 | JS bundle (gzip) | <= 240 KB (raised from 220 on 2026-11-09) | 222.2 KB at start, in one file (the store 3.0 KB, full map 1.7 KB and puzzle pages 1.9 KB load when first needed; task content is 6 KB of JSON) |
 | Character assets (gzip) | <= 450 KB | ~426 KB (GLB 282 KB + 4 skins 144 KB) |
 | Vehicle and weapon models (gzip) | <= 150 KB | 132 KB (622 KB raw); ~2,300 triangles a car, 500-1,200 a weapon |

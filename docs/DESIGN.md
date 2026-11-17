@@ -20,7 +20,7 @@ began, the countdown is the infection in their blood, and each district's antivi
 district's clock. Everything distinctive hangs off that: senses that change as you turn, infected
 that notice you less late on, your last self waiting where you fell, hidden bites among the people
 you escort, quarantine marks on doors, a district that falls block by block. The rules are listed
-in the README ("The plague") and live in `src/core/state.ts`.
+in the README ("The plague") and live in `core/state.ts`.
 
 How it carries into the later phases:
 
@@ -31,7 +31,7 @@ How it carries into the later phases:
   server must never send a player what they cannot see or hear, and must decide sight itself
   (`sightScale`, `inLight`).
 - **Staked solo: dropped** (2026-11-16). No counterparty, and bots would drain any pot.
-- **Replay:** built (`src/core/replay.ts`), exact across engines. Multiplayer rooms, the server and the stake contracts are built; staked rooms are the one package left (`docs/PHASE2-BUILD-PLAN.md`, section 9).
+- **Replay:** built (`core/replay.ts`), exact across engines. Multiplayer rooms, the server and the stake contracts are built; staked rooms are the one package left (`docs/PHASE2-BUILD-PLAN.md`, section 9).
 
 ## Design principle: fun first, money second
 
@@ -146,7 +146,7 @@ Real-money earnings wait until there is a funded source for them.
   simple. Night, fog, flashlight, a few pooled street lights. No Unity WebGL: download size is too
   large for MiniPay.
 - **Story:** told like Eko Lockdown (title card, cutscene, speaker lines, radio briefs, endings),
-  wrapped around the seeded task chain. Text in `src/core/story.ts`.
+  wrapped around the seeded task chain. Text in `core/story.ts`.
 - **City 1 (Port Halden):** 8x8 blocks with districts (downtown, residential, park, docklands on a
   harbour, outskirts with a gas station), drivable vehicles, supply crates, weapon pickups and a gun
   store (in-game money only), a minimap and full map rotated to match the camera.

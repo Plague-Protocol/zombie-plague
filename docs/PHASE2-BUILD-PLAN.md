@@ -14,13 +14,13 @@ single-player content.
 
 | Package | State |
 |---|---|
-| W0 deterministic replay | **Done and checked in two engines.** `src/core/dmath.ts`; fixtures replay to the same fingerprints in Node and in JavaScriptCore (Safari's engine): `tools/engine-check.ts` |
-| W1 backend | **Done.** Postgres through `pg` and plain SQL (not Prisma: no generate step to run under `ignore-scripts`, and far fewer dependencies). Sign-in: an injected wallet (MiniPay, MetaMask) in `src/net/account.ts`, or Google / passkey through thirdweb's embedded wallet in `src/net/social.ts` (a lazy chunk, needs `VITE_THIRDWEB_CLIENT_ID`; that wallet signs in but holds no stake money here). **Not yet seen with a real Google account or passkey** (a popup needs a person) |
+| W0 deterministic replay | **Done and checked in two engines.** `core/dmath.ts`; fixtures replay to the same fingerprints in Node and in JavaScriptCore (Safari's engine): `web/tools/engine-check.ts` |
+| W1 backend | **Done.** Postgres through `pg` and plain SQL (not Prisma: no generate step to run under `ignore-scripts`, and far fewer dependencies). Sign-in: an injected wallet (MiniPay, MetaMask) in `web/src/net/account.ts`, or Google / passkey through thirdweb's embedded wallet in `web/src/net/social.ts` (a lazy chunk, needs `VITE_THIRDWEB_CLIENT_ID`; that wallet signs in but holds no stake money here). **Not yet seen with a real Google account or passkey** (a popup needs a person) |
 | W2 core for several players | **Done**, with the cuts listed below |
 | W3 real-time server and client | **Done.** Traffic measured: 4.2 to 5.5 KB/s per player with up to 10 infected in view (budget 6). Prediction error with 150 ms round trip and 30 ms jitter: median 0.06, 95th percentile 0.18 units (budget 0.5) |
 | W4 stake contracts | **Done, tested, and deployed to Celo Sepolia** (addresses and evidence in `docs/DEPLOYMENTS.md`). Modelled on plague-celo's staked rooms (see section 8). 27 Foundry tests, including a 1,200-action campaign and invariants. Not on mainnet |
-| After the packages | **Added on the owner's request:** a 3-minute guest allowance then sign-in (`src/net/gate.ts`); multiplayer for signed-in players only (enforced by the server); Quick play into public rooms and invite links (`?join=CODE`, `?staked=USDT:5`); leaderboards scored from the server's replay (`server/src/score.ts`, `boards.ts`, `src/net/board.ts`: tonight, week, streak, rooms); an admin page (`?admin`; `server/src/admin.ts`, `src/net/admin.ts`); one stake contract per token (USDm and USDT). **A gap found and fixed:** the game played a random city every night, so the nightly board could never compare two runs; it now plays tonight's city from `/night/today` when the server is reachable |
-| W5 staked rooms | **Built and proven on Celo Sepolia, switched off by default** (`STAKED=false`). The owner told us to build it; the legal view is still the gate for turning it on for real money. Server: `server/src/chain.ts`, `staked.ts`. Client: `src/net/stake.ts` and the staked lobby. Details and what is not covered: section 9 |
+| After the packages | **Added on the owner's request:** a 3-minute guest allowance then sign-in (`web/src/net/gate.ts`); multiplayer for signed-in players only (enforced by the server); Quick play into public rooms and invite links (`?join=CODE`, `?staked=USDT:5`); leaderboards scored from the server's replay (`server/src/score.ts`, `boards.ts`, `web/src/net/board.ts`: tonight, week, streak, rooms); an admin page (`?admin`; `server/src/admin.ts`, `web/src/net/admin.ts`); one stake contract per token (USDm and USDT). **A gap found and fixed:** the game played a random city every night, so the nightly board could never compare two runs; it now plays tonight's city from `/night/today` when the server is reachable |
+| W5 staked rooms | **Built and proven on Celo Sepolia, switched off by default** (`STAKED=false`). The owner told us to build it; the legal view is still the gate for turning it on for real money. Server: `server/src/chain.ts`, `staked.ts`. Client: `web/src/net/stake.ts` and the staked lobby. Details and what is not covered: section 9 |
 
 What was cut or changed in W2, on purpose: rooms have **no vehicles** (the per-driver rules for latching, fuel, swarm and breach are deep), **no escort steps** (their groups are left out of a room's pool), and **no last self**. Players have a sixth status, `down` (out of health, lying still three seconds before turning). **Puzzle answers are allowed in rooms** (section 7.2 below said otherwise; a puzzle step is unsolvable without them). **CHECK on another player is built:** stand still beside a living player, hold the action button, and you learn whether they had been bitten when you looked (`Player.bitten`, `Player.checks`; others' `exposed` flag, shown as "(bitten)" on their name). They are not told, and the answer goes stale if they are bitten later. The step for zombies is "nearest living player" and waves/director look at a rotating living player.
 
@@ -29,10 +29,10 @@ What the browser test found that unit tests did not: frames were handled concurr
 Run the pieces:
 
 ```sh
-npm test                                   # game rules, rooms, codec, fixtures
+cd web && npm test                         # game rules (../core), rooms, codec, fixtures
 cd server && npm test                      # accounts, replay checks, rooms over real sockets, staked rooms (TEST_DATABASE_URL adds Postgres)
 cd contracts && forge test                 # the stake contracts (27 tests)
-npx rolldown tools/engine-check.ts --format iife --platform neutral -o /tmp/e.js && \
+(cd web && npx rolldown tools/engine-check.ts --format iife --platform neutral -o /tmp/e.js) && \
   /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc /tmp/e.js   # the cross-engine check
 ```
 
@@ -46,7 +46,7 @@ npx rolldown tools/engine-check.ts --format iife --platform neutral -o /tmp/e.js
    before exceeding the budget.
 4. Dependencies: exact-pinned versions, committed lockfile, `ignore-scripts=true`, and no package
    version younger than 7 days. These are MiniPay listing requirements.
-5. `src/core/` stays pure: no DOM, no three.js, no `Date`, no `Math.random`. Time comes from `dt`,
+5. `core/` stays pure: no DOM, no three.js, no `Date`, no `Math.random`. Time comes from `dt`,
    randomness from `state.rng` and `state.rng2`. The server runs this code unchanged.
 6. Stop and ask the owner before: deploying anything, touching mainnet, moving funds, creating
    GitHub resources, adding a paid service, or changing a tuning constant to make a test pass.
@@ -58,14 +58,14 @@ npx rolldown tools/engine-check.ts --format iife --platform neutral -o /tmp/e.js
 
 | File | What it gives you |
 |---|---|
-| `src/core/state.ts` (2,225 lines) | `GameState`, `createGame(seed, level?, {night, chapter, carry, husk})`, `step(s, input, dt)`, `nextChapter`, `restartChapter`, `interactionFor`, `buy`, `equip`, `solvePuzzle`, `hurtPlayer`, `infection`, `inLight`, `lightOn`, `sightScale`, `fallenBlocks`, `leaveBehind`, `escortGroup` |
-| `src/core/types.ts` | `Input` (`dx, dy, action, fire, reload, swap, throw, light`), `Zombie`, `ZombieKind` (walker, runner, screamer, stalker, crawler, lasher), `GameEvent` (the full list of what a step can emit), `Husk` |
-| `src/core/replay.ts` | `STEP = 1/60`, `Command`, `command(s, c)`, `quantize(input)`, `Recorder`, `NightLog`, `replay(log)` |
-| `src/core/config.ts` | Every tuning number. Add new ones here, never inline |
-| `src/core/level.ts`, `map.ts`, `tasks.ts`, `content.ts` | Seeded level generation. `generateLevel(seed, {night, chapter})`. Content is `public/content/tasks.json`, installed with `setContent` |
-| `src/seams/session.ts`, `src/seams/progress.ts` | The two places the client is meant to plug into a backend. `RunResult` already carries `replay: NightLog` |
-| `src/main.ts` | The client loop: fixed step, `fresh()` builds a chapter and starts its log page, `act()` is the only door for changes outside a step |
-| `tests/helpers.ts`, `tests/plague.test.ts` | How tests build a quiet game, place a zombie and run seconds |
+| `core/state.ts` (2,225 lines) | `GameState`, `createGame(seed, level?, {night, chapter, carry, husk})`, `step(s, input, dt)`, `nextChapter`, `restartChapter`, `interactionFor`, `buy`, `equip`, `solvePuzzle`, `hurtPlayer`, `infection`, `inLight`, `lightOn`, `sightScale`, `fallenBlocks`, `leaveBehind`, `escortGroup` |
+| `core/types.ts` | `Input` (`dx, dy, action, fire, reload, swap, throw, light`), `Zombie`, `ZombieKind` (walker, runner, screamer, stalker, crawler, lasher), `GameEvent` (the full list of what a step can emit), `Husk` |
+| `core/replay.ts` | `STEP = 1/60`, `Command`, `command(s, c)`, `quantize(input)`, `Recorder`, `NightLog`, `replay(log)` |
+| `core/config.ts` | Every tuning number. Add new ones here, never inline |
+| `core/level.ts`, `map.ts`, `tasks.ts`, `content.ts` | Seeded level generation. `generateLevel(seed, {night, chapter})`. Content is `web/public/content/tasks.json`, installed with `setContent` |
+| `web/src/seams/session.ts`, `web/src/seams/progress.ts` | The two places the client is meant to plug into a backend. `RunResult` already carries `replay: NightLog` |
+| `web/src/main.ts` | The client loop: fixed step, `fresh()` builds a chapter and starts its log page, `act()` is the only door for changes outside a step |
+| `web/tests/helpers.ts`, `web/tests/plague.test.ts` | How tests build a quiet game, place a zombie and run seconds |
 
 Facts about the single-player state that shape the work:
 
@@ -99,26 +99,26 @@ iPhone player.
 
 **Do.**
 
-1. Create `src/core/dmath.ts` exporting `dsin`, `dcos`, `datan2`, `dhypot`. Use only `+ - * /`,
+1. Create `core/dmath.ts` exporting `dsin`, `dcos`, `datan2`, `dhypot`. Use only `+ - * /`,
    `Math.sqrt`, `Math.abs`, `Math.floor` (all exactly specified by IEEE 754).
    - `dhypot(x, y) = Math.sqrt(x * x + y * y)`.
    - `dsin`: reduce to [-pi, pi] with `x - 2pi * Math.floor((x + pi) / (2pi))`, fold to
      [-pi/2, pi/2], then a degree-11 odd polynomial in Horner form. `dcos(x) = dsin(x + pi/2)`.
    - `datan2`: octant reduction, then a degree-11 odd polynomial for `atan` on [0, 1].
    - Required accuracy: absolute error under 1e-6 against `Math.*` over 100,000 seeded samples.
-2. Replace every `Math.sin/cos/atan2/hypot` in `src/core/*.ts` with these. Do not touch
-   `src/render`, `src/audio` or `src/ui`.
-3. Add `hashState(s): string` to `src/core/replay.ts`: FNV-1a over, in this order, `phase`,
+2. Replace every `Math.sin/cos/atan2/hypot` in `core/*.ts` with these. Do not touch
+   `web/src/render`, `web/src/audio` or `web/src/ui`.
+3. Add `hashState(s): string` to `core/replay.ts`: FNV-1a over, in this order, `phase`,
    `chapter`, `remaining`, `player.pos`, `player.health`, `funds`, `kills`, `rng.s`, `rng2.s`, and
    each zombie's `id`, `pos`, `health`. Numbers are hashed from their Float64 bytes
    (`new Float64Array([v])` viewed as `Uint8Array`), never from decimal strings.
-4. Add `tests/fixtures/replay-v1.json`: a `NightLog` produced by the scripted player in
-   `tests/plague.test.ts` (`play(seed)`) and the expected `hashState`. Add a test that replays the
+4. Add `web/tests/fixtures/replay-v1.json`: a `NightLog` produced by the scripted player in
+   `web/tests/plague.test.ts` (`play(seed)`) and the expected `hashState`. Add a test that replays the
    fixture and compares the hash. This vector is what a second engine is checked against.
 5. Re-run the bot test. Win counts may shift by one or two. If they fall below the thresholds, stop
    and report; do not retune.
 
-**Accept.** All tests pass. `grep -n "Math\.\(sin\|cos\|atan2\|hypot\)" src/core` prints nothing.
+**Accept.** All tests pass. `grep -n "Math\.\(sin\|cos\|atan2\|hypot\)" core` prints nothing.
 The fixture test passes in Node. If Playwright with WebKit is available, run the fixture page in it
 and report the hash; if not, say it was not checked on JavaScriptCore.
 
@@ -208,7 +208,7 @@ runs with `window.ethereum`; there is no sign-in screen.
    `huskDown: boolean` field to `GameState` set in `killed()`; prefer the field).
 
 **Client.** Implement the two seams, loaded as a separate chunk only when a session exists:
-`src/seams/session.ts` gains `{kind: 'account'; address; token}`; `src/seams/progress.ts` gains
+`web/src/seams/session.ts` gains `{kind: 'account'; address; token}`; `web/src/seams/progress.ts` gains
 `httpProgress(baseUrl)`. `main.ts` keeps `lastSelf()` in localStorage for anonymous play and asks
 the server when signed in. Sign-in itself (thirdweb v5 in-app wallet, Google or passkey) is a
 lazily imported module behind a button on the title screen; in MiniPay
@@ -264,7 +264,7 @@ commits' worth of steps, running the whole test suite after each:
    `interactionFor(s, pl = s.players[0])`, `hurtPlayer`, `takePickups`, `inLight`, `sightScale`,
    `infection`, `buy`, `equip`, `solvePuzzle`, `updateCough`, ...). `step` becomes
    `step(s, inputs: Input | Input[], dt)`; a single `Input` means `[input]`.
-3. **Remove the getters** once nothing in `src/` uses them; update tests to `g.players[0]`.
+3. **Remove the getters** once nothing in `web/src/` uses them; update tests to `g.players[0]`.
 
 ### 6.2 Rules that change with more than one player
 
@@ -302,7 +302,7 @@ createRoom(seed: number, players: number, opts?: { theme?: Theme }): GameState  
 Spawns are street points at least 40 units apart and at least 80 walking units from the exit.
 Each player starts with the solo starting kit.
 
-Add `src/core/view.ts`:
+Add `core/view.ts`:
 
 ```ts
 /** What one player is allowed to know this step. The only thing a server may send them. */
@@ -323,7 +323,7 @@ Visibility rule, applied to `others`, `zombies` and positional events: within 34
 cough: use the noise radius already in `config.ts`). A stalker outside the viewer's light and
 further than 10 units is never sent. This is the fog-of-war that staked play depends on; test it.
 
-**Accept.** New `tests/room.test.ts`:
+**Accept.** New `web/tests/room.test.ts`:
 
 - Two players, one zombie between them: it hunts the nearer; move the nearer away with its light
   off and it switches.
@@ -387,7 +387,7 @@ bytes per player-second in a 4-player room with 60 zombies near. If it is over *
 `Uint8`, one byte for kind and action, and send zombies as deltas from the last acknowledged
 snapshot. Report the measured number either way.
 
-### 7.3 Client (`src/net/`, all dynamically imported)
+### 7.3 Client (`web/src/net/`, all dynamically imported)
 
 - `net/client.ts`: socket, reconnect with backoff (1, 2, 4, 8 seconds, then give up), sends `in`
   at 30 Hz from `controls.read()` through `quantize`.
@@ -464,7 +464,7 @@ Not deployed. `contracts/script/Deploy.s.sol` builds everything (`ADMIN`, `BACKE
 - `server/src/staked.ts`: `Staked.seat` seats a socket only if the chain shows its wallet staked in that room (`stakedIn > 0` and in the player list) and the account is eligible. A timer (`poll`, every 3 s) starts the rooms the chain started, with a seat for everyone who staked (a stake whose owner has not arrived is held like a dropped seat, then given up on after the reconnect window), and closes rooms the chain cancelled. The chain starts a staked room: neither the seats nor the host can.
 - Settlement: when a round ends, the wallets of the seats with status `escaped` are the winners, and `logHash` is the sha256 of the stored round log. What is owed is written to the `settlement` table **before** the transaction is sent (idempotent on room id); a failed send is left open and `resume()` retries it on start-up and every minute; the contract refuses a room already settled. No winners means the contract refunds everyone in full.
 - `/health` reports the backend key's gas and goes 503 under 0.5 CELO. The page shows the staked lobby only if its build knows the contracts **and** `/health` says staked rooms are on and healthy.
-- Client (`src/net/stake.ts`, no library): approve exactly the stake, create or join, start, leave, cancel, with the injected wallet. The joiner's amount is read from the chain (the room's stake), never typed. MiniPay picks its own fee currency (no `gas`, no `feeCurrency` is sent; plague-celo learned that). The selectors are checked against the real ABI in `server/test/stake.test.ts`.
+- Client (`web/src/net/stake.ts`, no library): approve exactly the stake, create or join, start, leave, cancel, with the injected wallet. The joiner's amount is read from the chain (the room's stake), never typed. MiniPay picks its own fee currency (no `gas`, no `feeCurrency` is sent; plague-celo learned that). The selectors are checked against the real ABI in `server/test/stake.test.ts`.
 - Anyone can call `expireRoom` on a waiting room that ran past its expiry; nothing in this repo does it automatically.
 
 **Proven (Celo Sepolia, evidence in `docs/DEPLOYMENTS.md`):** two of three escape and `settle` lands with the exact split and fee; a round where nobody escapes refunds all three in full; the page's own staking code creates, joins, starts, leaves and cancels against the real contracts. **Not proven on a live chain:** `reclaim` (shortest window is one hour; covered by the Foundry tests) and a killed server (covered with a fake chain: a failed settlement is retried after a restart and paid once).

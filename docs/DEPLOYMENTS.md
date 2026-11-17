@@ -66,7 +66,7 @@ The same run on the 6-decimal stack (`SYM=USDT DEC=6`): each winner received exa
 `server/tools/sepolia-admin-check.mts` runs the admin page's wallet acts on the 6-decimal stack: pause, unpause, and
 withdrawing all fees (2,250 units) to the admin wallet.
 
-`sepolia-client-check.mts` runs the page's own staking code (`src/net/stake.ts`) with a stand-in wallet: it creates a room
+`sepolia-client-check.mts` runs the page's own staking code (`web/src/net/stake.ts`) with a stand-in wallet: it creates a room
 (approve + createRoom), a second wallet joins from the room number (stake read from the chain), the server seats both, the
 host starts it on chain and the server begins; leaving and cancelling a waiting room each return the whole stake.
 

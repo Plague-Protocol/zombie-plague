@@ -12,9 +12,10 @@ Nothing has been deployed. These are the steps for when you choose to.
 ## On your machine
 
 ```sh
+cd web
 npm ci            # exact versions from the lockfile; install scripts are disabled by .npmrc
 npm test
-npm run build     # writes dist/
+npm run build     # writes web/dist/
 rsync -avz --delete dist/ USER@SERVER:/var/www/outbreak/
 ```
 
