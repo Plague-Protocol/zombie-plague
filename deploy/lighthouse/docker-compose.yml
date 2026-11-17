@@ -1,0 +1,62 @@
+# Zombie Plague's server on the shared Lighthouse box, next to plague-celo and shelterflex.
+#   cd /opt/outbreak/deploy/lighthouse && docker compose up -d --build
+# Every variable the server reads is named below (a variable only in .env and not listed here is ignored).
+# Its port is published on localhost only: the public way in is plague-celo's Caddy, over the plague_default network.
+name: outbreak
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: outbreak
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: outbreak
+    volumes:
+      - outbreak_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U outbreak -d outbreak"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    mem_limit: 192m
+    cpus: 0.5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../..
+      dockerfile: server/Dockerfile
+    image: outbreak-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 8787
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?set ALLOWED_ORIGINS}
+      DATABASE_URL: postgres://outbreak:${POSTGRES_PASSWORD}@postgres:5432/outbreak
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      CONTENT_DIR: /app/content
+      CELO_RPC: ${CELO_RPC:-https://forno.celo.org}
+      CHAIN_ID: ${CHAIN_ID:-42220}
+      ADMIN_ADDRESSES: ${ADMIN_ADDRESSES:-}
+      STAKED: ${STAKED:-false}
+      STAKE_STACKS: ${STAKE_STACKS:-}
+      BACKEND_KEY: ${BACKEND_KEY:-}
+      STAKED_MIN_ACCOUNT_HOURS: ${STAKED_MIN_ACCOUNT_HOURS:-24}
+      STAKED_MIN_OK_RUNS: ${STAKED_MIN_OK_RUNS:-3}
+    ports:
+      - "127.0.0.1:8787:8787"
+    networks:
+      default:
+      plague:
+        aliases: [outbreak-api]
+    mem_limit: 384m
+    cpus: 1.0
+    restart: unless-stopped
+
+networks:
+  plague:
+    external: true
+    name: plague_default
+
+volumes:
+  outbreak_pg:
