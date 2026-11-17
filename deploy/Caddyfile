@@ -1,0 +1,6 @@
+# The server behind Caddy: HTTPS with a certificate Caddy gets and renews itself, and WebSockets (/play) passed
+# through as they are. Set your domain, point its DNS at this machine, open ports 80 and 443.
+api.yourdomain.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:8787
+}

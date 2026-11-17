@@ -1,0 +1,24 @@
+# The Zombie Plague server as a systemd service. Install:
+#   sudo cp deploy/outbreak-server.service /etc/systemd/system/ && sudo systemctl enable --now outbreak-server
+# Logs: journalctl -u outbreak-server -f
+[Unit]
+Description=Zombie Plague server (accounts, runs, leaderboard, rooms)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/zombie-plague/server
+# reads /opt/zombie-plague/server/.env (see server/.env.example)
+ExecStart=/usr/bin/node --env-file=.env dist/server.mjs
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+# it shares the box: keep it to its share
+MemoryMax=512M
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
