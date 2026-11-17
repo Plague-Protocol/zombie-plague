@@ -66,6 +66,10 @@ In the Vercel project:
   Step* switched on: the page is built from `web/` and the rules in `core/` beside it. `web/vercel.json` sets the
   commands and the cache headers. (Leaving the Root Directory as the repository root also works: the root
   `vercel.json` builds `web/`.)
+- **When it rebuilds:** `web/vercel.json` has a build check (`ignoreCommand`): Vercel builds when `web/` or `core/`
+  changed since its last deployment, and skips pushes that only touch the server, contracts or docs. If it cannot
+  tell, it builds. Do not also turn on Vercel's *Skip deployments when there are no changes to the root directory*:
+  that one ignores `core/`.
 - **Environment variables** (they are built into the page, so redeploy after changing one):
   - `VITE_SERVER_URL` = `wss://api.yourdomain` (the server's address, with `wss://`)
   - `VITE_THIRDWEB_CLIENT_ID` = the client id from your thirdweb dashboard (Google / passkey sign-in). In that
