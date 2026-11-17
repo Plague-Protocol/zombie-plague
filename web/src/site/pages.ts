@@ -305,6 +305,7 @@ export const how: Page = {
       <details><summary>Is it free?</summary><p>Yes. Guests get about three minutes before the game asks for a (free) sign-in. Staked rooms, when they open, are the only part that uses money, and they are optional.</p></details>
       <details><summary>Why do I have to turn my phone?</summary><p>The streets need the width, and the controls need both thumbs. The site itself works upright; only the game asks you to turn.</p></details>
       <details><summary>How do I get full screen on iPhone?</summary><p>Safari will not let a web page hide its bars. Tap Share, then Add to Home Screen, and play from the new icon: it opens full screen.</p></details>
+      <details><summary>What is the Armoury?</summary><p>Where you spend the cash your nights and rounds bank: weapons, gear and supplies you keep, upgrades, and survivors with perks. You choose a loadout for ranked nights (everyone gets the same 8 points, so it is choice, not power) and one for practice. Rooms use your ranked loadout. You can borrow kit for a night, and top up with USDm where it is open.</p></details>
       <details><summary>Can someone fake a score?</summary><p>Every run is sent as the inputs that made it, and the server plays it again before it counts. A run that does not replay to the same result is not on the board.</p></details>
       <details><summary>Where is my progress kept?</summary><p>Signed in, on the server: your runs, your standing and your last self. As a guest, only on this device.</p></details>
     </div>

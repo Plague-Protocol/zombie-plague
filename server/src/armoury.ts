@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   DAILY_CAP, DAILY_RATION, earnedFor, EMPTY_LOADOUT, KIT, kitDef, loadoutProblem, loanFee, MAX_GRIT, ROUND_PAY, SURVIVORS, svLevel, svPrice,
-  upgradable, upgradePrice, type KitId, type Loadout, type SurvivorId, type UpId,
+  upgradable, upgradePrice, weaponsOf, type KitId, type Loadout, type SurvivorId, type UpId,
 } from '../../core/armoury.ts';
 import { UPGRADE_LEVELS } from '../../core/config.ts';
 import type { WeaponKind, UpgradeKind } from '../../core/types.ts';
@@ -58,6 +58,21 @@ export async function payForRun(store: Store, accountId: string, runId: string, 
   }
   const cash = (await store.bank(accountId)).cash;
   return { earned, ration, fees, cash, capped: earned < earnedFor(score, ranked) };
+}
+
+/**
+ * What an account carries into a multiplayer room: its ranked loadout (so a room shares the same budget), with only
+ * what it owns (borrowed kit is for a night, not a room). Anything that no longer checks out leaves it on the standard kit.
+ */
+export async function roomLoadout(store: Store, accountId: string): Promise<Loadout | undefined> {
+  const bank = await store.bank(accountId);
+  const l = bank.loadouts?.ranked;
+  if (!l) return undefined;
+  const kept: Loadout = { ...l, kit: l.kit.filter((k) => bank.owned.kit.includes(k)) };
+  const brings = weaponsOf(kept);
+  kept.ups = Object.fromEntries(Object.entries(l.ups).filter(([k]) => brings.includes(k.split('.')[0] as WeaponKind)));
+  if (kept.hand && !brings.includes(kept.hand)) delete kept.hand;
+  return loadoutProblem(kept, bank.owned, true) ? undefined : kept;
 }
 
 /** Pay a signed-in seat for a multiplayer round (within the daily cap). */

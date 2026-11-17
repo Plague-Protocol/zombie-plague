@@ -1,4 +1,5 @@
 // The WebSocket door at /play: checks every frame, turns sockets into connections, hands them to the rooms.
+import { roomLoadout } from './armoury.ts';
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -97,6 +98,7 @@ export function attachWs(server: Server, o: WsOptions): () => void {
         conn.accountId = acc?.id ?? null;
         conn.address = acc?.address ?? null;
         conn.name = (acc?.name ?? m.name) || (acc ? `${acc.address.slice(0, 6)}…${acc.address.slice(-4)}` : 'Guest');
+        if (acc) conn.loadout = await roomLoadout(o.store, acc.id).catch(() => undefined);
         return;
       }
       if (!hello) { conn.send({ t: 'err', code: 'hello' }); return; }

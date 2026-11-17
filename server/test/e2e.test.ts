@@ -145,6 +145,24 @@ describe('sockets', () => {
     expect(c.last('room')!.seats[0]!.signedIn).toBe(true);
   });
 
+  it('a signed-in player brings their ranked loadout into a room; everyone hears who they play', async () => {
+    const b = await boot();
+    const w = wallet();
+    const { token, account } = (await w.signIn(b.app)).body;
+    await b.store.ledger(account.id, 3000, 'grant', 'test');
+    await b.store.purchase(account.id, 'shotgun', 1, 900, 'shotgun:1');
+    await b.store.purchase(account.id, 'sv.zara', 1, 700, 'sv.zara:1');
+    await b.store.setLoadouts(account.id, { ranked: { kit: ['shotgun'], ups: {}, hand: 'shotgun', survivor: 'zara' }, open: { kit: [], ups: {} } });
+    const { cs, code } = await lobby(b.port, 2, (i) => (i === 0 ? token : null));
+    cs[0]!.send({ t: 'start' });
+    await Promise.all(cs.map((c) => c.until(() => !!c.last('begin'))));
+    expect(cs[1]!.last('begin')!.sv).toEqual(['zara', null]);
+    const g = gameOf(b, code);
+    expect(g.players[0]!.arsenal.weapon).toBe('shotgun');
+    expect(g.players[0]!.arsenal.perks).toEqual({ speed: 0.03 });
+    expect(g.players[1]!.arsenal.owned).toEqual(['pistol', 'baton']);
+  });
+
   it('a signed-in player is known by name; a guest is a guest', async () => {
     const b = await boot();
     const w = wallet();

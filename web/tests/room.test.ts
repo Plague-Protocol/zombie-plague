@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { createRoom, eventSeat, step, type GameState } from '../../core/state';
 import { command, hashState, quantize, replayRoom, RoomRecorder } from '../../core/replay';
+import type { Loadout } from '../../core/loadout';
 import { viewFor } from '../../core/view';
 import { lineClear } from '../../core/collision';
 import { createRng, next } from '../../core/rng';
@@ -289,9 +290,9 @@ describe('what each seat is told', () => {
 });
 
 describe('a round can be written down and played again', () => {
-  const play = (seed: number, n: number) => {
-    const g = createRoom(seed, n);
-    const rec = new RoomRecorder(seed, n, 1, DT);
+  const play = (seed: number, n: number, loadouts?: Array<Loadout | null>) => {
+    const g = createRoom(seed, n, loadouts?.map((l) => l ?? undefined));
+    const rec = new RoomRecorder(seed, n, 1, DT, loadouts);
     const r = createRng(seed * 7 + n);
     const moves = Array.from({ length: n }, () => ({ dx: 0, dy: 0 }));
     for (let i = 0; i < 60 / DT && g.phase === 'playing'; i++) {
@@ -312,6 +313,22 @@ describe('a round can be written down and played again', () => {
       const log = JSON.parse(JSON.stringify(rec.log())) as ReturnType<RoomRecorder['log']>;
       expect(hashState(replayRoom(log))).toBe(hashState(g));
     }
+  });
+
+  it('each seat starts with its own loadout, and the round replays with them', () => {
+    const kits: Array<Loadout | null> = [{ kit: ['shotgun', 'vest'], ups: {}, hand: 'shotgun', survivor: 'zara', grit: 1 }, null, { kit: ['bat'], ups: {}, survivor: 'vex' }];
+    const fresh = createRoom(11, 3, kits.map((l) => l ?? undefined));
+    expect(fresh.players[0]!.arsenal.owned).toContain('shotgun');
+    expect(fresh.players[0]!.arsenal.weapon).toBe('shotgun');
+    expect(fresh.players[0]!.arsenal.perks).toEqual({ speed: 0.06 });
+    expect(fresh.players[1]!.arsenal.owned).toEqual(['pistol', 'baton']);
+    expect(fresh.players[1]!.arsenal.perks).toBeUndefined();
+    expect(fresh.players[2]!.arsenal.owned).toContain('bat');
+    const { g, rec } = play(11, 3, kits);
+    const log = JSON.parse(JSON.stringify(rec.log())) as ReturnType<RoomRecorder['log']>;
+    expect(log.loadouts).toHaveLength(3);
+    expect(hashState(replayRoom(log))).toBe(hashState(g));
+    expect(hashState(replayRoom({ ...log, loadouts: undefined }))).not.toBe(hashState(g));
   });
 
   it('is the same every time it is played', () => {

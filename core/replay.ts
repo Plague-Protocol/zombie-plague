@@ -227,6 +227,8 @@ export interface RoomLog {
   /** [tick it came before, seat, what]. */
   commands: Array<[number, number, Command]>;
   ticks: number;
+  /** What each seat brought from the armoury (absent: everyone had the standard kit). */
+  loadouts?: Array<Loadout | null>;
 }
 
 /** Writes a room's round down as the server plays it. */
@@ -235,7 +237,7 @@ export class RoomRecorder {
   private commands: Array<[number, number, Command]> = [];
   private ticks = 0;
 
-  constructor(readonly seed: number, readonly players: number, readonly content: number, readonly dt: number) {
+  constructor(readonly seed: number, readonly players: number, readonly content: number, readonly dt: number, readonly loadouts?: Array<Loadout | null>) {
     this.seats = Array.from({ length: players }, () => []);
   }
 
@@ -254,13 +256,13 @@ export class RoomRecorder {
   }
 
   log(): RoomLog {
-    return { v: 1, content: this.content, seed: this.seed, players: this.players, dt: this.dt, seats: this.seats, commands: this.commands, ticks: this.ticks };
+    return { v: 1, content: this.content, seed: this.seed, players: this.players, dt: this.dt, seats: this.seats, commands: this.commands, ticks: this.ticks, ...(this.loadouts ? { loadouts: this.loadouts } : {}) };
   }
 }
 
 /** Play a written-down room round again and return where it ended. */
 export function replayRoom(log: RoomLog): GameState {
-  const s = createRoom(log.seed, log.players);
+  const s = createRoom(log.seed, log.players, log.loadouts?.map((l) => l ?? undefined));
   // per seat: the run it is in and how much of it is left
   const at = log.seats.map(() => ({ k: 0, left: 0 }));
   let ci = 0;

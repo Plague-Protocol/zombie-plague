@@ -31,7 +31,7 @@ export interface SeatInfo { seat: number; name: string; signedIn: boolean; conne
 export type ServerMsg =
   | { t: 'room'; code: string; seats: SeatInfo[]; you: number; host: number; state: 'lobby' | 'playing' | 'ended'; startsIn: number | null; public?: boolean; onChain?: string; stack?: string }
   /** The round begins: build the district from the seed (createRoom(seed, players)) and play. */
-  | { t: 'begin'; seed: number; players: number; content: number; seat: number }
+  | { t: 'begin'; seed: number; players: number; content: number; seat: number; /** who each seat plays (null: Sam) */ sv?: Array<string | null> }
   /** `w`: the view in its wire form (see codec.ts). `ack`: the last input of yours the server used. */
   | { t: 'snap'; tick: number; ack: number; w: WireSnap }
   | { t: 'end'; placements: Placement[]; logHash: string }

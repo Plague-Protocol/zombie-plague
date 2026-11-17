@@ -10,7 +10,7 @@ import {
 } from '../../core/story';
 import type { GameEvent, Husk, Task, TaskId } from '../../core/types';
 import type { Loadout } from '../../core/loadout';
-import { SURVIVORS } from '../../core/survivors';
+import { SURVIVORS, type SurvivorId } from '../../core/survivors';
 import type { SkinName } from './render/characters';
 import { chapterInfo, content, setChapter, setContent, stepDef, type Content } from '../../core/content';
 import { GameView } from './render/view';
@@ -194,9 +194,9 @@ const quality = (() => {
 const roomHost: Host = {
   view, controls,
   toast: (t) => hud.toast(t),
-  enter(shadow, driver) {
+  enter(shadow, driver, survivor) {
     state = shadow; roomDriver = driver; mode = 'room';
-    playing(); wear(undefined); // rooms play the classic hero for now
+    playing(); wear(survivor ? { kit: [], ups: {}, survivor: survivor as SurvivorId } : undefined); // who you brought into the room
     hud.reset(); setChapter(0); paused = false; controls.enabled = true; hud.cinema(false); convo.length = 0;
   },
   refreshStore: () => storePage?.refresh(),

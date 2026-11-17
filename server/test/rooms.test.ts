@@ -251,3 +251,31 @@ describe('quick play and private rooms', () => {
     expect(hub.quick(conn('G'))).not.toBe(next);
   });
 });
+
+describe('loadouts in rooms', () => {
+  it('a free room starts each seat with the loadout it signed in with, and tells everyone who plays whom', () => {
+    const { hub } = setup();
+    const a = conn('a', 'acct-a'), b = conn('b', 'acct-b');
+    a.loadout = { kit: ['shotgun'], ups: {}, hand: 'shotgun', survivor: 'rook', grit: 2 };
+    const room = hub.create(a) as Exclude<ReturnType<Hub['create']>, 'busy'>;
+    room.seat(b);
+    expect(room.start(a)).toBe(true);
+    const begin = last(a, 'begin')!;
+    expect(begin.sv).toEqual(['rook', null]);
+    expect(last(b, 'begin')!.sv).toEqual(['rook', null]);
+    expect(room.game!.players[0]!.arsenal.owned).toContain('shotgun');
+    expect(room.game!.players[0]!.arsenal.perks).toEqual({ quiet: 0.3 });
+    expect(room.game!.players[1]!.arsenal.owned).toEqual(['pistol', 'baton']);
+    expect(room.rec!.log().loadouts).toEqual([a.loadout, null]);
+  });
+
+  it('with no loadouts the round and its log are the classic ones', () => {
+    const { hub } = setup();
+    const a = conn('a', 'acct-a'), b = conn('b', 'acct-b');
+    const room = hub.create(a) as Exclude<ReturnType<Hub['create']>, 'busy'>;
+    room.seat(b);
+    room.start(a);
+    expect(last(a, 'begin')!.sv).toBeUndefined();
+    expect(room.rec!.log().loadouts).toBeUndefined();
+  });
+});

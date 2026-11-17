@@ -4,7 +4,7 @@ import { createGame, step } from '../../core/state.ts';
 import { quantize, Recorder, STEP, type NightLog } from '../../core/replay.ts';
 import { DAILY_CAP, DAILY_RATION, kitDef, loanFee, svPrice, upgradePrice, type Loadout } from '../../core/armoury.ts';
 import { nightOf } from '../src/content.ts';
-import { dayStart, payForRound } from '../src/armoury.ts';
+import { dayStart, payForRound, roomLoadout } from '../src/armoury.ts';
 import type { Claim } from '../src/runs.ts';
 
 /** A night stood still until it ends, carrying a loadout. */
@@ -113,6 +113,16 @@ describe('the armoury', () => {
     // a free survivor's first purchase is their first perk level
     expect((await t.post('/armoury/buy', { item: 'sv.ama' })).json().owned.ups['sv.ama']).toBe(2);
     expect((await t.post('/armoury/buy', { item: 'sv.nobody' })).statusCode).toBe(400);
+  });
+
+  it('a room takes the ranked loadout, without borrowed kit', async () => {
+    const t = await setup();
+    await t.store.ledger(t.id, 3000, 'grant', 'test');
+    await t.post('/armoury/buy', { item: 'shotgun' });
+    await t.post('/armoury/borrow', { item: 'vest' });
+    await t.post('/armoury/loadout', { ranked: { kit: ['shotgun', 'vest'], ups: {}, hand: 'shotgun' }, open: { kit: [], ups: {} } });
+    expect(await roomLoadout(t.store, t.id)).toEqual({ kit: ['shotgun'], ups: {}, hand: 'shotgun' });
+    expect(await roomLoadout(t.store, 'nobody')).toBeUndefined();
   });
 
   it('caps what a day can earn', async () => {

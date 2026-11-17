@@ -25,6 +25,8 @@ export interface Conn {
   accountId: string | null;
   /** The wallet behind the sign-in (lower-case), if signed in. */
   address?: string | null;
+  /** What this account carries into a free room (its ranked loadout), read when it signed in. */
+  loadout?: import('../../core/loadout.ts').Loadout;
   send(m: ServerMsg): void;
   room: Room | null;
 }
@@ -164,11 +166,15 @@ export class Room {
     if (this.state !== 'lobby' || this.seats.length < 2) return;
     this.state = 'playing';
     this.seed = this.hub.seed();
-    this.game = createRoom(this.seed, this.seats.length);
-    this.rec = new RoomRecorder(this.seed, this.seats.length, this.hub.opts.contentVersion(), ROOM_DT);
+    // a free room: each seat brings its ranked loadout (the same budget for everyone); a staked one: the standard kit
+    const loadouts = this.staked ? undefined : this.seats.map((s) => s.conn?.loadout);
+    const any = loadouts?.some(Boolean) ? loadouts.map((l) => l ?? null) : undefined;
+    this.game = createRoom(this.seed, this.seats.length, any?.map((l) => l ?? undefined));
+    this.rec = new RoomRecorder(this.seed, this.seats.length, this.hub.opts.contentVersion(), ROOM_DT, any);
+    const sv = this.seats.map((_, i) => (any?.[i]?.survivor ?? null));
     this.startedAt = this.hub.now();
     this.tick = 0;
-    this.seats.forEach((s, i) => s.conn?.send({ t: 'begin', seed: this.seed, players: this.seats.length, content: this.hub.opts.contentVersion(), seat: i }));
+    this.seats.forEach((s, i) => s.conn?.send({ t: 'begin', seed: this.seed, players: this.seats.length, content: this.hub.opts.contentVersion(), seat: i, ...(any ? { sv } : {}) }));
     this.broadcastInfo();
     this.schedule();
   }

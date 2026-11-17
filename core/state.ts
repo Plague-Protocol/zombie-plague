@@ -197,10 +197,11 @@ const approach = (v: number, target: number, step: number) => (v < target ? Math
 export function createGame(
   seed: number,
   lvl?: Level,
-  opts: { night?: number; chapter?: number; carry?: Carry; husk?: Husk | null; spawns?: Vec2[]; loadout?: Loadout } = {},
+  opts: { night?: number; chapter?: number; carry?: Carry; husk?: Husk | null; spawns?: Vec2[]; loadout?: Loadout; loadouts?: ReadonlyArray<Loadout | undefined> } = {},
 ): GameState {
   const level = lvl ?? generateLevel(seed, { night: opts.night ?? seed, chapter: opts.chapter ?? 0 });
-  const carry: Carry = opts.carry ?? withLoadout({
+  // what each seat starts with: the carry given (a later chapter), or the standard kit plus that seat's loadout
+  const carryFor = (seat: number): Carry => opts.carry ?? withLoadout({
     arsenal: {
       weapon: 'pistol', owned: ['pistol', 'baton'],
       mag: { pistol: GUNS.pistol.mag, shotgun: 0, rifle: 0 },
@@ -211,10 +212,11 @@ export function createGame(
     health: PLAYER_HEALTH,
     funds: START_FUNDS,
     kills: 0,
-  }, opts.loadout);
+  }, opts.loadouts ? opts.loadouts[seat] : opts.loadout);
+  const carry = carryFor(0);
   const spawns = opts.spawns ?? [level.spawn];
   const cells = level.map.cols * level.map.cols;
-  const roster = spawns.map((at, i) => newPlayer(i, at, carry, cells, level.timeLimit));
+  const roster = spawns.map((at, i) => newPlayer(i, at, i === 0 ? carry : carryFor(i), cells, level.timeLimit));
   const pl = roster[0]!;
   const state = {
     seed,
@@ -276,7 +278,7 @@ export function createGame(
  * exit with seats for half of them. The level comes from the seed alone (no vehicles, nobody to escort),
  * so the server and every client build the same district.
  */
-export function createRoom(seed: number, players: number): GameState {
+export function createRoom(seed: number, players: number, loadouts?: ReadonlyArray<Loadout | undefined>): GameState {
   const n = Math.max(2, Math.min(ROOM_PLAYERS_MAX, Math.floor(players)));
   const level = generateLevel(seed, { night: seed, chapter: 0, room: true });
   // seats: spread out, and a long walk from the exit
@@ -292,7 +294,7 @@ export function createRoom(seed: number, players: number): GameState {
     if (spawns.length >= n) break;
   }
   while (spawns.length < n) spawns.push({ ...level.spawn });
-  return createGame(seed, level, { night: seed, chapter: 0, spawns });
+  return createGame(seed, level, { night: seed, chapter: 0, spawns, loadouts });
 }
 
 /** The last chapter: its way out is the helicopter, not a door. */

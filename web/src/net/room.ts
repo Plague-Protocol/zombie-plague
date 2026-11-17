@@ -6,13 +6,14 @@
 // once, then corrected when the server's word on where they are comes back. Everyone and everything else is drawn
 // a little in the past, between the two snapshots either side of that moment, so it moves smoothly.
 import { movePlayer, createRoom, type GameState } from '../../../core/state';
+import { SURVIVORS, type SurvivorId } from '../../../core/survivors';
 import { quantize, type Command } from '../../../core/replay';
 import { content } from '../../../core/content';
 import type { GameEvent, Input, Player, Zombie } from '../../../core/types';
 import type { PlayerView } from '../../../core/view';
 import type { GameView } from '../render/view';
 import type { Controls } from '../input/controls';
-import { Actor } from '../render/characters';
+import { Actor, loadSkin, type SkinName } from '../render/characters';
 import { makeDecoder } from '../../../core/codec';
 import { ROOM_DT, type ClientMsg, type SeatInfo, type ServerMsg } from '../../../core/protocol';
 import { ZOMBIE_HEALTH } from '../../../core/config';
@@ -24,7 +25,7 @@ export interface Host {
   controls: Controls;
   toast(text: string): void;
   /** Hand the game over to the room: draw `shadow`, call `driver.frame` instead of the single-player step. */
-  enter(shadow: GameState, driver: Driver): void;
+  enter(shadow: GameState, driver: Driver, survivor?: string | null): void;
   /** Close the store page's cached numbers if it is open (a purchase has just come back). */
   refreshStore(): void;
 }
@@ -346,6 +347,8 @@ class Session implements Driver {
   private hud: HTMLElement;
   private over = false;
   private firstSnap = true;
+  /** Who each seat plays (null: Sam). */
+  private sv: Array<string | null> = [];
 
   constructor(private host: Host, private ws: WebSocket, begin: Extract<ServerMsg, { t: 'begin' }>) {
     this.shadow = createRoom(begin.seed, begin.players);
@@ -355,7 +358,10 @@ class Session implements Driver {
     this.names = el('div', { id: 'names' });
     this.hud = el('div', { id: 'roomhud' });
     document.body.append(this.names, this.hud);
-    host.enter(this.shadow, this);
+    host.enter(this.shadow, this, begin.sv?.[begin.seat] ?? null);
+    // the others' survivors: their skins are fetched now, and worn as soon as they are in
+    this.sv = begin.sv ?? [];
+    for (const id of this.sv) { const sk = id ? SURVIVORS[id as SurvivorId]?.skin : null; if (sk) void loadSkin(host.view.assets, sk as SkinName); }
     host.toast('Get the steps done and reach the exit. Seats are limited.');
   }
 
@@ -491,7 +497,8 @@ class Session implements Driver {
       p.exposed = o.exposed;
       p.arsenal.weapon = o.weapon;
       let act = this.actors.get(o.id);
-      const skin = o.status === 'turned' ? (o.id % 2 ? 'zombieFemaleA' : 'zombieMaleA') : o.id % 2 ? 'humanFemaleA' : 'humanMaleA';
+      const own = this.sv[o.id] ? SURVIVORS[this.sv[o.id] as SurvivorId]?.skin as SkinName | undefined : undefined;
+      const skin: SkinName = o.status === 'turned' ? (o.id % 2 ? 'zombieFemaleA' : 'zombieMaleA') : own && this.host.view.assets.materials[own] ? own : o.id % 2 ? 'humanFemaleA' : 'humanMaleA';
       if (!act) {
         act = new Actor(this.host.view.assets, skin);
         act.play('Idle', { fade: 0 });
