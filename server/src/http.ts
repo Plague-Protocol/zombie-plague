@@ -6,6 +6,7 @@ import { nightOf, type ContentRegistry } from './content.ts';
 import { BOARD_KINDS, buildBoard, type BoardKind } from './boards.ts';
 import { Limiter } from './limiter.ts';
 import { submit, type Claim } from './runs.ts';
+import { registerArmoury } from './armoury.ts';
 import type { Store } from './store.ts';
 
 export interface Deps {
@@ -116,5 +117,6 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     return buildBoard(d.store, q.data.board, now(), await who(req), q.data.night);
   });
 
+  registerArmoury(app, { store: d.store, auth: d.auth });
   return app;
 }

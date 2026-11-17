@@ -9,6 +9,7 @@ import {
   paLine, partsReady, shortName, survivorLines, tierLines, vehicleLines, type Line,
 } from '../../core/story';
 import type { GameEvent, Husk, Task, TaskId } from '../../core/types';
+import type { Loadout } from '../../core/loadout';
 import { chapterInfo, content, setChapter, setContent, stepDef, type Content } from '../../core/content';
 import { GameView } from './render/view';
 import { loadCharacterAssets } from './render/characters';
@@ -43,6 +44,17 @@ let tonight: number | null = null;
 /** The server answered: sign-in is possible, so the guest allowance applies. Offline, the game is simply free to play. */
 let serverUp = false;
 const nightSeed = () => tonight ?? newSeed();
+/** What the player chose in the armoury for this night (signed in only): the ranked loadout for tonight's city, the open one
+ * for any other. The site keeps the server's copy on this device. Nothing chosen is the standard kit. */
+function loadoutFor(night: number): Loadout | undefined {
+  try {
+    const me = JSON.parse(localStorage.getItem('zp.account') ?? 'null') as { address: string } | null;
+    const a = JSON.parse(localStorage.getItem('zp.armoury') ?? 'null') as { address: string; loadouts: { ranked: Loadout; open: Loadout } } | null;
+    if (!me || !a || a.address !== me.address) return undefined;
+    const l = night === tonight ? a.loadouts.ranked : a.loadouts.open;
+    return l.kit.length || l.hand || Object.values(l.ups).some(Boolean) ? l : undefined;
+  } catch { return undefined; }
+}
 // the task content (what each step is, says and looks like) comes as data, before the first night
 setContent(await fetch('/content/tasks.json').then((r) => r.json() as Promise<Content>));
 // Your last self: where a district took you, and what you had in hand. It is waiting there the next time
@@ -68,10 +80,10 @@ function rememberSelf(s: GameState | null): void {
 let rec!: Recorder;
 let roomDriver: Driver | null = null;
 /** Make a chapter's state (with your last self, if it is waiting there) and start its page of the log. */
-function fresh(make: (husk: Husk | null) => GameState, chapter: number): GameState {
+function fresh(make: (husk: Husk | null) => GameState, chapter: number, loadout?: Loadout): GameState {
   const husk = lastSelf(chapter);
   const g = make(husk);
-  if (chapter === 0) rec = new Recorder(g.night, content().version);
+  if (chapter === 0) rec = new Recorder(g.night, content().version, loadout);
   rec.begin(chapter, husk);
   return g;
 }
@@ -110,8 +122,8 @@ function once(key: string, blocking = false): void {
 let paT = 25, paN = 0; // the quarantine loudspeakers: when the next announcement is, and which
 const sound = new Sound();
 const hud = new Hud({
-  retry: () => begin(fresh((husk) => restartChapter(state, husk), state.chapter), false),
-  newNight: () => begin(fresh((husk) => createGame(nightSeed(), undefined, { husk }), 0), false),
+  retry: () => begin(fresh((husk) => restartChapter(state, husk), state.chapter, rec.loadout), false),
+  newNight: () => { const n = nightSeed(), l = loadoutFor(n); begin(fresh((husk) => createGame(n, undefined, { husk, loadout: l }), 0, l), false); },
 });
 view.cinematic = 0;
 let paused = false; // store or full map open
@@ -210,9 +222,9 @@ export function playSolo(practice = false): void {
   void goLandscape();
   sound.start();
   playing();
-  // a city was made while tonight's was fetched: play tonight's if it came
-  const seed = practice ? newSeed() : tonight;
-  begin(seed !== null && state.night !== seed && state.chapter === 0 ? fresh((husk) => createGame(seed, undefined, { husk }), 0) : state, !params.has('skipintro'));
+  // tonight's city (once the server has said which it is) with the ranked loadout; a practice night with the open one
+  const seed = practice || tonight === null ? newSeed() : tonight, l = loadoutFor(seed);
+  begin(fresh((husk) => createGame(seed, undefined, { husk, loadout: l }), 0, l), !params.has('skipintro'));
 }
 void import('./net/account').then((m) => m.tonight(content().version)).then((r) => { serverUp = r !== null; if (!params.has('seed')) tonight = r?.night ?? null; });
 if (debug) Object.defineProperty(window, '__outbreak', { get: () => ({ state, mode, view, sound, log: rec.log() }) }); // test hook
@@ -305,7 +317,7 @@ function finish(): void {
     replay: rec.log(),
   };
   void noopProgress.saveRun(anonymousSession, result);
-  if (localStorage.getItem('zp.account')) void import('./net/account').then(async (m) => { const up = await m.uploadRun(result); if (up?.score !== undefined) hud.toast(`Tonight's score: ${up.score.toLocaleString()}`); for (let c = 0; c < 3; c++) serverSelves.set(c, await m.lastSelfFromServer(c)); });
+  if (localStorage.getItem('zp.account')) void import('./net/account').then(async (m) => { const up = await m.uploadRun(result); if (up?.score !== undefined) hud.toast(`Score ${up.score.toLocaleString()}${up.bank ? ` · +${up.bank.earned + up.bank.ration} banked${up.bank.fees ? `, ${up.bank.fees} loan fee` : ''}` : ''}`); else if (up && !up.replayOk && up.reason) hud.toast(`Not counted: ${up.reason}`); for (let c = 0; c < 3; c++) serverSelves.set(c, await m.lastSelfFromServer(c)); });
   hud.showEnd(state);
 }
 

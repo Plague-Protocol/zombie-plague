@@ -2,6 +2,7 @@
 // tests) and Postgres. Nothing else in the server knows which.
 import pg from 'pg';
 import type { RunStats } from '../../core/replay.ts';
+import type { Loadout, Owned } from '../../core/armoury.ts';
 
 export interface Account {
   id: string;
@@ -37,6 +38,15 @@ export interface RoundSeat { accountId: string; code: string; status: string; ki
 export interface RoomRow { accountId: string; name: string | null; address: string; rounds: number; escapes: number; kills: number }
 
 export interface LastSelfRecord { chapter: number; x: number; y: number; weapon: string | null }
+
+/** The two loadouts a player keeps: one inside the ranked budget, one without a limit (practice). */
+export interface Loadouts { ranked: Loadout; open: Loadout }
+/** What an account has between nights: banked cash (below zero is a debt from a loan), what it owns, its loadouts. */
+export interface Bank { cash: number; owned: Owned; loadouts: Loadouts | null }
+/** An item borrowed for one night: active until a run uses it (its fee is then paid) or a day passes. */
+export interface Loan { id: string; item: string; fee: number; status: 'active' | 'used' | 'expired'; createdAt: Date }
+/** Ledger reasons that count as earning (toward the daily cap). */
+export const EARN_REASONS = ['run', 'round'] as const;
 
 
 /** What the server owes the chain for a staked round that has ended: written before the transaction is sent, so a restart resumes instead of repeating. */
@@ -74,6 +84,21 @@ export interface Store {
   roomTotals(days: number): Promise<RoomRow[]>;
   lastSelf(accountId: string, chapter: number): Promise<LastSelfRecord | null>;
   setLastSelf(accountId: string, rec: LastSelfRecord | null, chapter: number): Promise<void>;
+  bank(accountId: string): Promise<Bank>;
+  /**
+   * Move cash in or out, written in the ledger. Idempotent on (account, reason, ref): the same ref twice changes
+   * nothing and returns ok false. Unless `allowDebt`, a debit that would take the balance below zero is refused.
+   */
+  ledger(accountId: string, delta: number, reason: string, ref: string, allowDebt?: boolean): Promise<{ ok: boolean; cash: number }>;
+  /** Pay `price` and own `item` at `level`, as one step: refused (false) if the balance is short. */
+  purchase(accountId: string, item: string, level: number, price: number, ref: string): Promise<boolean>;
+  /** What an account earned (run and round pay) since a moment. */
+  earnedSince(accountId: string, since: Date): Promise<number>;
+  setLoadouts(accountId: string, l: Loadouts): Promise<void>;
+  /** Loans still usable: active, and taken within the last day. */
+  loansActive(accountId: string): Promise<Loan[]>;
+  addLoan(accountId: string, item: string, fee: number): Promise<Loan>;
+  closeLoan(id: string, status: 'used' | 'expired'): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -153,7 +178,48 @@ export class MemoryStore implements Store {
   async setLastSelf(accountId: string, rec: LastSelfRecord | null, chapter: number) {
     if (rec) this.selves.set(`${accountId}:${chapter}`, rec); else this.selves.delete(`${accountId}:${chapter}`);
   }
+  private banks = new Map<string, { cash: number; owned: Map<string, number>; loadouts: Loadouts | null }>();
+  private ledgerRows: Array<{ accountId: string; delta: number; reason: string; ref: string; at: Date }> = [];
+  private loanRows: Array<Loan & { accountId: string }> = [];
+  private bk(id: string) { let b = this.banks.get(id); if (!b) { b = { cash: 0, owned: new Map(), loadouts: null }; this.banks.set(id, b); } return b; }
+  async bank(accountId: string): Promise<Bank> {
+    const b = this.bk(accountId);
+    return { cash: b.cash, owned: ownedFrom([...b.owned]), loadouts: b.loadouts ? structuredClone(b.loadouts) : null };
+  }
+  async ledger(accountId: string, delta: number, reason: string, ref: string, allowDebt = false) {
+    const b = this.bk(accountId);
+    if (this.ledgerRows.some((x) => x.accountId === accountId && x.reason === reason && x.ref === ref)) return { ok: false, cash: b.cash };
+    if (delta < 0 && !allowDebt && b.cash + delta < 0) return { ok: false, cash: b.cash };
+    b.cash += delta;
+    this.ledgerRows.push({ accountId, delta, reason, ref, at: this.now() });
+    return { ok: true, cash: b.cash };
+  }
+  async purchase(accountId: string, item: string, level: number, price: number, ref: string) {
+    const r = await this.ledger(accountId, -price, 'buy', ref);
+    if (r.ok) this.bk(accountId).owned.set(item, Math.max(level, this.bk(accountId).owned.get(item) ?? 0));
+    return r.ok;
+  }
+  async earnedSince(accountId: string, since: Date) {
+    return this.ledgerRows.filter((x) => x.accountId === accountId && (EARN_REASONS as readonly string[]).includes(x.reason) && x.at >= since).reduce((a, x) => a + x.delta, 0);
+  }
+  async setLoadouts(accountId: string, l: Loadouts) { this.bk(accountId).loadouts = structuredClone(l); }
+  async loansActive(accountId: string) {
+    const since = this.now().getTime() - 864e5;
+    return this.loanRows.filter((x) => x.accountId === accountId && x.status === 'active' && x.createdAt.getTime() > since).map(({ accountId: _a, ...x }) => { void _a; return x; });
+  }
+  async addLoan(accountId: string, item: string, fee: number) { const l = { id: newId(), accountId, item, fee, status: 'active' as const, createdAt: this.now() }; this.loanRows.push(l); return { id: l.id, item, fee, status: l.status, createdAt: l.createdAt }; }
+  async closeLoan(id: string, status: 'used' | 'expired') { const l = this.loanRows.find((x) => x.id === id); if (l) l.status = status; }
   async close() {}
+}
+
+/** Owned items from (item, level) rows: kit ids at level 1, upgrades ("rifle.damage") at their level. */
+export function ownedFrom(rows: Array<[string, number]>): Owned {
+  const o: Owned = { kit: [], ups: {} };
+  for (const [item, level] of rows) {
+    if (item.includes('.')) (o.ups as Record<string, number>)[item] = level;
+    else (o.kit as string[]).push(item);
+  }
+  return o;
 }
 
 /** The tables, created if they are not there. Plain SQL: there is no generate step to run. */
@@ -211,6 +277,34 @@ CREATE TABLE IF NOT EXISTS last_self (
   weapon     text,
   PRIMARY KEY (account_id, chapter)
 );
+ALTER TABLE account ADD COLUMN IF NOT EXISTS cash bigint NOT NULL DEFAULT 0;
+ALTER TABLE account ADD COLUMN IF NOT EXISTS loadouts text;
+CREATE TABLE IF NOT EXISTS owned (
+  account_id text NOT NULL REFERENCES account(id),
+  item       text NOT NULL,
+  level      integer NOT NULL,
+  PRIMARY KEY (account_id, item)
+);
+CREATE TABLE IF NOT EXISTS ledger (
+  id         bigserial PRIMARY KEY,
+  account_id text NOT NULL REFERENCES account(id),
+  delta      bigint NOT NULL,
+  reason     text NOT NULL,
+  ref        text NOT NULL,
+  cash_after bigint NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, reason, ref)
+);
+CREATE INDEX IF NOT EXISTS ledger_earn_idx ON ledger (account_id, created_at);
+CREATE TABLE IF NOT EXISTS loan (
+  id         text PRIMARY KEY,
+  account_id text NOT NULL REFERENCES account(id),
+  item       text NOT NULL,
+  fee        integer NOT NULL,
+  status     text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS loan_account_idx ON loan (account_id, status);
 `;
 
 export class PgStore implements Store {
@@ -305,5 +399,61 @@ export class PgStore implements Store {
     if (!rec) { await this.pool.query('DELETE FROM last_self WHERE account_id = $1 AND chapter = $2', [accountId, chapter]); return; }
     await this.pool.query('INSERT INTO last_self (account_id, chapter, x, y, weapon) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_id, chapter) DO UPDATE SET x = EXCLUDED.x, y = EXCLUDED.y, weapon = EXCLUDED.weapon', [accountId, chapter, rec.x, rec.y, rec.weapon]);
   }
+  async bank(accountId: string): Promise<Bank> {
+    const [a, o] = await Promise.all([
+      this.pool.query('SELECT cash, loadouts FROM account WHERE id = $1', [accountId]),
+      this.pool.query('SELECT item, level FROM owned WHERE account_id = $1', [accountId]),
+    ]);
+    const row = a.rows[0];
+    return { cash: Number(row?.cash ?? 0), owned: ownedFrom(o.rows.map((x) => [x.item, x.level])), loadouts: row?.loadouts ? JSON.parse(row.loadouts) : null };
+  }
+  /** Cash moves inside a transaction with its ledger row (the row's unique key makes a repeat a no-op). */
+  private async move(c: pg.PoolClient, accountId: string, delta: number, reason: string, ref: string, allowDebt: boolean) {
+    const u = await c.query(`UPDATE account SET cash = cash + $2 WHERE id = $1 ${allowDebt || delta >= 0 ? '' : 'AND cash + $2 >= 0'} RETURNING cash`, [accountId, delta]);
+    if (!u.rows[0]) return { ok: false, cash: Number((await c.query('SELECT cash FROM account WHERE id = $1', [accountId])).rows[0]?.cash ?? 0) };
+    const cash = Number(u.rows[0].cash);
+    const l = await c.query('INSERT INTO ledger (account_id, delta, reason, ref, cash_after) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_id, reason, ref) DO NOTHING', [accountId, delta, reason, ref, cash]);
+    if (!l.rowCount) return null; // a repeat: undo
+    return { ok: true, cash };
+  }
+  private async tx<T, F>(f: (c: pg.PoolClient) => Promise<T | null>, fallback: F): Promise<T | F> {
+    const c = await this.pool.connect();
+    try {
+      await c.query('BEGIN');
+      const out = await f(c);
+      if (out === null) { await c.query('ROLLBACK'); return fallback; }
+      await c.query('COMMIT');
+      return out;
+    } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+  }
+  async ledger(accountId: string, delta: number, reason: string, ref: string, allowDebt = false) {
+    const r = await this.tx(async (c) => { const m = await this.move(c, accountId, delta, reason, ref, allowDebt); return m?.ok ? m : null; }, null);
+    if (r) return r;
+    const cur = await this.pool.query('SELECT cash FROM account WHERE id = $1', [accountId]);
+    return { ok: false, cash: Number(cur.rows[0]?.cash ?? 0) };
+  }
+  async purchase(accountId: string, item: string, level: number, price: number, ref: string) {
+    return this.tx(async (c) => {
+      const r = await this.move(c, accountId, -price, 'buy', ref, false);
+      if (!r?.ok) return null;
+      await c.query('INSERT INTO owned (account_id, item, level) VALUES ($1,$2,$3) ON CONFLICT (account_id, item) DO UPDATE SET level = GREATEST(owned.level, EXCLUDED.level)', [accountId, item, level]);
+      return true;
+    }, false);
+  }
+  async earnedSince(accountId: string, since: Date) {
+    const r = await this.pool.query('SELECT COALESCE(sum(delta), 0)::bigint AS n FROM ledger WHERE account_id = $1 AND reason = ANY($2) AND created_at >= $3', [accountId, EARN_REASONS, since]);
+    return Number(r.rows[0].n);
+  }
+  async setLoadouts(accountId: string, l: Loadouts) { await this.pool.query('UPDATE account SET loadouts = $2 WHERE id = $1', [accountId, JSON.stringify(l)]); }
+  async loansActive(accountId: string) {
+    const r = await this.pool.query("SELECT id, item, fee, status, created_at FROM loan WHERE account_id = $1 AND status = 'active' AND created_at > now() - interval '1 day' ORDER BY created_at", [accountId]);
+    return r.rows.map((x) => ({ id: x.id, item: x.item, fee: x.fee, status: x.status, createdAt: x.created_at }));
+  }
+  async addLoan(accountId: string, item: string, fee: number) {
+    const id = newId();
+    const r = await this.pool.query("INSERT INTO loan (id, account_id, item, fee, status) VALUES ($1,$2,$3,$4,'active') RETURNING created_at", [id, accountId, item, fee]);
+    return { id, item, fee, status: 'active' as const, createdAt: r.rows[0].created_at };
+  }
+  async closeLoan(id: string, status: 'used' | 'expired') { await this.pool.query('UPDATE loan SET status = $2 WHERE id = $1', [id, status]); }
   async close() { await this.pool.end(); }
 }

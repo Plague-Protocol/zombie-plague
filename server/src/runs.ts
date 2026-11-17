@@ -7,6 +7,7 @@ import { hashState } from '../../core/replay.ts';
 import type { Husk, LossReason, WeaponKind } from '../../core/types.ts';
 import type { ContentRegistry } from './content.ts';
 import type { RunRecord, Store } from './store.ts';
+import { loadoutRefusal, payForRun } from './armoury.ts';
 
 export const MAX_GZ_BYTES = 400 * 1024;
 export const MAX_CHAPTERS = 3;
@@ -60,8 +61,10 @@ export function check(c: Claim, content: ContentRegistry, selves: Map<number, Hu
 }
 
 /** Check a claim, keep it, and update the account's last selves from what the replay showed. */
-export async function submit(store: Store, content: ContentRegistry, accountId: string, c: Claim): Promise<{ replayOk: boolean; reason?: string; hash: string; score?: number; parts?: Record<string, number> }> {
-  const early = refuseBeforeReplay(c, content);
+export async function submit(
+  store: Store, content: ContentRegistry, accountId: string, c: Claim, now: Date = new Date(),
+): Promise<{ replayOk: boolean; reason?: string; hash: string; score?: number; parts?: Record<string, number>; bank?: Awaited<ReturnType<typeof payForRun>> }> {
+  const early = refuseBeforeReplay(c, content) ?? await loadoutRefusal(store, accountId, c.seed, c.replay.loadout, now);
   if (early) return { replayOk: false, reason: early, hash: '' };
   const selves = new Map<number, Husk>();
   for (let ch = 0; ch < c.replay.chapters.length; ch++) {
@@ -76,12 +79,13 @@ export async function submit(store: Store, content: ContentRegistry, accountId: 
     secondsLeft: c.secondsLeft, kills: v.kills, hash: v.hash, replayOk: v.replayOk, log: gz,
     score: v.replayOk ? v.scored.score : 0, stats: v.replayOk ? v.stats : null,
   };
-  await store.addRun(rec);
+  const run = await store.addRun(rec);
   if (!v.replayOk) return { replayOk: false, reason: v.reason, hash: v.hash };
   // your last self: left where a chapter took you (caught, or the dose ran out); gone once you put it down
   for (const e of v.ends) {
     if (e.huskDown) await store.setLastSelf(accountId, null, e.chapter);
     if (e.phase === 'lost' && (e.lossReason === 'caught' || e.lossReason === 'time')) await store.setLastSelf(accountId, { chapter: e.chapter, x: e.pos.x, y: e.pos.y, weapon: e.weapon }, e.chapter);
   }
-  return { replayOk: true, hash: v.hash, score: v.scored.score, parts: v.scored.parts };
+  const bank = await payForRun(store, accountId, run.id, v.scored.score, c.seed, c.replay.loadout, now);
+  return { replayOk: true, hash: v.hash, score: v.scored.score, parts: v.scored.parts, bank };
 }

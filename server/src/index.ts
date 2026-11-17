@@ -6,6 +6,7 @@ import { ViemChain } from './chain.ts';
 import { Hub } from './rooms.ts';
 import { Staked } from './staked.ts';
 import { registerAdmin } from './admin.ts';
+import { payForRound } from './armoury.ts';
 import { MemoryStore, PgStore, type Store } from './store.ts';
 import { attachWs } from './ws.ts';
 
@@ -26,6 +27,8 @@ const hub = new Hub({
     // the rooms leaderboard: each signed-in seat's part in the round
     const rows = r.placements.flatMap((p) => { const id = r.seats[p.seat]?.accountId; return id ? [{ accountId: id, code: r.code, status: p.status, kills: p.kills, escaped: p.status === 'escaped' }] : []; });
     if (rows.length) store.addRoundSeats(rows).catch((e) => console.error('round not recorded', e));
+    // and what they earned: a little for taking part, more for getting out (within the daily cap)
+    for (const x of rows) payForRound(store, x.accountId, `${x.code}:${r.seats.findIndex((s) => s?.accountId === x.accountId)}:${Date.now()}`, x.escaped, new Date()).catch((e) => console.error('round not paid', e));
   },
 });
 if (chain) {

@@ -2,8 +2,8 @@
 // and, on a phone, a tab bar. The game (main.ts: three.js, the city, its assets) is imported in the background as soon as
 // this runs, so it is usually ready by the time someone picks a night; the buttons that start it wait for it.
 import './site/site.css';
-import { account, esc, ICON, isAdmin, shown, signInThen, board } from './site/kit';
-import { admin, home, how, notFound, play, profile, ranks, type Ctx, type Page } from './site/pages';
+import { account, armoury, esc, ICON, isAdmin, shown, signInThen, board } from './site/kit';
+import { admin, armouryPage, home, how, notFound, play, profile, ranks, type Ctx, type Page } from './site/pages';
 
 // the cold open, once a session (its own chunk)
 if (!document.documentElement.classList.contains('intro-seen')) void import('./ui/splash').then((m) => m.runSplash());
@@ -13,8 +13,8 @@ let game: Game | null = null;
 let gameErr = '';
 void import('./main').then((m) => { game = m; armPlay(); }, (e: unknown) => { gameErr = e instanceof Error ? e.message : String(e); armPlay(); });
 
-const ROUTES: Record<string, Page> = { '/': home, '/play': play, '/ranks': ranks, '/profile': profile, '/how-to-play': how, '/admin': admin };
-const NAV: Array<[string, string, string]> = [['/', 'Home', ICON.home], ['/play', 'Play', ICON.play], ['/ranks', 'Ranks', ICON.trophy], ['/profile', 'Profile', ICON.user], ['/how-to-play', 'How to play', ICON.book]];
+const ROUTES: Record<string, Page> = { '/': home, '/play': play, '/armoury': armouryPage, '/ranks': ranks, '/profile': profile, '/how-to-play': how, '/admin': admin };
+const NAV: Array<[string, string, string]> = [['/', 'Home', ICON.home], ['/play', 'Play', ICON.play], ['/armoury', 'Armoury', ICON.shieldGun], ['/ranks', 'Ranks', ICON.trophy], ['/profile', 'Profile', ICON.user], ['/how-to-play', 'How to play', ICON.book]];
 const app = document.getElementById('app')!;
 let adminOk = false;
 
@@ -32,11 +32,11 @@ function shell(): string {
   const me = account(), at = path();
   const links = [...NAV, ...(adminOk ? [['/admin', 'Admin', ICON.shield] as [string, string, string]] : [])];
   const a = ([p, label]: [string, string, string], cls = '') => `<a href="${p}" class="${[at === p ? 'on' : '', p === '/admin' ? 'admin' : '', cls].join(' ').trim()}">${label}</a>`;
-  const tabs = [...NAV.slice(0, 4), ...(adminOk ? [['/admin', 'Admin', ICON.shield] as [string, string, string]] : [])];
+  const tabs = NAV.slice(0, 5); // on a phone: Home, Play, Armoury, Ranks, Profile (the rest are in the menu)
   return `
   <header class="hn"><div class="wrap">
     <a class="brand" href="/"><img src="/intro/splash-mark.webp" alt="" width="32" height="32" /><span>ZOMBIE PLAGUE</span></a>
-    <nav class="links" aria-label="Pages">${links.map((l) => a(l)).join('')}</nav>
+    <nav class="links" aria-label="Pages">${NAV.slice(0, 5).map((l) => a(l)).join('')}</nav>
     <div class="right">
       ${me ? `<a class="chip who" href="/profile" title="Your profile"><span>${esc(shown(me))}</span><i data-k="title" hidden></i></a>` : '<button class="chip who" type="button" data-signin>Sign in</button>'}
       <button class="btn sm" type="button" data-play="solo" disabled>Play</button>
@@ -50,7 +50,7 @@ function shell(): string {
   <footer class="foot"><div class="wrap">
     <div><a class="brand" href="/"><img src="/intro/splash-mark.webp" alt="" width="32" height="32" loading="lazy" /><span>ZOMBIE PLAGUE</span></a>
       <p>A survival horror night in your browser. Bitten in Port Halden: get to the last helicopter before you turn.</p></div>
-    <div><h4>Play</h4><a href="/play">Tonight's city</a><a href="/play">Rooms</a><a href="/play">Practice</a></div>
+    <div><h4>Play</h4><a href="/play">Tonight's city</a><a href="/play">Rooms</a><a href="/armoury">Armoury</a></div>
     <div><h4>Learn</h4><a href="/how-to-play">How to play</a><a href="/ranks">Leaderboards</a><a href="/profile">Profile</a></div>
     <div><h4>More</h4><a href="https://deduce.zplague.xyz" target="_blank" rel="noopener">Deduce</a><a href="mailto:support@zplague.xyz">Support</a></div>
   </div></footer>
@@ -58,7 +58,7 @@ function shell(): string {
 }
 
 const ctx: Ctx = {
-  refresh: () => { adminOk = false; render(); checkAdmin(); },
+  refresh: () => { adminOk = false; render(); checkAdmin(); void armoury(); },
   admin: (into) => { void import('./net/admin').then((m) => m.openAdmin(into)); },
 };
 
@@ -124,3 +124,4 @@ window.addEventListener('popstate', render);
 
 render();
 checkAdmin();
+void armoury(); // the device's copy of your loadouts, for the game to start nights with

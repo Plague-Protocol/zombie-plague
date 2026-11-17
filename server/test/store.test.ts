@@ -93,5 +93,31 @@ for (const [name, make] of stores) {
       expect(await s.lastSelf(a.id, 0)).toBeNull();
       expect(await s.lastSelf(a.id, 1)).not.toBeNull();
     });
+
+    it('the bank: idempotent ledger, no debt unless allowed, purchases own the item, earnings by reason, loadouts, loans', async () => {
+      const s = await fresh();
+      const a = await s.upsertAccount(addr());
+      expect((await s.bank(a.id)).cash).toBe(0);
+      expect(await s.ledger(a.id, 500, 'grant', 'g1')).toEqual({ ok: true, cash: 500 });
+      expect((await s.ledger(a.id, 500, 'grant', 'g1')).ok).toBe(false); // the same ref twice
+      expect(await s.ledger(a.id, -600, 'buy', 'x')).toEqual({ ok: false, cash: 500 }); // would go below zero
+      expect(await s.purchase(a.id, 'shotgun', 1, 900, 'shotgun:1')).toBe(false);
+      expect(await s.purchase(a.id, 'bat', 1, 300, 'bat:1')).toBe(true);
+      expect(await s.purchase(a.id, 'pistol.damage', 1, 100, 'pistol.damage:1')).toBe(true);
+      expect(await s.purchase(a.id, 'pistol.damage', 2, 100, 'pistol.damage:1')).toBe(false); // a repeated ref
+      const b = await s.bank(a.id);
+      expect(b.cash).toBe(100);
+      expect(b.owned).toEqual({ kit: ['bat'], ups: { 'pistol.damage': 1 } });
+      expect((await s.ledger(a.id, -300, 'loan', 'l1', true)).cash).toBe(-200); // a debt, when allowed
+      await s.ledger(a.id, 120, 'run', 'r1'); await s.ledger(a.id, 40, 'round', 'q1');
+      expect(await s.earnedSince(a.id, new Date(Date.now() - 60_000))).toBe(160); // grants and debits are not earning
+      expect(await s.earnedSince(a.id, new Date(Date.now() + 60_000))).toBe(0);
+      await s.setLoadouts(a.id, { ranked: { kit: ['bat'], ups: {} }, open: { kit: [], ups: { 'pistol.damage': 1 }, hand: 'pistol' } });
+      expect((await s.bank(a.id)).loadouts?.open.hand).toBe('pistol');
+      const loan = await s.addLoan(a.id, 'rifle', 270);
+      expect((await s.loansActive(a.id)).map((l) => l.item)).toEqual(['rifle']);
+      await s.closeLoan(loan.id, 'used');
+      expect(await s.loansActive(a.id)).toEqual([]);
+    });
   });
 }

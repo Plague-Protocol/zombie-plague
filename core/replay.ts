@@ -9,6 +9,7 @@
 import { SAFE_AFTER } from './config';
 import { buy, createGame, createRoom, equip, nextChapter, solvePuzzle, step, type GameState } from './state';
 import type { Husk, Input, StoreItem, TaskId, WeaponKind } from './types';
+import type { Loadout } from './loadout';
 
 /** A fingerprint of where a night stands (FNV-1a over the numbers that matter, hashed from their exact bits). */
 export function hashState(s: GameState): string {
@@ -66,6 +67,8 @@ export interface NightLog {
   night: number;
   /** One per chapter reached, the attempt that counted (a retry starts its chapter's log again). */
   chapters: ChapterLog[];
+  /** What the player brought from the armoury (absent: the standard kit). The server checks it is theirs. */
+  loadout?: Loadout;
 }
 
 const Q = 64; // the stick is recorded in 64ths: what is simulated is exactly what is written down
@@ -92,7 +95,7 @@ export class Recorder {
   private cur: ChapterLog | null = null;
   private steps = 0;
 
-  constructor(readonly night: number, readonly content: number) {}
+  constructor(readonly night: number, readonly content: number, readonly loadout?: Loadout) {}
 
   /** A chapter begins (or begins again: a retry throws away the attempt before it, and anything after). */
   begin(chapter: number, husk: Husk | null): void {
@@ -117,7 +120,7 @@ export class Recorder {
   }
 
   log(): NightLog {
-    return { v: 1, content: this.content, night: this.night, chapters: this.chapters };
+    return { v: 1, content: this.content, night: this.night, chapters: this.chapters, ...(this.loadout ? { loadout: this.loadout } : {}) };
   }
 }
 
@@ -181,7 +184,7 @@ export function replayChapters(log: NightLog): { final: GameState; ends: Chapter
   };
   let s: GameState | null = null;
   for (const ch of log.chapters) {
-    if (!s) s = createGame(log.night, undefined, { husk: ch.husk });
+    if (!s) s = createGame(log.night, undefined, { husk: ch.husk, loadout: log.loadout });
     else if (s.phase !== 'cleared') throw new Error('replay: a chapter follows one that was not cleared');
     else s = nextChapter(s, ch.husk);
     let n = 0, ci = 0;

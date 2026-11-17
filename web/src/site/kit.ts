@@ -1,5 +1,6 @@
 // What the site's pages share: escaping, icons, the server's boards and account, sign-in.
 import { account, apiBase, type Account } from '../net/account';
+import type { Loadout, Owned } from '../../../core/armoury';
 
 export { account, apiBase, type Account };
 
@@ -26,6 +27,7 @@ export const ICON = {
   key: svg('<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M14 9l2 2"/>'),
   dice: svg('<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h.01M15 15h.01M15 9h.01M9 15h.01M12 12h.01"/>'),
   coin: svg('<ellipse cx="12" cy="7" rx="7" ry="3"/><path d="M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7"/><path d="M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5"/>'),
+  shieldGun: svg('<path d="M4 7h11l2 2h3v3h-3l-1 1h-3l-1 5H8l1-5H4z"/><path d="M8 10h4"/>'),
   bio: svg('<circle cx="12" cy="12" r="2"/><path d="M12 10a5 5 0 1 1 4-8M12 10a5 5 0 1 0-4-8M14 13a5 5 0 1 1 1 8.5M10 13a5 5 0 1 0-1 8.5"/>'),
   chev: '<span class="chev" aria-hidden="true">&rsaquo;</span>',
 };
@@ -102,4 +104,33 @@ export async function isAdmin(): Promise<boolean> {
   try { ok = (await fetch(`${apiBase()}/admin/overview`, { headers: auth(), signal: AbortSignal.timeout(8000) })).ok; } catch { return false; }
   try { sessionStorage.setItem(key, ok ? '1' : '0'); } catch { /* ask again next time */ }
   return ok;
+}
+
+// ---------------------------------------------------------------- the armoury
+
+export interface ArmouryView {
+  cash: number; owned: Owned; loadouts: { ranked: Loadout; open: Loadout };
+  loans: Array<{ id: string; item: string; fee: number; createdAt: string }>;
+  earnedToday: number; dailyCap: number; tonight: number;
+}
+/** Keep the loadouts on this device, where the game reads them when a night starts. */
+function keepLoadouts(v: ArmouryView): void {
+  try { const a = account(); if (a) localStorage.setItem('zp.armoury', JSON.stringify({ address: a.address, loadouts: v.loadouts })); } catch { /* the game starts with the standard kit */ }
+}
+/** The account's armoury (and the device's copy of its loadouts brought up to date). */
+export async function armoury(): Promise<ArmouryView | null> {
+  if (!account()) return null;
+  const v = await api<ArmouryView>('/armoury');
+  if (v) keepLoadouts(v);
+  return v;
+}
+/** Buy, borrow or save loadouts: the armoury as it is after, or why not. */
+export async function armouryPost(path: 'buy' | 'borrow' | 'loadout', body: unknown): Promise<{ view?: ArmouryView; error?: string }> {
+  try {
+    const r = await fetch(`${apiBase()}/armoury/${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth() }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000) });
+    const j = await r.json() as ArmouryView & { error?: string };
+    if (!r.ok) return { error: j.error ?? 'The server said no.' };
+    keepLoadouts(j);
+    return { view: j };
+  } catch { return { error: 'The server is not answering. Try again.' }; }
 }

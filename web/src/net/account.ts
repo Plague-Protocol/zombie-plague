@@ -63,11 +63,13 @@ export const apiBase = (): string => {
 };
 
 /** Send a finished night to the server, which replays it before believing it. Fire and forget: a failure only means it is not on the board. */
-export async function uploadRun(r: RunResult): Promise<{ replayOk: boolean; score?: number; parts?: Record<string, number> } | null> {
+/** What a verified night banked (its pay, the day's ration, loan fees taken) and the balance after. */
+export interface Banked { earned: number; ration: number; fees: number; cash: number; capped: boolean }
+export async function uploadRun(r: RunResult): Promise<{ replayOk: boolean; reason?: string; score?: number; parts?: Record<string, number>; bank?: Banked } | null> {
   const acc = account();
   if (!acc) return null;
   try {
-    return await post<{ replayOk: boolean; score?: number; parts?: Record<string, number> }>(apiBase(), '/runs', {
+    return await post<{ replayOk: boolean; reason?: string; score?: number; parts?: Record<string, number>; bank?: Banked }>(apiBase(), '/runs', {
       result: { seed: r.seed, chapter: r.chapter, outcome: r.outcome, lossReason: r.lossReason, secondsLeft: r.secondsLeft, replay: r.replay },
     }, acc.token);
   } catch { return null; }

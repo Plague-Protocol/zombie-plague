@@ -1,4 +1,5 @@
 // Pure game state. No DOM, no three.js, no Date/Math.random: time comes from dt, randomness from state.rng.
+import { applyLoadout, type Loadout } from './loadout';
 import {
   ATTACK_COOLDOWN, ATTACK_DAMAGE, ATTACK_RANGE, ATTACK_REACH, ATTACK_WINDUP, CALM_FACTOR, CORPSE_SECONDS,
   HIT_INVULNERABLE, KNOCKBACK, MEDKIT_HEAL, PLAYER_ACCEL, PLAYER_HEALTH, PLAYER_RADIUS, PLAYER_SPEED, RISE_SECONDS,
@@ -56,6 +57,12 @@ const cloneArsenal = (a: Arsenal): Arsenal => ({
   fireCd: 0,
   reloadT: 0,
 });
+
+/** A night's first carry with what the player brought (the armoury's loadout; none is the standard kit). */
+function withLoadout(c: Carry, l: Loadout | undefined): Carry {
+  c.funds = applyLoadout(c.arsenal, c.funds, l);
+  return c;
+}
 
 /** The level seed for a chapter of a night (chapter 0 is the night's own seed). */
 export function chapterSeed(night: number, chapter: number): number {
@@ -189,10 +196,10 @@ const approach = (v: number, target: number, step: number) => (v < target ? Math
 export function createGame(
   seed: number,
   lvl?: Level,
-  opts: { night?: number; chapter?: number; carry?: Carry; husk?: Husk | null; spawns?: Vec2[] } = {},
+  opts: { night?: number; chapter?: number; carry?: Carry; husk?: Husk | null; spawns?: Vec2[]; loadout?: Loadout } = {},
 ): GameState {
   const level = lvl ?? generateLevel(seed, { night: opts.night ?? seed, chapter: opts.chapter ?? 0 });
-  const carry: Carry = opts.carry ?? {
+  const carry: Carry = opts.carry ?? withLoadout({
     arsenal: {
       weapon: 'pistol', owned: ['pistol', 'baton'],
       mag: { pistol: GUNS.pistol.mag, shotgun: 0, rifle: 0 },
@@ -203,7 +210,7 @@ export function createGame(
     health: PLAYER_HEALTH,
     funds: START_FUNDS,
     kills: 0,
-  };
+  }, opts.loadout);
   const spawns = opts.spawns ?? [level.spawn];
   const cells = level.map.cols * level.map.cols;
   const roster = spawns.map((at, i) => newPlayer(i, at, carry, cells, level.timeLimit));

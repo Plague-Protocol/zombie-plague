@@ -15,7 +15,8 @@ html.playing #app { display: none; }
 .hn .wrap { display: flex; align-items: center; gap: 14px; }
 .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; white-space: nowrap; font: 400 20px 'Eater', system-ui, sans-serif; letter-spacing: .04em; }
 .brand img { width: 32px; height: 32px; filter: drop-shadow(0 0 8px rgba(230,51,41,.7)); }
-.links { display: flex; gap: 2px; margin-left: 18px; }
+.links { display: flex; gap: 2px; margin-left: 18px; white-space: nowrap; }
+@media (max-width: 1180px) { .links { margin-left: 4px; } .links a { padding: 6px 7px; letter-spacing: .08em; } .brand span { font-size: 17px; } }
 .links a, .menu a, .menu button { font: 19px 'VT323', monospace; letter-spacing: .14em; text-transform: uppercase; color: #8fa785; padding: 6px 11px;
   border-radius: 6px; background: none; border: 0; text-decoration: none; cursor: pointer; text-align: left; position: relative; }
 .links a:hover, .menu a:hover, .menu button:hover { color: #e8e0cc; background: rgba(107,142,35,.12); }
@@ -28,7 +29,7 @@ html.playing #app { display: none; }
 .chip span { overflow: hidden; text-overflow: ellipsis; }
 .chip i { font-style: normal; font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: #84cc16; border: 1px solid rgba(132,204,22,.35);
   border-radius: 4px; padding: 0 5px; }
-.menu { position: relative; display: none; }
+.menu { position: relative; }
 .menu summary { list-style: none; cursor: pointer; font-size: 22px; line-height: 1; color: #a0bb94; padding: 6px 10px; border: 1px solid rgba(107,142,35,.4); border-radius: 6px; }
 .menu summary::-webkit-details-marker { display: none; }
 .menu > div { position: absolute; right: 0; top: calc(100% + 10px); display: flex; flex-direction: column; min-width: 14em; padding: 6px;
@@ -37,7 +38,7 @@ html.playing #app { display: none; }
 /* bottom tabs: the app bar on a phone */
 .tabs { display: none; }
 @media (max-width: 760px) {
-  .links { display: none; } .menu { display: block; }
+  .links { display: none; }
   .tabs { display: grid; grid-template-columns: repeat(var(--n, 4), 1fr); position: sticky; bottom: 0; z-index: 5; background: rgba(6,11,6,.96);
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-top: 1px solid rgba(107,142,35,.2); padding: 6px 4px calc(env(safe-area-inset-bottom, 0px) + 6px); }
   .tabs a { display: flex; flex-direction: column; align-items: center; gap: 2px; text-decoration: none; color: #7d9a72; font: 15px 'VT323', monospace;
@@ -238,3 +239,22 @@ ol.steps { margin: 0; padding-left: 1.3em; color: #a0bb94; } ol.steps li { margi
   .mode { padding: 14px; gap: 12px; } .ico { width: 44px; height: 44px; }
   .page { padding-top: 24px; }
 }
+
+/* ── armoury ── */
+.pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip2 { font: 15px system-ui, sans-serif; color: #a0bb94; background: #0a100a; border: 1px solid rgba(107,142,35,.3); border-radius: 999px; padding: 6px 12px; cursor: pointer; }
+.chip2 i { font-style: normal; font: 15px 'VT323', monospace; color: #6b8e23; margin-left: 4px; }
+.chip2.on { background: rgba(132,204,22,.14); border-color: #84cc16; color: #e8e0cc; }
+.chip2.fixed { cursor: default; opacity: .75; }
+.ups { display: grid; gap: 8px; font-size: 14px; color: #a0bb94; }
+.ups label, label.ups { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ups select { font: 14px system-ui, sans-serif; background: #060b06; color: #e8e0cc; border: 1px solid rgba(107,142,35,.45); border-radius: 6px; padding: 4px 8px; }
+.meter { height: 6px; border-radius: 3px; background: #142014; overflow: hidden; }
+.meter i { display: block; height: 100%; background: #84cc16; }
+.meter.over i { background: #e0483a; }
+.shop .buy { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.shop.own { border-color: rgba(132,204,22,.35); }
+.uprow { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 6px 0; border-bottom: 1px solid #1c2a18; font-size: 15px; color: #a0bb94; }
+.pips em { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-left: 4px; border: 1px solid #84cc16; }
+.pips em.on { background: #84cc16; }
+@media (max-width: 760px) { .tabs a { font-size: 13px; letter-spacing: .04em; } }
