@@ -31,7 +31,7 @@ One repository, one history. The game's rules are shared code, so the page and t
 | `web/` | The game page (Vite, three.js): rendering, sound, input, UI, lobby, leaderboard, admin page. Deployed to Vercel (`vercel.json` at the root builds `web/`). | below |
 | `server/` | Accounts, replay-checked runs, leaderboards, real-time rooms, staked-room settlement, admin API. One Docker image. | [The server](#the-server) |
 | `contracts/` | The stake contracts (Foundry). | `forge test` |
-| `deploy/`, `docs/` | Static hosting notes; design, plans, deployments. | |
+| `deploy/`, `docs/` | How to deploy each part ([deploy/README.md](deploy/README.md)); design, plans, deployments. | |
 
 ## Run
 
