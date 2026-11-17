@@ -295,7 +295,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string } =
     }
     root.append(el('div', { class: 'err' }, err));
     const back = el('button', { class: 'ghost' }, 'Back');
-    back.onclick = () => { ws?.close(); root.remove(); document.getElementById('title')!.style.display = 'flex'; };
+    back.onclick = () => { ws?.close(); root.remove(); document.getElementById('title')!.style.display = ''; };
     if (!roomInfo) root.append(back);
   }
   let linkShown: string | null = null;

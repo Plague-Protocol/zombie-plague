@@ -9,8 +9,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <link rel="manifest" href="/manifest.webmanifest" />
 <script>
-  // Phones and small tablets play sideways. Decided before anything loads, so even the loading and
-  // title screens ask to rotate: a touch screen whose short side is phone-sized.
+  // Phones and small tablets play sideways (the home page reads fine upright; only play asks to turn):
+  // a touch screen whose short side is phone-sized.
   (function () {
     var touch = (navigator.maxTouchPoints || 0) > 0 || 'ontouchstart' in window || matchMedia('(pointer: coarse)').matches;
     var small = Math.min(screen.width, screen.height) <= 900;
@@ -115,18 +115,107 @@
 
   .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
     gap: 10px; text-align: center; padding: 24px; z-index: 8; }
-  #title { background: linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.85)), radial-gradient(ellipse at center, transparent 35%, rgba(150,0,0,.25)),
-    url(/intro/bg-home.webp) center / cover; display: flex; }
-  #title img { width: clamp(64px, 14vw, 120px); height: auto; filter: drop-shadow(0 0 20px rgba(230,51,41,.8)); animation: zp-pulse 3s ease-in-out infinite; }
-  #title h1 { margin: 0; font-family: 'Eater', system-ui, sans-serif; font-weight: 400; font-size: clamp(40px, 9vw, 84px); line-height: 1; letter-spacing: .06em;
-    color: #d4c9b2; text-shadow: 0 0 30px rgba(230,51,41,.5); }
-  #title p { margin: 0; font-family: 'VT323', monospace; color: #7d9a72; letter-spacing: .2em; text-transform: uppercase; font-size: 18px; }
-  #title button, #ending button { margin-top: 18px; font-family: 'VT323', monospace; font-size: 24px; font-weight: 700; padding: 8px 34px; border: 2px solid #6b8e23; border-radius: 6px;
+  #ending button { margin-top: 18px; font-family: 'VT323', monospace; font-size: 24px; font-weight: 700; padding: 8px 34px; border: 2px solid #6b8e23; border-radius: 6px;
     background: #6b8e23; color: #060b06; letter-spacing: .22em; text-transform: uppercase; box-shadow: 0 0 24px rgba(107,142,35,.55); }
   #ending button + button { background: transparent; color: #a8c46a; }
-  #title button:disabled { opacity: .45; box-shadow: none; }
-  #title #multi, #title #boardbtn { margin-top: 4px; background: transparent; color: #a8c46a; box-shadow: none; }
   @keyframes zp-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+
+  /* ── the home page: what the game is and the ways in. It scrolls, and reads fine upright: only play turns the phone ── */
+  #title { display: block; overflow-x: hidden; overflow-y: auto; padding: 0; text-align: left; background: #060b06; color: #d4c9b2;
+    touch-action: pan-y; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; font-size: 16px; }
+  #title .wrap { width: min(1100px, 100%); margin: 0 auto; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); box-sizing: border-box; }
+  #title a { color: inherit; }
+  .hn { position: sticky; top: 0; z-index: 3; padding: calc(env(safe-area-inset-top, 0px) + 10px) 0 10px;
+    background: rgba(6,11,6,.9); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid rgba(107,142,35,.16); }
+  .hn .wrap { display: flex; align-items: center; gap: 12px; }
+  .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; white-space: nowrap; font: 400 20px 'Eater', system-ui, sans-serif; letter-spacing: .04em; }
+  .brand img { width: 32px; height: 32px; filter: drop-shadow(0 0 8px rgba(230,51,41,.7)); }
+  .hn .links { display: flex; gap: 2px; margin-left: auto; }
+  .hn .links a, .hn .links button, .menu a, .menu button { font: 19px 'VT323', monospace; letter-spacing: .12em; text-transform: uppercase; color: #a0bb94;
+    padding: 6px 10px; border-radius: 6px; background: none; border: 0; text-decoration: none; cursor: pointer; text-align: left; }
+  .hn .links a:hover, .hn .links button:hover, .menu a:hover, .menu button:hover { color: #e8e0cc; background: rgba(107,142,35,.14); }
+  .hn .right { display: flex; align-items: center; gap: 8px; }
+  .chip { font: 18px 'VT323', monospace; letter-spacing: .1em; color: #a8c46a; background: transparent; border: 1px solid rgba(107,142,35,.45);
+    border-radius: 6px; padding: 5px 10px; cursor: pointer; max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu { display: none; position: relative; }
+  .menu summary { list-style: none; cursor: pointer; font-size: 22px; line-height: 1; color: #a0bb94; padding: 6px 10px; border: 1px solid rgba(107,142,35,.4); border-radius: 6px; }
+  .menu summary::-webkit-details-marker { display: none; }
+  .menu > div { position: absolute; right: 0; top: calc(100% + 10px); display: flex; flex-direction: column; min-width: 13em; padding: 6px;
+    background: #0a100a; border: 1px solid rgba(107,142,35,.3); border-radius: 10px; box-shadow: 0 14px 34px rgba(0,0,0,.7); }
+  .btn { font: 700 22px 'VT323', monospace; letter-spacing: .18em; text-transform: uppercase; padding: 10px 26px; border: 2px solid #6b8e23; border-radius: 8px;
+    background: #6b8e23; color: #060b06; cursor: pointer; box-shadow: 0 0 24px rgba(107,142,35,.4); }
+  .btn.red { background: #cc1414; border-color: #cc1414; color: #fff; box-shadow: 4px 4px 0 rgba(107,142,35,.25); }
+  .btn.ghost { background: transparent; color: #a8c46a; border-color: rgba(107,142,35,.5); box-shadow: none; }
+  .btn.sm { font-size: 19px; padding: 5px 16px; box-shadow: none; }
+  .btn:disabled { opacity: .45; box-shadow: none; cursor: default; }
+  .btn:not(:disabled):hover { filter: brightness(1.12); }
+  .hero { min-height: 86vh; min-height: 86svh; display: flex; align-items: center; padding: 44px 0 40px; box-sizing: border-box;
+    background: linear-gradient(180deg, rgba(6,11,6,.78), rgba(6,11,6,.6) 50%, #060b06), radial-gradient(ellipse at center, transparent 35%, rgba(150,0,0,.25)),
+      url(/intro/bg-home.webp) center top / cover; }
+  .hero .wrap { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 20px; }
+  .badge { font: 16px 'VT323', monospace; letter-spacing: .2em; text-transform: uppercase; color: #ff6b5e; border: 1px solid rgba(204,20,20,.5);
+    background: rgba(204,20,20,.1); border-radius: 999px; padding: 4px 14px; }
+  .hero h1 { margin: 0; font: 400 clamp(46px, 11vw, 116px)/.95 'Eater', system-ui, sans-serif; letter-spacing: .04em; text-shadow: 0 0 30px rgba(230,51,41,.35); }
+  .hero h1 span { display: block; }
+  .hero h1 .red { background: linear-gradient(135deg, #e0261c, #c97a12); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none;
+    animation: zp-tell 5s ease-in-out infinite; }
+  .lede { max-width: 40em; margin: 0; font-size: clamp(15px, 2.2vw, 19px); line-height: 1.55; color: #a0bb94; }
+  .ctas { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+  .note { margin: 0; font: 18px 'VT323', monospace; letter-spacing: .05em; color: #7d9a72; }
+  .facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; padding: 10px 16px; border: 1px solid rgba(201,122,18,.3); border-radius: 8px;
+    background: rgba(6,11,6,.6); font: 18px 'VT323', monospace; letter-spacing: .04em; color: #a0bb94; }
+  .facts b { color: #d4c9b2; font-weight: 400; }
+  .facts span + span::before { content: '\00b7'; color: #6b8e23; margin-right: 16px; }
+  #title { scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 56px); }
+  #plague .grid { grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%; max-width: 860px; margin-top: 6px; }
+  .stat { border: 1px solid rgba(107,142,35,.24); background: rgba(10,16,10,.78); border-radius: 10px; padding: 14px 8px 12px; }
+  .stat b { display: block; font: 400 clamp(30px, 6vw, 46px)/1 'VT323', monospace; color: #84cc16; }
+  .stat span { display: block; margin-top: 4px; font: 15px 'VT323', monospace; letter-spacing: .18em; text-transform: uppercase; color: #7d9a72; }
+  .ticker { overflow: hidden; border-block: 1px solid rgba(107,142,35,.14); background: #0a100a; padding: 10px 0; }
+  .ticker div { display: flex; width: max-content; font: 19px 'VT323', monospace; letter-spacing: .2em; color: #6b8e23; white-space: pre; animation: zp-tick 60s linear infinite; }
+  @keyframes zp-tick { to { transform: translateX(-50%); } }
+  .sec { padding: 64px 0 8px; }
+  .kicker { font: 17px 'VT323', monospace; letter-spacing: .25em; text-transform: uppercase; color: #ff6b5e; }
+  .sec h2 { margin: 4px 0 8px; font: 400 clamp(30px, 5vw, 46px)/1.05 'Eater', system-ui, sans-serif; letter-spacing: .03em; }
+  .sub { margin: 0 0 26px; max-width: 46em; line-height: 1.55; color: #a0bb94; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+  .card { border: 1px solid rgba(107,142,35,.2); background: linear-gradient(180deg, #0d150d, #080d08); border-radius: 12px; padding: 18px; overflow: hidden; }
+  .card img { display: block; width: calc(100% + 36px); margin: -18px -18px 14px; aspect-ratio: 16 / 8; object-fit: cover; filter: saturate(.75) brightness(.72); }
+  .card .ph { font: 16px 'VT323', monospace; letter-spacing: .2em; text-transform: uppercase; color: #6b8e23; }
+  .card .ico { font-size: 26px; line-height: 1; }
+  .card h3 { margin: 6px 0 8px; font-size: 18px; color: #e8e0cc; }
+  .card p { margin: 0; font-size: 15px; line-height: 1.5; color: #a0bb94; }
+  .split { display: grid; gap: 22px; grid-template-columns: 1.1fr .9fr; align-items: start; }
+  .ways { list-style: none; margin: 0 0 22px; padding: 0; display: grid; gap: 10px; }
+  .ways li { border-left: 3px solid #cc1414; background: rgba(204,20,20,.06); border-radius: 0 8px 8px 0; padding: 10px 14px; line-height: 1.45; color: #a0bb94; }
+  .ways b { color: #e8e0cc; }
+  .panel { border: 1px solid rgba(201,122,18,.3); background: #0a100a; border-radius: 12px; padding: 16px 18px; }
+  .panel h3 { margin: 0 0 10px; font: 17px 'VT323', monospace; letter-spacing: .22em; text-transform: uppercase; color: #c97a12; }
+  #home-top { list-style: none; margin: 0 0 14px; padding: 0; font: 21px 'VT323', monospace; }
+  #home-top li { display: flex; gap: 10px; justify-content: space-between; padding: 6px 2px; border-bottom: 1px solid #1c2a18; }
+  #home-top li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #home-top li i { font-style: normal; color: #7a8a72; margin-right: 8px; }
+  #home-top li:first-child i { color: #f2b630; }
+  #home-top li.msg { color: #7d9a72; font-size: 18px; border: 0; }
+  kbd { display: inline-block; min-width: 1.4em; text-align: center; font: 17px 'VT323', monospace; color: #e8e0cc; background: #141c14; border: 1px solid #2c3d24;
+    border-bottom-width: 3px; border-radius: 5px; padding: 0 6px; margin: 2px 2px 2px 0; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; font-size: 15px; color: #a0bb94; }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+  .foot { margin-top: 64px; border-top: 1px solid rgba(107,142,35,.16); background: #050905;
+    padding: 28px 0 calc(env(safe-area-inset-bottom, 0px) + 28px); font-size: 14px; color: #7d9a72; }
+  .foot .wrap { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; justify-content: space-between; }
+  .foot nav { display: flex; flex-wrap: wrap; gap: 6px 20px; }
+  .foot a { color: #a0bb94; text-decoration: none; } .foot a:hover { color: #e8e0cc; }
+  @media (max-width: 860px) { .hn .links { display: none; } .menu { display: block; } .hn .right { margin-left: auto; } .split { grid-template-columns: 1fr; } }
+  @media (max-width: 520px) {
+    .brand { font-size: 16px; } .brand img { width: 26px; height: 26px; } .hn .chip { display: none; }
+    .btn { font-size: 20px; padding: 9px 20px; } .ctas .btn { flex: 1 1 100%; }
+    .stats { gap: 8px; } .stat { padding: 10px 4px; } .stat span { font-size: 12px; letter-spacing: .08em; }
+    .badge { font-size: 14px; letter-spacing: .12em; padding: 3px 12px; }
+    .facts { flex-direction: column; gap: 2px; } .facts span + span::before { content: none; }
+    .sec { padding-top: 48px; }
+  }
 
   /* ── the cold open (src/ui/splash.ts); painted before any script runs ── */
   #splash { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: #000; overflow: hidden;
@@ -193,10 +282,9 @@
   @keyframes zp-static { 0%,100% { transform: translate(0,0); } 25% { transform: translate(-4px,2px); } 50% { transform: translate(3px,-2px); } 75% { transform: translate(-2px,-1px); } }
   @keyframes zp-tell { 0%, 100% { opacity: .85; } 38% { opacity: .45; } 44% { opacity: .9; } 61% { opacity: .35; } 67% { opacity: .8; } }
   @media (prefers-reduced-motion: reduce) { #splash .tell, #splash .motes span { animation: none; } }
-  #title small { position: absolute; bottom: 14px; left: 0; right: 0; opacity: .4; font-size: 10px; }
   /* iPhone Safari cannot hide its bars from a web page; a Home Screen icon opens the game full screen */
-  #ios-tip { display: none; max-width: 440px; font-size: 12px; line-height: 1.45; color: #f2d58a; opacity: .9;
-    border: 1px solid rgba(242,213,138,.35); border-radius: 6px; padding: 6px 10px; margin-top: 4px; }
+  #ios-tip { display: none; max-width: 440px; font-size: 13px; line-height: 1.45; color: #f2d58a; opacity: .9;
+    border: 1px solid rgba(242,213,138,.35); border-radius: 6px; padding: 6px 10px; }
   html.ios-browser #ios-tip { display: block; }
   #ending { background: rgba(0,0,0,.72); }
   #ending h1 { margin: 0; font-size: clamp(34px, 9vw, 56px); letter-spacing: .3em; text-indent: .3em; font-weight: 300; }
@@ -325,12 +413,12 @@
   #map-tools button { width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255,255,255,.35); background: rgba(20,22,26,.8);
     color: #eee; font-size: 22px; line-height: 1; padding: 0; }
   #map-tools #map-close { font-size: 18px; }
-  /* phones play sideways: held upright, the game waits behind this */
+  /* phones play sideways: held upright during play (html.playing), the game waits behind this */
   #rotate { z-index: 20; background: #06080c; display: none; }
   #rotate .phone { width: 46px; height: 80px; border: 3px solid #ddd; border-radius: 9px; animation: turn 2.2s ease-in-out infinite; }
   #rotate p { margin: 18px 0 0; font-size: 15px; letter-spacing: .08em; opacity: .85; }
   @keyframes turn { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
-  @media (orientation: portrait) { html.mobile #rotate { display: flex; } }
+  @media (orientation: portrait) { html.mobile.playing #rotate { display: flex; } }
   /* landscape on a phone: a short screen, so a tighter HUD that keeps clear of the thumbs */
   @media (max-height: 500px) {
     /* side margins clear the notch and the rounded corners */
@@ -365,9 +453,6 @@
     #talk .panel { width: min(78vw, 640px); padding: 10px 16px 8px; }
     #talk-text { font-size: 16px; min-height: 2.6em; }
     #talk.next #talk-text b { font-size: 19px; }
-    #title small { padding: 0 var(--r) 0 var(--l); }
-    #title h1 { font-size: 52px; }
-    #title button { margin-top: 10px; }
     #subs .text { font-size: 14px; }
     body.cinema #subs { bottom: calc(12vh + env(safe-area-inset-bottom, 0px)); width: min(70vw, 640px); }
     #card h2 { font-size: 34px; }
@@ -440,19 +525,123 @@
   <div id="map-tools"><button id="map-close" aria-label="Close map">&#10005;</button><button id="map-in" aria-label="Zoom in">+</button><button id="map-out" aria-label="Zoom out">&minus;</button></div>
   <p>Drag to move &middot; pinch or +/&minus; to zoom &middot; tap to close</p></div>
 <div id="title" class="screen">
-  <img src="/intro/splash-mark.webp" alt="" width="120" height="120" />
-  <h1>ZOMBIE PLAGUE</h1>
-  <p>Bitten in Port Halden &middot; three doses, three districts</p>
-  <button id="start" disabled>Loading&hellip;</button>
-  <button id="multi" disabled>Multiplayer</button>
-  <button id="boardbtn">Leaderboard</button>
-  <div id="ios-tip">For full screen on iPhone: tap Share (the square with an arrow), then <b>Add to Home Screen</b>, and play from the new icon.</div>
-  <small>Sound on. Drag anywhere to move, buttons to fire and use. Keyboard: WASD, Space fire, E use, R reload, Q swap, F flashlight, G throw, M map.</small>
+  <header class="hn"><div class="wrap">
+    <a class="brand" href="#top"><img src="/intro/splash-mark.webp" alt="" width="32" height="32" /><span>ZOMBIE PLAGUE</span></a>
+    <nav class="links" aria-label="Sections">
+      <a href="#how">How it plays</a><a href="#together">Multiplayer</a><a href="#boards">Leaderboards</a><a href="#controls">Controls</a>
+    </nav>
+    <div class="right">
+      <button class="chip signin" type="button">Sign in</button>
+      <button class="btn sm" type="button" data-go="start">Play</button>
+      <details class="menu"><summary aria-label="Menu">&#9776;</summary><div>
+        <a href="#how">How it plays</a><a href="#together">Multiplayer</a><a href="#boards">Leaderboards</a><a href="#controls">Controls</a>
+        <button type="button" class="signin">Sign in</button>
+      </div></details>
+    </div>
+  </div></header>
+
+  <section class="hero" id="top"><div class="wrap">
+    <span class="badge">Survival horror &middot; A new night every day</span>
+    <h1><span>BITTEN.</span><span class="red">GET OUT.</span></h1>
+    <p class="lede">You were bitten in Port Halden, and the infection is your clock. Cross three districts, find the doses that hold it back, and reach the last evacuation helicopter before you turn.</p>
+    <div class="ctas">
+      <button id="start" class="btn" type="button" disabled>Loading&hellip;</button>
+      <button id="multi" class="btn red" type="button" disabled>Play with friends</button>
+      <button id="boardbtn" class="btn ghost" type="button">Leaderboard</button>
+    </div>
+    <p class="note">Free in your browser. Sign in after a few minutes to keep playing and save your nights.</p>
+    <div id="ios-tip">For full screen on iPhone: tap Share (the square with an arrow), then <b>Add to Home Screen</b>, and play from the new icon.</div>
+    <div class="facts"><span><b>Same city</b> for everyone today</span><span>Scores <b>checked by replay</b></span><span>Up to <b>8 per room</b></span><span>Phones play <b>sideways</b></span></div>
+    <div class="stats">
+      <div class="stat"><b>3</b><span>Districts</span></div>
+      <div class="stat"><b id="home-players">&mdash;</b><span>On tonight's board</span></div>
+      <div class="stat"><b id="home-best">&mdash;</b><span>Best score tonight</span></div>
+    </div>
+  </div></section>
+
+  <div class="ticker" aria-hidden="true"><div>THE CLOCK IS YOUR INFECTION  |  FIND THE DOSES  |  CHECK WHO IS COUGHING  |  KILL THE LIGHT  |  MIND THE RED X  |  REACH THE HELICOPTER  |  THE CLOCK IS YOUR INFECTION  |  FIND THE DOSES  |  CHECK WHO IS COUGHING  |  KILL THE LIGHT  |  MIND THE RED X  |  REACH THE HELICOPTER  |  </div></div>
+
+  <section class="sec" id="how"><div class="wrap">
+    <div class="kicker">How a night goes</div>
+    <h2>Three districts. One clock.</h2>
+    <p class="sub">Every chapter is a district with jobs to do before the way out opens. Leave a district with time to spare and it pays, in cash for the stores ahead.</p>
+    <div class="grid">
+      <div class="card"><img src="/intro/bg-game.webp" alt="" loading="lazy" /><div class="ph">01 &middot; Downtown</div><h3>Where it started</h3><p>Scavenge, help who you can and find the parts you need, then get down into the subway before the streets close in.</p></div>
+      <div class="card"><img src="/intro/bg-horror.webp" alt="" loading="lazy" /><div class="ph">02 &middot; The docks</div><h3>Across the tracks</h3><p>Work through the yards to the gate in the army barricade. Cars and bikes get you there faster, but every engine is heard.</p></div>
+      <div class="card"><img src="/intro/bg-patient-zero.webp" alt="" loading="lazy" /><div class="ph">03 &middot; The edge</div><h3>The last helicopter</h3><p>The landing zone is the only way out of Port Halden. Get there before the infection reaches zero.</p></div>
+    </div>
+  </div></section>
+
+  <section class="sec" id="plague"><div class="wrap">
+    <div class="kicker">What is out there</div>
+    <h2>The city plays back</h2>
+    <div class="grid">
+      <div class="card"><div class="ico">&#9763;</div><h3>The clock is your infection</h3><p>Every bite jumps it forward. Antiviral doses hold it back. When it runs out, you are one of them.</p></div>
+      <div class="card"><div class="ico">&#129463;</div><h3>Survivors, and who is bitten</h3><p>People ask for help and some will follow you. Someone coughing may already be bitten: check them, and decide whether to leave them.</p></div>
+      <div class="card"><div class="ico">&#128294;</div><h3>Light and noise</h3><p>Your light shows you the street and shows you to them. Kill it, throw a bottle to pull them away, and listen for screamers.</p></div>
+      <div class="card"><div class="ico">&#10060;</div><h3>Houses and stores</h3><p>Search houses for doses, cash and rounds, but a red X means something is inside. Spend what you find at weapon stores.</p></div>
+      <div class="card"><div class="ico">&#128663;</div><h3>Cars and bikes</h3><p>Faster than running, with seats for the people you saved. Watch the fuel, and shake off what grabs on.</p></div>
+      <div class="card"><div class="ico">&#128123;</div><h3>Your last self</h3><p>Where you fell, you wait, still carrying what you carried. Put it down to take your gear back.</p></div>
+    </div>
+  </div></section>
+
+  <section class="sec" id="together"><div class="wrap split">
+    <div>
+      <div class="kicker">Multiplayer</div>
+      <h2>Not everyone gets out</h2>
+      <p class="sub">The same streets, with others in them. The server runs the round, so what happens is what happened.</p>
+      <ul class="ways">
+        <li><b>Quick play.</b> Drop into the next open room with whoever is around.</li>
+        <li><b>Private room.</b> Make a room and read out its five-letter code, or type a friend's code to join.</li>
+        <li><b>Invite link.</b> Send it on WhatsApp or anywhere else and it opens straight into your room.</li>
+      </ul>
+      <button class="btn red" type="button" data-go="multi">Play with friends</button>
+      <p class="note" style="margin-top:12px">Sign in to play with others. A round starts a few seconds after four are in, up to eight.</p>
+    </div>
+    <div class="card"><img src="/intro/bg-zombie-portrait.webp" alt="" loading="lazy" style="aspect-ratio: 4 / 3" /><h3>Rooms count too</h3><p>Every round you play signed in goes on the rooms board: who got out, who turned, who put the most of them down.</p></div>
+  </div></section>
+
+  <section class="sec" id="boards"><div class="wrap split">
+    <div>
+      <div class="kicker">Leaderboards</div>
+      <h2>Bring receipts</h2>
+      <p class="sub">Your run is replayed on the server before it counts, so the scores on the board are the ones that really happened.</p>
+      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr))">
+        <div class="card"><div class="ph">Tonight</div><p>Your best run in today's city, the same streets for everyone.</p></div>
+        <div class="card"><div class="ph">This week</div><p>Your best score on each of the last seven nights, added up.</p></div>
+        <div class="card"><div class="ph">Streak</div><p>Nights in a row you got out alive.</p></div>
+        <div class="card"><div class="ph">Rooms</div><p>Escapes in multiplayer rounds.</p></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Top of tonight</h3>
+      <ol id="home-top"><li class="msg">Loading the board&hellip;</li></ol>
+      <button class="btn ghost sm" type="button" data-go="boardbtn">Full leaderboard</button>
+    </div>
+  </div></section>
+
+  <section class="sec" id="controls"><div class="wrap">
+    <div class="kicker">Controls</div>
+    <h2>Pick it up in a minute</h2>
+    <p class="sub">On a phone, the game turns sideways when you start playing. Sound on: you will hear them before you see them.</p>
+    <div class="grid">
+      <div class="card"><div class="ph">On a phone</div><h3>Thumbs</h3><p>Drag anywhere to move. Fire, use, reload, swap, throw and light are the buttons on the right. Tap the minimap for the full map.</p></div>
+      <div class="card"><div class="ph">On a keyboard</div><h3>Keys</h3>
+        <div class="keys"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>Move</span><span><kbd>Space</kbd></span><span>Fire</span>
+          <span><kbd>E</kbd></span><span>Use</span><span><kbd>R</kbd> <kbd>Q</kbd></span><span>Reload, swap weapon</span><span><kbd>F</kbd> <kbd>G</kbd></span><span>Light, throw a bottle</span><span><kbd>M</kbd></span><span>Map</span></div></div>
+    </div>
+    <div class="cta-row"><button class="btn" type="button" data-go="start">Play tonight's city</button></div>
+  </div></section>
+
+  <footer class="foot"><div class="wrap">
+    <a class="brand" href="#top"><img src="/intro/splash-mark.webp" alt="" width="32" height="32" loading="lazy" /><span>ZOMBIE PLAGUE</span></a>
+    <nav aria-label="More"><a href="#how">How it plays</a><a href="#boards">Leaderboards</a><a href="https://deduce.zplague.xyz" target="_blank" rel="noopener">Deduce, our social deduction game</a><a href="mailto:support@zplague.xyz">support@zplague.xyz</a></nav>
+  </div></footer>
 </div>
 <div id="ending" class="screen">
   <h1 id="end-title"></h1>
   <p id="end-text"></p>
-  <div class="row"><button id="retry">Try again</button><button id="new-night">New night</button></div>
+  <div class="row"><button id="retry">Try again</button><button id="new-night">New night</button><button onclick="location.assign('/')">Home</button></div>
   <div class="seed" id="end-seed"></div>
 </div>
 <div id="rotate" class="screen"><div class="phone"></div><p>Turn your phone sideways to play</p></div>

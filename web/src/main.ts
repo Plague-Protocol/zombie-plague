@@ -30,6 +30,9 @@ const params = new URLSearchParams(location.search);
 // The cold open runs while everything else loads (its own chunk; nothing to do if it is not showing).
 let splashOn = !document.documentElement.classList.contains('intro-seen');
 if (splashOn) void import('./ui/splash').then((m) => m.runSplash()).then(() => { splashOn = false; });
+void import('./ui/home').then((m) => m.initHome()); // the home page's nav, sign-in and tonight's board (its own chunk)
+/** Into play: from here a phone held upright is asked to turn (the home page and lobby read fine upright). */
+const playing = () => document.documentElement.classList.add('playing');
 const debug = params.has('debug');
 
 type Mode = 'title' | 'intro' | 'play' | 'ending' | 'room';
@@ -173,13 +176,12 @@ const roomHost: Host = {
   toast: (t) => hud.toast(t),
   enter(shadow, driver) {
     state = shadow; roomDriver = driver; mode = 'room';
-    $('title').style.display = 'none';
+    $('title').style.display = 'none'; playing();
     hud.reset(); setChapter(0); paused = false; controls.enabled = true; hud.cinema(false); convo.length = 0;
   },
   refreshStore: () => storePage?.refresh(),
 };
 multiBtn.addEventListener('click', () => {
-  void goLandscape();
   sound.start();
   void import('./net/room').then((m) => m.openLobby(roomHost));
 });
@@ -209,13 +211,11 @@ document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.prev
 startBtn.addEventListener('click', () => {
   void goLandscape();
   sound.start();
-  $('title').style.display = 'none';
+  $('title').style.display = 'none'; playing();
   // the title shows a city while tonight's is fetched: play tonight's if it came
   begin(tonight !== null && state.night !== tonight && state.chapter === 0 ? fresh((husk) => createGame(tonight!, undefined, { husk }), 0) : state, !params.has('skipintro'));
 });
 void import('./net/account').then((m) => m.tonight(content().version)).then((r) => { serverUp = r !== null; if (!params.has('seed')) tonight = r?.night ?? null; });
-if (params.has('admin')) void import('./net/admin').then((m) => m.openAdmin());
-$('boardbtn').addEventListener('click', () => { void import('./net/board').then((m) => m.openBoard()); });
 if (debug) Object.defineProperty(window, '__outbreak', { get: () => ({ state, mode, view, sound, log: rec.log() }) }); // test hook
 
 /** Start a chapter (or a night). The full intro plays once; retries and new chapters go straight
@@ -479,11 +479,11 @@ let miniTick = 0;
 
 function frame(now: number): void {
   if (splashOn) { last = now; requestAnimationFrame(frame); return; } // nothing to draw under the cold open
-  // Draw only as often as it is worth: a held story moment or the store is still (20/s), the title
-  // and phones run at 30/s; a computer plays at the screen's rate. The sim's fixed step does
-  // not care: it catches up on the time between frames.
+  // Draw only as often as it is worth: under the home page (which covers it) twice a second, a held
+  // story moment or the store is still (20/s), phones run at 30/s; a computer plays at the screen's
+  // rate. The sim's fixed step does not care: it catches up on the time between frames.
   const still = (paused && !cityMap.open) || talk.open;
-  const gap = still ? 48 : fps30 || mode === 'title' ? 31 : 0;
+  const gap = mode === 'title' ? 500 : still ? 48 : fps30 ? 31 : 0;
   if (gap && now - last < gap) { requestAnimationFrame(frame); return; }
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;

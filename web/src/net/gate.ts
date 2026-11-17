@@ -14,15 +14,15 @@ const CSS = `
 #gate small { color: #6f7d68; font-size: 16px; }
 `;
 
-/** Cover the game until a sign-in succeeds, then call `done`. */
-export function showGate(done: () => void): void {
+/** Cover the game until a sign-in succeeds, then call `done`. From the home page it is asked for, with its own words and a way back (`cancel`). */
+export function showGate(done: () => void, opts: { title?: string; text?: string; cancel?: boolean } = {}): void {
   if (document.getElementById('gate')) return;
   if (!document.getElementById('gate-css')) { const st = document.createElement('style'); st.id = 'gate-css'; st.textContent = CSS; document.head.appendChild(st); }
   const root = document.createElement('div');
   root.id = 'gate';
-  const h = document.createElement('h2'); h.textContent = 'It is in your blood now';
+  const h = document.createElement('h2'); h.textContent = opts.title ?? 'It is in your blood now';
   const p = document.createElement('p');
-  p.textContent = 'That was your free taste. Sign in to keep playing: your nights count on the leaderboard, your last self waits for you where you fell, and multiplayer opens.';
+  p.textContent = opts.text ?? 'That was your free taste. Sign in to keep playing: your nights count on the leaderboard, your last self waits for you where you fell, and multiplayer opens.';
   const err = document.createElement('div'); err.className = 'err';
   root.append(h, p);
   const go = (label: string, how: () => Promise<unknown>, ghost = false) => {
@@ -46,5 +46,10 @@ export function showGate(done: () => void): void {
   if (!wallet && !socialAvailable()) { const n = document.createElement('p'); n.textContent = 'Open the game in MiniPay or a wallet browser to sign in.'; root.append(n); }
   const s = document.createElement('small'); s.textContent = 'Free. No payment is asked for to sign in.';
   root.append(err, s);
+  if (opts.cancel) {
+    const back = document.createElement('button'); back.className = 'ghost'; back.textContent = 'Not now';
+    back.onclick = () => root.remove();
+    root.append(back);
+  }
   document.body.appendChild(root);
 }
