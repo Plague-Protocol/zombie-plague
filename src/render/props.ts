@@ -1,5 +1,5 @@
 import {
-  AdditiveBlending, BoxGeometry, type Material, CanvasTexture, Color, ConeGeometry, DoubleSide, Group, InstancedMesh, Mesh,
+  AdditiveBlending, BoxGeometry, CylinderGeometry, type Material, CanvasTexture, Color, ConeGeometry, DoubleSide, Group, InstancedMesh, Mesh,
   MeshBasicMaterial, MeshLambertMaterial, Object3D, PlaneGeometry, PointLight, Scene, SphereGeometry, Sprite, SpriteMaterial, SRGBColorSpace,
   Vector3,
 } from 'three';
@@ -38,6 +38,43 @@ const weaponMat = new MeshLambertMaterial({ vertexColors: true, emissive: 0x0b0b
  * the barrel along +x and the middle of the grip at the origin, `userData.muzzle` the muzzle point;
  * melee weapons point along +y (out of the thumb side of the fist).
  */
+/**
+ * A field dressing wound round a forearm: turns of gauze that overlap and lean a little each (as a hand wraps them,
+ * not as a tube), a slightly tighter last turn, a stain seeping through where the bite is, and a loose end hanging.
+ * Built round the Y axis, `r` the arm's radius, `len` how far along it the wrapping goes.
+ */
+export function bandageMesh(r = 0.13, len = 0.36): Group {
+  const g = new Group();
+  const turns: CylinderGeometry[] = [];
+  const n = 6, h = len / n * 1.45; // each turn wider than its share: they overlap
+  for (let i = 0; i < n; i++) {
+    const rr = r * (1 + 0.035 * (i % 2) + (i === n - 1 ? -0.02 : 0.02));
+    const t = new CylinderGeometry(rr, rr * 1.04, h, 18, 1, true);
+    t.rotateZ((i % 2 ? 1 : -1) * 0.16); // the spiral: each turn crosses the last
+    t.rotateY(i * 1.1);
+    t.translate(0, -len / 2 + (i + 0.5) * (len / n), 0);
+    turns.push(t);
+  }
+  const cloth = new MeshLambertMaterial({ color: 0xece6d4, side: DoubleSide });
+  g.add(new Mesh(mergeGeometries(turns)!, cloth));
+  // the bite bleeding through: a patch on the outside of two turns, a hair proud of the cloth
+  const stain = new CylinderGeometry(r * 1.07, r * 1.08, len * 0.32, 10, 1, true, 0.2, 1.1);
+  stain.translate(0, len * 0.05, 0);
+  g.add(new Mesh(stain, new MeshLambertMaterial({ color: 0x6a1a12, side: DoubleSide })));
+  const halo = new CylinderGeometry(r * 1.065, r * 1.075, len * 0.46, 12, 1, true, 0.05, 1.45);
+  halo.translate(0, len * 0.04, 0);
+  g.add(new Mesh(halo, new MeshLambertMaterial({ color: 0xa0784f, side: DoubleSide, transparent: true, opacity: 0.55 })));
+  // the tail of the last turn, tucked in badly
+  const tail = new PlaneGeometry(r * 0.55, len * 0.42);
+  tail.translate(0, -len * 0.21, 0);
+  tail.rotateZ(0.25);
+  const end = new Mesh(tail, cloth);
+  end.position.set(r * 1.02, len / 2 - 0.02, 0);
+  end.rotation.y = Math.PI / 2;
+  g.add(end);
+  return g;
+}
+
 export function weaponMesh(kind: WeaponKind, finish?: number): Mesh {
   const mesh = new Mesh(modelGeometry(kind, finish), weaponMat);
   mesh.userData.muzzle = modelMuzzle(kind);
