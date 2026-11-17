@@ -1,0 +1,32 @@
+{
+  "name": "outbreak-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Accounts, replay-checked runs and real-time rooms for Zombie Plague. Imports the game rules from ../src/core unchanged.",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
+    "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server.mjs --external:pg-native --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "start": "node --env-file-if-exists=.env dist/server.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "11.4.1",
+    "fastify": "5.12.8",
+    "jose": "6.2.17",
+    "pg": "8.23.1",
+    "viem": "2.57.17",
+    "ws": "8.22.2",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "@types/pg": "8.23.1",
+    "@types/ws": "8.18.2",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "vitest": "4.1.12"
+  }
+}
