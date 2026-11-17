@@ -859,13 +859,13 @@ describe('vehicles draw a crowd', () => {
     const bike = g.vehicles[0]!;
     bike.kind = 'bike';
     const e = (name: string) => ({ pos: { x: bike.pos.x + 1, y: bike.pos.y + 1 }, heading: 0, speed: 0, riding: false, name, skin: 'humanMaleA' as const, scale: 1 });
-    g.escort = { ...e('Ade'), party: [e('Funmi'), e('Tobi')] };
+    g.escort = { ...e('Dan'), party: [e('Rose'), e('Toby')] };
     g.player.pos = { x: bike.pos.x, y: bike.pos.y + VEHICLES.bike.width / 2 + 0.6 };
     expect(interactionFor(g)?.kind).toBe('enter');
     step(g, USE, DT);
     expect(playerVehicle(g)).toBeNull();
     expect(g.events).toContainEqual({ type: 'no-room', need: 3, seats: 2 });
-    g.escort.party = [e('Funmi')];
+    g.escort.party = [e('Rose')];
     step(g, USE, DT);
     expect(playerVehicle(g)).toBe(bike);
     step(g, IDLE, DT);

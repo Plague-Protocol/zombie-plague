@@ -348,7 +348,7 @@ describe('task content and its mechanics', () => {
     g.guarded = g.tasks.map((t) => t.id);
     doTask(g, currentTask(g)!);
     const party = escortGroup(g);
-    expect(party.map((m) => m.name)).toEqual(['Ade', 'Funmi', 'Tobi']);
+    expect(party.map((m) => m.name)).toEqual(['Dan', 'Rose', 'Toby']);
     for (let i = 0; i < 150; i++) step(g, { dx: 1, dy: 0 }, DT);
     // a line: each one near the one in front
     for (let i = 1; i < party.length; i++) expect(Math.hypot(party[i]!.pos.x - party[i - 1]!.pos.x, party[i]!.pos.y - party[i - 1]!.pos.y)).toBeLessThan(4);
@@ -357,7 +357,7 @@ describe('task content and its mechanics', () => {
     g.player.pos = { ...shelter.pos };
     g.player.vel = { x: 0, y: 0 };
     party.forEach((m, i) => { m.pos = { x: shelter.pos.x + 1 + i * 0.5, y: shelter.pos.y }; });
-    party[2]!.pos = { x: shelter.pos.x + 30, y: shelter.pos.y }; // Tobi has fallen behind
+    party[2]!.pos = { x: shelter.pos.x + 30, y: shelter.pos.y }; // Toby has fallen behind
     step(g, USE, DT);
     expect(g.events).toContainEqual({ type: 'escort-behind' });
     party[2]!.pos = { x: shelter.pos.x + 2, y: shelter.pos.y + 1 };

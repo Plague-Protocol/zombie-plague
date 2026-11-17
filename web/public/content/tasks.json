@@ -725,17 +725,17 @@
         "effect": "escort-start",
         "scene": "crashed-bus",
         "escort": {
-          "name": "Ade",
+          "name": "Dan",
           "skin": "humanMaleA",
           "scale": 1,
-          "behind": "Sam|Ade! Keep everyone together, right behind me.",
+          "behind": "Sam|Dan! Keep everyone together, right behind me.",
           "party": [
             {
-              "name": "Funmi",
+              "name": "Rose",
               "skin": "humanFemaleA"
             },
             {
-              "name": "Tobi",
+              "name": "Toby",
               "skin": "humanMaleA",
               "scale": 0.7
             }
@@ -747,7 +747,7 @@
           "Emergency Radio|...a family of three called in, a man, his wife and their boy, hiding behind a minibus near the market. They can't move on their own..."
         ],
         "done": [
-          "Ade|You came. We've been behind this bus since the morning. Funmi, Tobi, up. Stay close to him.",
+          "Dan|You came. We've been behind this bus since the morning. Rose, Toby, up. Stay close to them.",
           "Sam|Single file behind me. If one of them touches any of you, it's over. So you don't stop, and you don't wander."
         ]
       },
@@ -764,8 +764,8 @@
           "Sam|The shelter door. All three of them, nobody bitten."
         ],
         "done": [
-          "Funmi|Inside, Tobi, inside. Ade, the bar on the door.",
-          "Ade|We won't forget you. Go, we're safe now."
+          "Rose|Inside, Toby, inside. Dan, the bar on the door.",
+          "Dan|We won't forget you. Go, we're safe now."
         ],
         "door": true
       }
