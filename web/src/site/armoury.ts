@@ -71,7 +71,7 @@ export function mountArmoury(root: HTMLElement): void {
         <h3>Borrowed for a night</h3>
         <p style="margin-bottom:12px">Take kit you cannot afford yet into your next night. The fee comes out of what that night banks; if it banks less, you owe the rest and cannot borrow again until it is paid. Unused loans lapse after a day, free.</p>
         ${v.loans.length ? `<ul class="runs">${v.loans.map((x) => `<li class="won"><span class="body"><b>${esc(kitDef(x.item as KitId).name)}</b><small>fee ${fmt(x.fee)} when a night carries it</small></span></li>`).join('')}</ul>` : '<p class="muted" style="font-size:14px">Nothing borrowed.</p>'}
-        <div class="card" style="margin-top:16px;border-style:dashed"><div class="ph">USDm</div><h3>Top up with USDm <span class="tag">Coming soon</span></h3><p>Buy cash with USDm on Celo, for players who would rather not wait. Earning by playing stays the main way in.</p></div>
+        ${topupCard()}
       </div>
     </div>
     ${msg || err ? `<p class="${err ? 'err' : 'muted'}" style="margin:16px 0 0">${esc(err || msg)}</p>` : ''}
@@ -98,6 +98,39 @@ export function mountArmoury(root: HTMLElement): void {
         return `<div class="uprow"><span>${UPGRADE_NAMES[u]}</span><span class="pips">${Array.from({ length: UPGRADE_LEVELS }, (_, k) => `<em class="${k < n ? 'on' : ''}"></em>`).join('')}</span>${n < UPGRADE_LEVELS ? `<button class="btn ghost sm" type="button" data-a="buy:${w}.${u}"${v!.cash < price || busy ? ' disabled' : ''}>${fmt(price)}</button>` : '<span class="tag g">Max</span>'}</div>`;
       }).join('')}</div>`).join('')}</div>
     </div>`;
+  }
+
+  /** The stablecoin top-up: packs, paid from the signed-in wallet; a paid transaction is kept until the server has counted it. */
+  function topupCard(): string {
+    const t = v!.topup;
+    if (!t) return '<div class="card" style="margin-top:16px;border-style:dashed"><div class="ph">USDm</div><h3>Top up with USDm <span class="tag">Coming soon</span></h3><p>Buy cash with USDm on Celo, for players who would rather not wait. Earning by playing stays the main way in.</p></div>';
+    const wallet = !!(window as unknown as { ethereum?: unknown }).ethereum;
+    const owed = pendingTx();
+    return `<div class="card" style="margin-top:16px"><div class="ph">${esc(t.symbol)} on Celo</div><h3>Top up</h3>
+      <p>${fmt(t.rate)} cash for each ${esc(t.symbol)}, sent from the wallet you signed in with. The server checks the payment on the chain before it adds the cash.</p>
+      ${owed ? `<p class="err" style="margin-top:10px">A payment is waiting to be counted.</p><div class="buy"><button class="btn sm" type="button" data-a="topup-retry"${busy ? ' disabled' : ''}>Count my payment</button></div>` : ''}
+      <div class="buy">${[1, 5, 10].map((n) => `<button class="btn ghost sm" type="button" data-a="topup:${n}"${!wallet || busy || owed ? ' disabled' : ''}>${n} ${esc(t.symbol)} &rarr; ${fmt(n * t.rate)}</button>`).join('')}</div>
+      ${wallet ? '' : '<p class="muted" style="font-size:14px;margin-top:8px">Paying needs a wallet in the browser: open the game in MiniPay or a wallet app.</p>'}</div>`;
+  }
+  const PENDING = 'zp.topup.pending';
+  const pendingTx = (): string | null => { try { return localStorage.getItem(PENDING); } catch { return null; } };
+  async function count(tx: string): Promise<void> {
+    const r = await armouryPost('topup', { tx });
+    if (r.view) { take(r.view, true); try { localStorage.removeItem(PENDING); } catch { /* fine */ } msg = `Paid. ${fmt(r.view.credited ?? 0)} cash added.`; err = ''; }
+    else if (/already been counted/.test(r.error ?? '')) { try { localStorage.removeItem(PENDING); } catch { /* fine */ } msg = 'That payment was already counted.'; }
+    else err = `${r.error ?? 'The server did not count it yet.'} Your payment is safe: try "Count my payment" again in a moment.`;
+  }
+  async function topup(n: number): Promise<void> {
+    const t = v!.topup!;
+    busy = true; err = ''; msg = 'Confirm the payment in your wallet…'; draw();
+    try {
+      const m = await import('../net/stake');
+      const tx = await m.payToken({ token: t.token, chainId: t.chainId }, t.treasury, BigInt(n) * 10n ** BigInt(t.decimals));
+      try { localStorage.setItem(PENDING, tx); } catch { /* counted now or never shown */ }
+      msg = 'Paid. Counting it…'; draw();
+      await count(tx);
+    } catch (e) { err = e instanceof Error ? e.message.slice(0, 160) : 'The wallet refused.'; msg = ''; }
+    busy = false; draw();
   }
 
   async function act(path: 'buy' | 'borrow' | 'loadout', body: unknown, done: string): Promise<void> {
@@ -127,6 +160,8 @@ export function mountArmoury(root: HTMLElement): void {
       for (const key of Object.keys(l.ups)) if (!brings.includes(key.split('.')[0] as WeaponKind)) delete l.ups[key as UpId];
       dirty = true; msg = ''; draw();
     } else if (k === 'save') void act('loadout', draft, 'Loadouts saved.');
+    else if (k === 'topup') void topup(Number(arg));
+    else if (k === 'topup-retry') { const tx = pendingTx(); if (tx) { busy = true; draw(); void count(tx).then(() => { busy = false; draw(); }); } }
     else if (k === 'buy') void act('buy', { item: arg }, 'Bought.');
     else if (k === 'borrow') void act('borrow', { item: arg }, `Borrowed. Add it to a loadout to take it into your next night.`);
   });

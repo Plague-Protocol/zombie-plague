@@ -35,7 +35,7 @@ export function stakeConfigs(): StakeConfig[] {
 /** Function selectors and the RoomCreated topic. Checked against the real ABI by server/test/stake.test.ts: a wrong one here would send a real transaction to the wrong function. */
 export const SEL = {
   createRoom: '0x097f1288', joinRoom: '0x9cfc4b45', startGame: '0xe5ed1d59', cancelRoom: '0x2d172edf', leaveRoom: '0x779db573', getRoom: '0x6d8a74cb', approve: '0x095ea7b3', allowance: '0xdd62ed3e',
-  pause: '0x8456cb59', unpause: '0x3f4ba83a', withdrawAll: '0xfa09e630',
+  pause: '0x8456cb59', unpause: '0x3f4ba83a', withdrawAll: '0xfa09e630', transfer: '0xa9059cbb',
 } as const;
 export const ROOM_CREATED = '0xcff39d5f5e68c5ec23a0132dffcc54cd414ff88b613bb83083ca99da9e14fcc5';
 
@@ -77,12 +77,12 @@ async function ensureChain(cfg: StakeConfig): Promise<void> {
 }
 
 /** Send a transaction and wait for it to be mined; resolves with the receipt, throws if it failed. */
-async function send(to: string, data: string, who: string): Promise<{ logs: Array<{ address: string; topics: string[] }> }> {
+async function send(to: string, data: string, who: string): Promise<{ transactionHash: string; logs: Array<{ address: string; topics: string[] }> }> {
   const e = eth()!;
   // no gas and no fee currency: the wallet estimates, and MiniPay picks the stablecoin it charges the fee in
   const hash = (await e.request({ method: 'eth_sendTransaction', params: [{ from: who, to, data }] })) as string;
   for (let i = 0; i < 80; i++) {
-    const rc = (await e.request({ method: 'eth_getTransactionReceipt', params: [hash] })) as { status: string; logs: Array<{ address: string; topics: string[] }> } | null;
+    const rc = (await e.request({ method: 'eth_getTransactionReceipt', params: [hash] })) as { status: string; transactionHash: string; logs: Array<{ address: string; topics: string[] }> } | null;
     if (rc) { if (rc.status !== '0x1') throw new Error('The transaction failed.'); return rc; }
     await new Promise((r) => setTimeout(r, 1500));
   }
@@ -160,4 +160,11 @@ export async function adminTx(cfg: Pick<StakeConfig, 'chainId'>, to: string, cal
   const who = await from();
   await ensureChain(cfg as StakeConfig);
   await send(to, SEL[call] + (arg ? word(arg) : ''), who);
+}
+
+/** Pay `amount` of a token to `to` from the signed-in wallet (the armoury's top-up); resolves with the mined transaction's hash. */
+export async function payToken(cfg: { token: string; chainId: number }, to: string, amount: bigint): Promise<string> {
+  const who = await from();
+  await ensureChain({ rooms: to, token: cfg.token, chainId: cfg.chainId, symbol: '', decimals: 18 });
+  return (await send(cfg.token, SEL.transfer + word(to) + word(amount), who)).transactionHash;
 }

@@ -19,6 +19,8 @@ export interface Deps {
   content: ContentRegistry;
   origins: string[];
   now?: () => Date;
+  /** Set when armoury top-ups in a stablecoin are on: the token and treasury, and how receipts are read. */
+  topup?: { config: import('./topup.ts').TopupConfig; read: import('./topup.ts').ReceiptReader };
 }
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -117,6 +119,6 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     return buildBoard(d.store, q.data.board, now(), await who(req), q.data.night);
   });
 
-  registerArmoury(app, { store: d.store, auth: d.auth });
+  registerArmoury(app, { store: d.store, auth: d.auth, topup: d.topup });
   return app;
 }

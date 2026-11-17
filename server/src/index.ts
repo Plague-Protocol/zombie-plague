@@ -7,6 +7,7 @@ import { Hub } from './rooms.ts';
 import { Staked } from './staked.ts';
 import { registerAdmin } from './admin.ts';
 import { payForRound } from './armoury.ts';
+import { rpcReceipts } from './topup.ts';
 import { MemoryStore, PgStore, type Store } from './store.ts';
 import { attachWs } from './ws.ts';
 
@@ -18,7 +19,11 @@ const auth = new Auth(cfg.JWT_SECRET, makeSignatureChecker(cfg.CELO_RPC));
 const chains: Record<string, ViemChain> = {};
 if (cfg.STAKED) for (const st of cfg.stacks) chains[st.symbol] = new ViemChain({ rpc: cfg.CELO_RPC!, chainId: cfg.CHAIN_ID, rooms: st.rooms, key: cfg.BACKEND_KEY! });
 const chain = Object.values(chains)[0] ?? null; // the same backend key settles every contract: one balance to watch
-const app = await buildApp({ store, auth, content, origins: cfg.origins, chain, stacks: Object.keys(chains) });
+const topup = cfg.TOPUP_TOKEN && cfg.TOPUP_TREASURY && cfg.CELO_RPC ? {
+  config: { token: cfg.TOPUP_TOKEN, treasury: cfg.TOPUP_TREASURY, decimals: cfg.TOPUP_DECIMALS, rate: cfg.TOPUP_RATE, symbol: cfg.TOPUP_SYMBOL, chainId: cfg.CHAIN_ID },
+  read: rpcReceipts(cfg.CELO_RPC),
+} : undefined;
+const app = await buildApp({ store, auth, content, origins: cfg.origins, chain, stacks: Object.keys(chains), topup });
 let staked: Staked | undefined;
 const hub = new Hub({
   contentVersion: () => content.latest,

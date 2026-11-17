@@ -112,6 +112,9 @@ export interface ArmouryView {
   cash: number; owned: Owned; loadouts: { ranked: Loadout; open: Loadout };
   loans: Array<{ id: string; item: string; fee: number; createdAt: string }>;
   earnedToday: number; dailyCap: number; tonight: number;
+  /** Buying cash with a stablecoin, when the server has it on. */
+  topup: { token: string; treasury: string; decimals: number; rate: number; symbol: string; chainId: number; min: string } | null;
+  credited?: number;
 }
 /** Keep the loadouts on this device, where the game reads them when a night starts. */
 function keepLoadouts(v: ArmouryView): void {
@@ -125,7 +128,7 @@ export async function armoury(): Promise<ArmouryView | null> {
   return v;
 }
 /** Buy, borrow or save loadouts: the armoury as it is after, or why not. */
-export async function armouryPost(path: 'buy' | 'borrow' | 'loadout', body: unknown): Promise<{ view?: ArmouryView; error?: string }> {
+export async function armouryPost(path: 'buy' | 'borrow' | 'loadout' | 'topup', body: unknown): Promise<{ view?: ArmouryView; error?: string }> {
   try {
     const r = await fetch(`${apiBase()}/armoury/${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth() }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000) });
     const j = await r.json() as ArmouryView & { error?: string };

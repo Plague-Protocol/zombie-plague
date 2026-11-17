@@ -13,6 +13,7 @@ import type { WeaponKind, UpgradeKind } from '../../core/types.ts';
 import { nightOf } from './content.ts';
 import type { Auth } from './auth.ts';
 import type { Loadouts, Store } from './store.ts';
+import { minUnits, verifyTopup, type ReceiptReader, type TopupConfig } from './topup.ts';
 
 const DAY = 864e5;
 /** The start of the (UTC) day a moment is in: the daily cap and ration reset then. */
@@ -77,14 +78,15 @@ const loadoutSchema = z.object({
 });
 const svId = z.string().regex(new RegExp(`^sv\\.(${Object.keys(SURVIVORS).join('|')})$`));
 
-export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: Auth; now?: () => Date }): void {
+export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: Auth; now?: () => Date; topup?: { config: TopupConfig; read: ReceiptReader } }): void {
   const now = d.now ?? (() => new Date());
   const who = async (req: FastifyRequest) => d.auth.accountOf((req.headers.authorization ?? '').replace(/^Bearer /, '') || null);
 
   async function view(accountId: string) {
     const t = now();
     const [bank, loans, today] = await Promise.all([d.store.bank(accountId), d.store.loansActive(accountId), d.store.earnedSince(accountId, dayStart(t))]);
-    return { cash: bank.cash, owned: bank.owned, loadouts: bank.loadouts ?? { ranked: EMPTY_LOADOUT, open: EMPTY_LOADOUT }, loans, earnedToday: today, dailyCap: DAILY_CAP, tonight: nightOf(t) };
+    const topup = d.topup ? { ...d.topup.config, min: String(minUnits(d.topup.config)) } : null; // what the site needs to send one
+    return { cash: bank.cash, owned: bank.owned, loadouts: bank.loadouts ?? { ranked: EMPTY_LOADOUT, open: EMPTY_LOADOUT }, loans, earnedToday: today, dailyCap: DAILY_CAP, tonight: nightOf(t), topup };
   }
 
   app.get('/armoury', async (req, reply) => {
@@ -135,6 +137,23 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
     if (loans.length >= 3) return reply.code(409).send({ error: 'three loans at a time' });
     await d.store.addLoan(id, body.data.item, loanFee(body.data.item));
     return view(id);
+  });
+
+  // buy cash with the stablecoin: the transaction is read from the chain, and counts once
+  app.post('/armoury/topup', async (req, reply) => {
+    const id = await who(req);
+    if (!id) return reply.code(401).send({ error: 'sign in' });
+    if (!d.topup) return reply.code(404).send({ error: 'top-ups are not open' });
+    const body = z.object({ tx: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: 'not a transaction hash' });
+    const acc = await d.store.accountById(id);
+    if (!acc) return reply.code(401).send({ error: 'sign in' });
+    const tx = body.data.tx.toLowerCase() as `0x${string}`;
+    const v = await verifyTopup(d.topup.read, d.topup.config, acc.address, tx);
+    if ('error' in v) return reply.code(400).send({ error: v.error });
+    const r = await d.store.ledger(id, v.cash, 'topup', tx);
+    if (!r.ok) return reply.code(409).send({ error: 'That transaction has already been counted.' });
+    return { ...(await view(id)), credited: v.cash };
   });
 
   // keep the two loadouts (the ranked one must fit the budget)
