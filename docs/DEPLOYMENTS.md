@@ -4,8 +4,8 @@
 
 | | Repository | Site (Vercel project) | Server |
 |---|---|---|---|
-| Zombie Plague (this repo) | `Plague-Protocol/zombie-plague` | `zplague.xyz`, `www.zplague.xyz`, `zplague.vercel.app` (project `zplague`) | `api.zplague.xyz` on the Lighthouse box (`/opt/outbreak`, see `deploy/lighthouse/`) |
-| Deduce (was plague-celo) | `Plague-Protocol/deduce` (was `plague-evm`) | `deduce.zplague.xyz`, `deduce-zplague.vercel.app` (project `deduce`) | `deduce-api.zplague.xyz` on the same box (`/opt/plague`) |
+| Zombie Plague (this repo) | `Plague-Protocol/zombie-plague` | `zplague.xyz`, `www.zplague.xyz`, `zplague.vercel.app` (project `zplague`) | `api.zplague.xyz` on the Lighthouse box (`/opt/zplague`, see `deploy/lighthouse/`) |
+| Deduce (was plague-celo) | `Plague-Protocol/deduce` (was `plague-evm`) | `deduce.zplague.xyz`, `deduce-zplague.vercel.app` (project `deduce`) | `deduce-api.zplague.xyz` on the same box (`/opt/deduce`) |
 
 The old names (`outbreak`, `plague-evm`, `outbreak-zplague.vercel.app`, `z-plague.vercel.app`) still redirect or still answer.
 

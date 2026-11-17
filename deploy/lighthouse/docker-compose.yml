@@ -1,5 +1,5 @@
 # Zombie Plague's server on the shared Lighthouse box, next to plague-celo and shelterflex.
-#   cd /opt/outbreak/deploy/lighthouse && docker compose up -d --build
+#   cd /opt/zplague/deploy/lighthouse && docker compose up -d --build
 # Every variable the server reads is named below (a variable only in .env and not listed here is ignored).
 # Its port is published on localhost only: the public way in is plague-celo's Caddy, over the plague_default network.
 name: outbreak

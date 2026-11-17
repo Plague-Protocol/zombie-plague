@@ -1,20 +1,20 @@
 # Zombie Plague on the Lighthouse box
 
-The box is shared: plague-celo (`/opt/plague`, its Caddy owns ports 80 and 443), shelterflex, and this. This stack
+The box is shared: Deduce, formerly plague-celo (`/opt/deduce`, its Caddy owns ports 80 and 443; `/opt/plague` is a link to it, kept for its own scripts), shelterflex, and this. This stack
 runs the server and its own Postgres, and joins plague-celo's Docker network as `outbreak-api` so that Caddy can
 reach it. Nothing here is published to the internet except through Caddy.
 
 ```sh
-git clone https://github.com/Plague-Protocol/zombie-plague.git /opt/outbreak
-cd /opt/outbreak/deploy/lighthouse
+git clone https://github.com/Plague-Protocol/zombie-plague.git /opt/zplague
+cd /opt/zplague/deploy/lighthouse
 cp .env.example .env && nano .env        # POSTGRES_PASSWORD, JWT_SECRET, ALLOWED_ORIGINS, ADMIN_ADDRESSES
 docker compose up -d --build
 curl -s 127.0.0.1:8787/health            # {"ok":true,"staked":false}
 ```
 
-Update: `cd /opt/outbreak && git pull && cd deploy/lighthouse && docker compose up -d --build`.
+Update: `cd /opt/zplague && git pull && cd deploy/lighthouse && docker compose up -d --build`.
 
-**Public address.** A site block in plague-celo's Caddyfile (`/opt/plague/deploy/Caddyfile`), then a graceful reload:
+**Public address.** A site block in Deduce's Caddyfile (`/opt/deduce/deploy/Caddyfile`), then a graceful reload:
 
 ```
 api.zplague.xyz {
