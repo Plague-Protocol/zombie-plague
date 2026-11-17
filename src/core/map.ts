@@ -1,6 +1,7 @@
 import { createRng, chance, int, next, pick, range, shuffle, type Rng } from './rng';
 import type { Block, Building, Decor, District, MapData, ObstacleKind, ParkingSpot, Storefront, Theme, Vec2 } from './types';
 import { PILEUPS, STORE_COUNT } from './config';
+import { dhypot } from './dmath';
 
 // World scale: a character is 2.8 units tall (about 1.75 m), so 1 unit is about 0.63 m.
 export const BLOCKS = 8;
@@ -166,7 +167,7 @@ function streetDamage(seed: number, obstacles: Building[], decor: Decor[], label
       // never in front of a store's door
       const [v, k, b] = sg, c = STREET / 2 + k * PITCH, m = STREET + b * PITCH + BLOCK / 2;
       const mid = v ? { x: c, y: m } : { x: m, y: c };
-      if (keepClear.some((d) => Math.hypot(d.x - mid.x, d.y - mid.y) < 20)) continue;
+      if (keepClear.some((d) => dhypot(d.x - mid.x, d.y - mid.y) < 20)) continue;
       e.forEach((x) => used.add(x));
       out.push(sg);
     }
@@ -443,12 +444,12 @@ export function generateMap(seed: number, theme: Theme = 'downtown'): MapData {
   }
   // walkable points, all on one connected street network (a pile-up must never cut part of it off)
   const open = pts.filter((p) => blocked[Math.floor(p.y) * cols + Math.floor(p.x)] === 0);
-  const centre = open.reduce((a, b) => (Math.hypot(b.x - MAP_SIZE / 2, b.y - MAP_SIZE / 2) < Math.hypot(a.x - MAP_SIZE / 2, a.y - MAP_SIZE / 2) ? b : a));
+  const centre = open.reduce((a, b) => (dhypot(b.x - MAP_SIZE / 2, b.y - MAP_SIZE / 2) < dhypot(a.x - MAP_SIZE / 2, a.y - MAP_SIZE / 2) ? b : a));
   const field = bfs(blocked, cols, centre);
   const points = open.filter((p) => field[Math.floor(p.y) * cols + Math.floor(p.x)]! !== UNREACHABLE);
   const storefronts = [...storeBlocks.values()];
   // keep store doors clear of parked cars
-  const parkingFree = parking.filter((p) => blocked[Math.floor(p.y) * cols + Math.floor(p.x)] === 0 && field[Math.floor(p.y) * cols + Math.floor(p.x)]! !== UNREACHABLE && storefronts.every((f) => Math.hypot(p.x - f.door.x, p.y - f.door.y) > 7));
+  const parkingFree = parking.filter((p) => blocked[Math.floor(p.y) * cols + Math.floor(p.x)] === 0 && field[Math.floor(p.y) * cols + Math.floor(p.x)]! !== UNREACHABLE && storefronts.every((f) => dhypot(p.x - f.door.x, p.y - f.door.y) > 7));
 
   // spatial hash for collision queries
   const gridN = Math.ceil(MAP_SIZE / GRID_CELL);

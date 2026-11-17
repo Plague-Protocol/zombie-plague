@@ -185,6 +185,9 @@ export interface Zombie {
   latchT?: number;
   /** How long it has had hold of someone you are protecting. */
   biteT?: number;
+  /** Rooms: which player it is after, and for how many more seconds it keeps to that one. */
+  targetId?: number;
+  targetT?: number;
   /** Seconds before a screamer can call again. */
   screamCd?: number;
   /** A stalker caught in your light this step (it does not move). */
@@ -325,7 +328,8 @@ export type GameEvent =
   | { type: 'time-penalty'; seconds: number }
   | { type: 'zombie-alert'; id: number }
   | { type: 'zombie-killed'; id: number }
-  | { type: 'player-hit'; damage: number; by: number }
+  /** `by`: a zombie's id, or -1 - seat for another player. `seat`: whose it was (rooms). */
+  | { type: 'player-hit'; damage: number; by: number; seat?: number }
   | { type: 'shot'; weapon: GunKind; from: Vec2; to: Vec2; hit: number | null }
   | { type: 'zombie-hurt'; id: number }
   | { type: 'swing'; weapon: MeleeKind; hits: number }
@@ -409,8 +413,116 @@ export type GameEvent =
   | { type: 'husk-down'; id: number }
   /** Another block has fallen to the infection (the map shows it). */
   | { type: 'block-fallen'; block: number }
+  /** Rooms: a player lay down, turned, got out, or a turned one was put down. */
+  | { type: 'down'; seat: number }
+  | { type: 'turned'; seat: number; pos: Vec2 }
+  | { type: 'escaped'; seat: number }
+  | { type: 'lunge'; seat: number; pos: Vec2; hits: number }
+  | { type: 'round-end'; placements: Placement[] }
   | { type: 'won' }
   | { type: 'lost'; reason: LossReason };
+
+/** How a seat finished a room round. */
+export interface Placement {
+  seat: number;
+  status: PlayerStatus;
+  escapedAt: number | null;
+  kills: number;
+}
+
+export interface Arsenal {
+  weapon: WeaponKind | null; // in hand
+  owned: WeaponKind[];
+  mag: Record<GunKind, number>; // rounds in the magazine
+  ammo: Record<GunKind, number>; // spare rounds
+  /** Upgrade level bought for each weapon (0..UPGRADE_LEVELS). Melee weapons only take damage. */
+  upgrades: Record<WeaponKind, Record<UpgradeKind, number>>;
+  fireCd: number;
+  reloadT: number; // seconds left on a reload (0 = not reloading)
+  swing: number; // counts swings, so the renderer can alternate them
+  bottles: number; // to throw as a distraction
+  cans: number; // jerrycans of fuel
+  /** Protective gear worn, as durability left (0 = not wearing it). */
+  gear: Record<GearKind, number>;
+}
+
+/** A short job you stand still for: searching a house, talking to a survivor, refuelling a car, looking someone over. */
+export interface Work {
+  kind: 'search' | 'talk' | 'refuel' | 'check';
+  id: number;
+  progress: number; // 0..1
+  seconds: number;
+}
+
+/**
+ * `alive`: playing. `down`: out of health, lying still for a few seconds before turning. `turned`: now one
+ * of them and still playing (rooms only). `escaped`: through the exit. `dead`: a turned player put down.
+ * `missed`: still alive when the round ended without them.
+ */
+export type PlayerStatus = 'alive' | 'down' | 'turned' | 'escaped' | 'dead' | 'missed';
+
+/** Everyone in a night: you in a solo run, each seat in a room. The rules act on the state's `cur` player. */
+export interface Player {
+  id: number; // seat, 0-based
+  status: PlayerStatus;
+  // the body
+  pos: Vec2;
+  vel: Vec2;
+  heading: number;
+  health: number;
+  invuln: number;
+  vehicleId: number | null;
+  /** Seconds a crawler still has hold of your leg. */
+  slowT: number;
+  // what they carry and where they stand in the night
+  arsenal: Arsenal;
+  funds: number;
+  kills: number;
+  /** The infection clock: seconds of the dose left. */
+  remaining: number;
+  /** The flashlight. On, you see and are seen; off, they have to be much closer to notice you. */
+  light: boolean;
+  /** Seconds to your next cough, once the infection is far enough along. */
+  coughT: number;
+  hold: { taskId: TaskId | null; progress: number };
+  work: Work | null;
+  /** Grace after finishing an objective: zombies keep holding back while you step away. */
+  safeT: number;
+  speedMul: number;
+  /** In a block that has fallen. */
+  inFallen: boolean;
+  /** The store whose doorway you are standing in after leaving it (no re-entry until you step out). */
+  storeLatch: number | null;
+  lockedNotice: 'safehouse' | null;
+  /** Zombie that caught the player, if any (the renderer stages the ending around it). */
+  killerId: number | null;
+  /** The path field to this player, and the cell it was made for. */
+  flow: Int16Array;
+  flowCell: number;
+  /** Someone following this player to safety, once found. */
+  escort: Escort | null;
+  escortLost: boolean;
+  pumping: boolean;
+  /** Seconds until the next "they are on someone" warning. */
+  dangerT: number;
+  /** Seconds to the engine's next call to every zombie in earshot. */
+  engineT: number;
+  /** Seconds to the next swarm while driving. */
+  swarmT: number;
+  // rooms only
+  /** Seconds lying still before turning (status `down`). */
+  downT: number;
+  /** Seconds before a turned player can lunge again. */
+  lungeCd: number;
+  /** Bitten at least once this round (what another player's CHECK looks for). */
+  bitten: boolean;
+  /** What this player learned from CHECKing others, by seat: was that one bitten when they looked? (They may be since.) */
+  checks: Record<number, boolean>;
+  /** On the client's copy of someone else: this player's CHECK of them says bitten. (The server never sets it on the real state.) */
+  exposed: boolean;
+  /** When (room time) they went through the exit, if they did. */
+  escapedAt: number | null;
+}
 
 export interface Input {
   dx: number; // -1..1, world space

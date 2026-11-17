@@ -10,6 +10,7 @@ import type {
   Crate, House, Loot, MapData, Pickup, PickupKind, Store, Survivor, SurvivorRequest, SurvivorReward, Task, Vec2, Vehicle,
   VehicleKind,
 } from './types';
+import { dhypot } from './dmath';
 
 export interface Level {
   seed: number;
@@ -34,10 +35,10 @@ function pavement(map: MapData, p: Vec2, side: number): Vec2 | null {
   return map.blocked[cellOf(map, pos)] === 1 ? null : pos;
 }
 
-const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
+const dist = (a: Vec2, b: Vec2) => dhypot(a.x - b.x, a.y - b.y);
 
 /** Deterministic: the same seed (and chapter of the same night) always yields the same Level. */
-export function generateLevel(seed: number, opts: { night?: number; chapter?: number } = {}): Level {
+export function generateLevel(seed: number, opts: { night?: number; chapter?: number; room?: boolean } = {}): Level {
   const map = generateMap(fork(seed, 'map').s, content().story.chapters[opts.chapter ?? 0]?.theme);
   const rng = fork(seed, 'level');
 
@@ -51,7 +52,7 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
   const [sh0] = shuffle(rng, far);
   const safehouse = { ...(sh0 as Vec2) };
 
-  const tasks = generateChain(rng, map, spawn, safehouse, chapterGroups(opts.night ?? seed, opts.chapter ?? 0));
+  const tasks = generateChain(rng, map, spawn, safehouse, chapterGroups(opts.night ?? seed, opts.chapter ?? 0, opts.room));
 
   const route = [spawn, ...tasks.filter((t) => t.required).flatMap((t) => [...(t.parts ?? []), t.pos]), safehouse];
   let steps = 0;
@@ -176,5 +177,5 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
     pickups.push({ id: pickups.length + 1, kind: 'antiviral', pos, taken: false });
   }
 
-  return { seed, map, spawn, safehouse, tasks, timeLimit, routeSeconds, vehicles, crates, pickups, stores, houses, survivors };
+  return { seed, map, spawn, safehouse, tasks, timeLimit, routeSeconds, vehicles: opts.room ? [] : vehicles, crates, pickups, stores, houses, survivors };
 }

@@ -2,13 +2,16 @@ import { fork, int, shuffle, type Rng } from './rng';
 import { cellOf, distanceField, UNREACHABLE } from './map';
 import { content, type StepDef } from './content';
 import type { MapData, Task, Vec2 } from './types';
+import { dhypot } from './dmath';
 
 /** Groups per chapter: every chapter of a night gets its own, none repeated. */
 export const GROUPS_PER_CHAPTER = 2;
 
 /** The step groups for one chapter of a night: the night's shuffled pool, dealt out in turn. */
-export function chapterGroups(night: number, chapter: number): StepDef[][] {
-  const pool = shuffle(fork(night, 'groups'), content().groups);
+export function chapterGroups(night: number, chapter: number, room = false): StepDef[][] {
+  // a room has no one to escort: groups that hand you someone are left out of its pool
+  const all = room ? content().groups.filter((g) => !g.some((d) => d.effect === 'escort-start' || d.needsEscort)) : content().groups;
+  const pool = shuffle(fork(night, 'groups'), all);
   const out: StepDef[][] = [];
   for (let k = 0; k < GROUPS_PER_CHAPTER; k++) out.push(pool[(chapter * GROUPS_PER_CHAPTER + k) % pool.length]!);
   return out;
@@ -47,14 +50,14 @@ export function generateChain(rng: Rng, map: MapData, spawn: Vec2, safehouse: Ve
   const usable = map.points.filter(
     (p) =>
       (field[cellOf(map, p)] as number) !== UNREACHABLE &&
-      Math.hypot(p.x - spawn.x, p.y - spawn.y) >= MIN_SPAWN_DISTANCE &&
-      Math.hypot(p.x - safehouse.x, p.y - safehouse.y) >= MIN_SPAWN_DISTANCE,
+      dhypot(p.x - spawn.x, p.y - spawn.y) >= MIN_SPAWN_DISTANCE &&
+      dhypot(p.x - safehouse.x, p.y - safehouse.y) >= MIN_SPAWN_DISTANCE,
   );
 
   const placed: Vec2[] = [];
   const place = (): Vec2 => {
     const order = shuffle(rng, usable);
-    const spaced = order.find((p) => placed.every((q) => Math.hypot(p.x - q.x, p.y - q.y) >= MIN_TASK_SEPARATION));
+    const spaced = order.find((p) => placed.every((q) => dhypot(p.x - q.x, p.y - q.y) >= MIN_TASK_SEPARATION));
     const p = spaced ?? (order[0] as Vec2);
     placed.push(p);
     return { x: p.x, y: p.y };
@@ -69,13 +72,13 @@ export function generateChain(rng: Rng, map: MapData, spawn: Vec2, safehouse: Ve
       const door = { x: b.x + b.w / 2 + (nx * b.w) / 2, y: b.y + b.h / 2 + (ny * b.h) / 2 };
       const pos = { x: door.x + nx * 1.8, y: door.y + ny * 1.8 };
       if ([1.8, 3.2].some((k) => blocked({ x: door.x + nx * k, y: door.y + ny * k }))) continue;
-      if (Math.hypot(pos.x - spawn.x, pos.y - spawn.y) < MIN_SPAWN_DISTANCE || Math.hypot(pos.x - safehouse.x, pos.y - safehouse.y) < MIN_SPAWN_DISTANCE) continue;
+      if (dhypot(pos.x - spawn.x, pos.y - spawn.y) < MIN_SPAWN_DISTANCE || dhypot(pos.x - safehouse.x, pos.y - safehouse.y) < MIN_SPAWN_DISTANCE) continue;
       doors.push({ door, pos });
     }
   }
   const placeDoor = (): { door?: Vec2; pos: Vec2 } => {
     const order = shuffle(rng, doors);
-    const d = order.find((o) => placed.every((q) => Math.hypot(o.pos.x - q.x, o.pos.y - q.y) >= MIN_TASK_SEPARATION)) ?? order[0];
+    const d = order.find((o) => placed.every((q) => dhypot(o.pos.x - q.x, o.pos.y - q.y) >= MIN_TASK_SEPARATION)) ?? order[0];
     if (!d) return { pos: place() };
     placed.push(d.pos);
     return d;
@@ -96,8 +99,8 @@ export function generateChain(rng: Rng, map: MapData, spawn: Vec2, safehouse: Ve
       const parts: Vec2[] = [];
       for (const p of shuffle(rng, usable)) {
         if (parts.length >= d.parts.count) break;
-        const d0 = Math.hypot(p.x - t.pos.x, p.y - t.pos.y);
-        if (d0 < 14 || d0 > 38 || parts.some((q) => Math.hypot(p.x - q.x, p.y - q.y) < 10)) continue;
+        const d0 = dhypot(p.x - t.pos.x, p.y - t.pos.y);
+        if (d0 < 14 || d0 > 38 || parts.some((q) => dhypot(p.x - q.x, p.y - q.y) < 10)) continue;
         parts.push({ x: p.x, y: p.y });
       }
       t.parts = parts;

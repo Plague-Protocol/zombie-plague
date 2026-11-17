@@ -1,4 +1,5 @@
 import type { Building, MapData, Vec2 } from './types';
+import { dhypot } from './dmath';
 
 /** Push a circle out of an axis-aligned box. Mutates pos. Returns true if it moved. */
 function pushOut(pos: Vec2, r: number, b: Building): boolean {
@@ -56,7 +57,7 @@ export function resolve(map: MapData, pos: Vec2, r: number): boolean {
 /** True if a straight segment stays on walkable nav cells (cells already include clearance). */
 export function lineClear(map: MapData, a: Vec2, b: Vec2, _r: number): boolean {
   const dx = b.x - a.x, dy = b.y - a.y;
-  const len = Math.hypot(dx, dy);
+  const len = dhypot(dx, dy);
   const steps = Math.max(1, Math.ceil(len / 0.5));
   const cols = map.cols;
   for (let i = 1; i < steps; i++) {

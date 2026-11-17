@@ -255,3 +255,20 @@ export const CHECK_RADIUS = 3;
 export const FALLEN = [{ from: 0.1, to: 0.45 }, { from: 0.2, to: 0.6 }, { from: 0.3, to: 0.75 }] as const;
 export const FALLEN_SIGHT = 1.25; // in a fallen block they are sharper
 export const FALLEN_QUIET = 0.6; // and the quiet is shorter
+
+// ---- rooms: several players in one district, all at once
+export const ROOM_PLAYERS_MAX = 8;
+export const ROOM_SECONDS = 420; // the round ends here whatever has happened
+export const EXIT_SEATS_SHARE = 0.5; // the exit has room for this share of the players who started (at least one)
+export const PVP_DAMAGE = 0.5; // what a bullet or a swing does to another living player, against what it does to a zombie
+export const SAFE_RADIUS = 12; // nobody can hurt anybody this close to the exit
+export const PVP_GRACE = 20; // seconds at the start with no friendly fire
+export const PVP_KILL_REWARD = 25;
+export const TARGET_HOLD = 2; // a zombie keeps to the player it chose for this long
+export const TURNED_HEALTH = 100;
+export const TURNED_SIGHT = 30; // a turned player sees the living this far
+export const DOWN_SECONDS = 3; // out of health: lying still this long before turning
+export const LUNGE_COOLDOWN = 1.0;
+export const LUNGE_ARC = 1.0; // radians either side of where a turned player faces
+export const SPAWN_APART = 40; // seats start at least this far from each other
+export const SPAWN_FROM_EXIT = 80; // and at least this many cells (walking) from the exit

@@ -21,6 +21,8 @@ import {
   SCREAMER_SIGHT, SCREAMERS, STALKER_SENSE, STALKER_SPEED, STALKERS,
   CRAWL_DAMAGE, CRAWLER_SIGHT, CRAWLER_SPEED, CRAWLERS, GRAB_SECONDS, GRAB_SLOW, HALVE_CHANCE, LASH_DAMAGE, LASH_PULL, LASH_RANGE,
   LASH_REACH, LASHERS,
+  DOWN_SECONDS, EXIT_SEATS_SHARE, LUNGE_ARC, LUNGE_COOLDOWN, PVP_DAMAGE, PVP_GRACE, PVP_KILL_REWARD, ROOM_PLAYERS_MAX, ROOM_SECONDS, SAFE_RADIUS,
+  SPAWN_APART, SPAWN_FROM_EXIT, TARGET_HOLD, TURNED_HEALTH,
 } from './config';
 import { nearbyObstacles } from './collision';
 import { lineClear, resolve } from './collision';
@@ -28,26 +30,13 @@ import { generateLevel, type Level } from './level';
 import { cellOf, distanceField, STREET, UNREACHABLE } from './map';
 import { createRng, fork, next, pick, range, shuffle, type Rng } from './rng';
 import type {
-  Abandoned, Alarm, House, Husk, Loot, PickupKind, Survivor, Thrown,
-  Crate, Escort, GameEvent, GearKind, GunKind, Input, Interaction, LossReason, MapData, MeleeKind, Phase, Pickup, Store, StoreItem, Task,
-  TaskId, UpgradeKind, Vec2, Vehicle, WeaponKind, Zombie, ZombieKind,
+  Abandoned, Alarm, Arsenal, Player, Work, House, Husk, Loot, PickupKind, Survivor, Thrown,
+  Crate, Escort, GameEvent, Placement, GearKind, GunKind, Input, Interaction, LossReason, MapData, MeleeKind, Phase, Pickup, Store, StoreItem, Task,
+  TaskId, Vec2, Vehicle, WeaponKind, Zombie, ZombieKind,
 } from './types';
+import { dsin, dcos, datan2, dhypot } from './dmath';
 
-export interface Arsenal {
-  weapon: WeaponKind | null; // in hand
-  owned: WeaponKind[];
-  mag: Record<GunKind, number>; // rounds in the magazine
-  ammo: Record<GunKind, number>; // spare rounds
-  /** Upgrade level bought for each weapon (0..UPGRADE_LEVELS). Melee weapons only take damage. */
-  upgrades: Record<WeaponKind, Record<UpgradeKind, number>>;
-  fireCd: number;
-  reloadT: number; // seconds left on a reload (0 = not reloading)
-  swing: number; // counts swings, so the renderer can alternate them
-  bottles: number; // to throw as a distraction
-  cans: number; // jerrycans of fuel
-  /** Protective gear worn, as durability left (0 = not wearing it). */
-  gear: Record<GearKind, number>;
-}
+export type { Arsenal, Work };
 
 /** What you bring into a chapter (and start it again with, if you retry it). */
 export interface Carry {
@@ -77,14 +66,6 @@ export function chapterSeed(night: number, chapter: number): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-/** A short job you stand still for: searching a house, talking to a survivor, refuelling a car. */
-export interface Work {
-  kind: 'search' | 'talk' | 'refuel' | 'check';
-  id: number;
-  progress: number; // 0..1
-  seconds: number;
-}
-
 export const isMelee = (w: WeaponKind): w is MeleeKind => w in MELEE;
 export const isGun = (w: WeaponKind): w is GunKind => w in GUNS;
 
@@ -107,46 +88,49 @@ export function meleeStats(a: Arsenal, w: MeleeKind) {
   return { ...base, damage: base.damage * (1 + UPGRADE_EFFECT.damage * a.upgrades[w].damage) };
 }
 
-export interface GameState {
+/**
+ * The fields of a Player that the rules read straight off the state. They belong to whoever `cur` is,
+ * so a rule written for one player works unchanged for any: the step points `cur` at each player in
+ * turn (and at each zombie's chosen target). In a solo run there is one player and `cur` never moves.
+ */
+const FORWARDED = [
+  'arsenal', 'funds', 'kills', 'remaining', 'light', 'coughT', 'hold', 'work', 'safeT', 'speedMul', 'inFallen', 'storeLatch',
+  'lockedNotice', 'killerId', 'flow', 'flowCell', 'escort', 'escortLost', 'pumping', 'dangerT', 'engineT', 'swarmT',
+] as const;
+type Forwarded = Pick<Player, (typeof FORWARDED)[number]>;
+
+export interface GameState extends Forwarded {
   seed: number; // this chapter's level
   night: number; // the night's seed: every chapter's level comes from it
   chapter: number; // 0-based; the last one ends at the helicopter
   carry: Carry; // what you came into this chapter with
+  /** `solo`: one player, one clock each. `room`: several at once, one room clock, nobody waits for anybody. */
+  mode: 'solo' | 'room';
   phase: Phase;
   lossReason: LossReason | null;
   map: MapData;
   rng: Rng;
   elapsed: number;
   timeLimit: number;
-  remaining: number;
   tier: number;
-  /** `slowT`: seconds a crawler still has hold of your leg. */
-  player: { pos: Vec2; vel: Vec2; heading: number; health: number; invuln: number; vehicleId: number | null; slowT: number };
-  arsenal: Arsenal;
+  players: Player[];
+  /** The player the rules are acting for right now. */
+  cur: Player;
+  /** The same player (the body: position, health...). */
+  readonly player: Player;
+  /** Rooms: seats still free at the exit, the room's clock, and how it ended. */
+  seatsLeft: number;
+  roomLimit: number;
+  placements: Placement[] | null;
   pickups: Pickup[];
   stores: Store[];
-  /** The store whose doorway you are standing in after leaving it (no re-entry until you step out). */
-  storeLatch: number | null;
-  /** Grace after finishing an objective: zombies keep holding back while you step away. */
-  safeT: number;
   houses: House[];
   survivors: Survivor[];
   alarms: Alarm[];
   alarmUsed: number[]; // parked cars (map.buildings indices) whose alarm has gone off
   thrown: Thrown[];
-  work: Work | null;
-  pumping: boolean;
-  kills: number;
-  /** Zombie that caught the player, if any (the renderer stages the ending around it). */
-  killerId: number | null;
-  /** Seconds to the engine's next call to every zombie in earshot. */
-  engineT: number;
-  /** Seconds until the next "they are on someone" warning. */
-  dangerT: number;
   /** Where the dead lie (bodies stay for the chapter). */
   corpses: Array<{ id: number; pos: Vec2; heading: number; half?: boolean }>;
-  /** Seconds to the next swarm while you drive. */
-  swarmT: number;
   /** Objectives already looked at for guards (each gets its chance once, when it comes up). */
   guarded: TaskId[];
   zombies: Zombie[];
@@ -155,49 +139,57 @@ export interface GameState {
   tasks: Task[];
   safehouse: Vec2;
   safehouseKnown: boolean;
-  /** Someone following you to safety (Nora), once found. */
-  escort: Escort | null;
   /** A lit signal flare: everything near it goes to it while it burns. */
   flare: { pos: Vec2; t: number } | null;
-  hold: { taskId: TaskId | null; progress: number };
-  speedMul: number;
   zombieMul: number;
-  funds: number;
-  /** The flashlight. On, you see and are seen; off, they have to be much closer to notice you. */
-  light: boolean;
-  /** Seconds to your next cough, once the infection is far enough along. */
-  coughT: number;
   /** Pacing: a long quiet, one sound (`at`: where), then they come up around you. */
   director: { phase: 'quiet' | 'dread' | 'panic'; t: number; at: Vec2 | null };
   /** The order the district's blocks fall to the infection in (indices into map.blocks), and how many have. */
   fallOrder: number[];
   fallenN: number;
-  /** You are standing in a block that has fallen. */
-  inFallen: boolean;
   /** People you found bitten and left. */
   abandoned: Abandoned[];
-  /** Whoever you were bringing in is gone (left, or turned): their door can still be told. */
-  escortLost: boolean;
-  /** What your last self drops when you put it down. */
+  /** What your last self drops when you put it down, and whether you have (a server reads this off a replay). */
   huskLoot: PickupKind | null;
+  huskDown: boolean;
   events: GameEvent[];
   // internals
   /** A second stream for pacing, coughs and hidden bites, so they never shift the first. */
   rng2: Rng;
-  flow: Int16Array;
-  flowCell: number;
   nextZombieId: number;
-  lockedNotice: 'safehouse' | null;
 }
 
-const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
-const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+/** Make the forwarded fields (and `player`) read and write whoever `cur` is. */
+function bindPlayer(s: GameState): void {
+  for (const k of FORWARDED) {
+    Object.defineProperty(s, k, {
+      get(this: GameState) { return this.cur[k]; },
+      set(this: GameState, v: never) { this.cur[k] = v; },
+      enumerable: true, configurable: true,
+    });
+  }
+  Object.defineProperty(s, 'player', { get(this: GameState) { return this.cur; }, enumerable: true, configurable: true });
+}
+
+/** A fresh player: a seat, standing at a spot, carrying what is given. */
+function newPlayer(id: number, at: Vec2, carry: Carry, cells: number, limit: number): Player {
+  return {
+    id, status: 'alive', pos: { ...at }, vel: { x: 0, y: 0 }, heading: 0, health: carry.health, invuln: 0, vehicleId: null, slowT: 0,
+    arsenal: cloneArsenal(carry.arsenal), funds: carry.funds, kills: carry.kills, remaining: limit, light: true, coughT: 3,
+    hold: { taskId: null, progress: 0 }, work: null, safeT: 0, speedMul: 1, inFallen: false, storeLatch: null, lockedNotice: null,
+    killerId: null, flow: new Int16Array(cells), flowCell: -1, escort: null, escortLost: false, pumping: false, dangerT: 0, engineT: 0,
+    swarmT: 0, downT: 0, lungeCd: 0, bitten: false, checks: {}, exposed: false, escapedAt: null,
+  };
+}
+
+const dist = (a: Vec2, b: Vec2) => dhypot(a.x - b.x, a.y - b.y);
+const wrap = (a: number) => datan2(dsin(a), dcos(a));
 const approach = (v: number, target: number, step: number) => (v < target ? Math.min(target, v + step) : Math.max(target, v - step));
 
 export function createGame(
   seed: number,
   lvl?: Level,
-  opts: { night?: number; chapter?: number; carry?: Carry; husk?: Husk | null } = {},
+  opts: { night?: number; chapter?: number; carry?: Carry; husk?: Husk | null; spawns?: Vec2[] } = {},
 ): GameState {
   const level = lvl ?? generateLevel(seed, { night: opts.night ?? seed, chapter: opts.chapter ?? 0 });
   const carry: Carry = opts.carry ?? {
@@ -212,39 +204,37 @@ export function createGame(
     funds: START_FUNDS,
     kills: 0,
   };
-  const state: GameState = {
+  const spawns = opts.spawns ?? [level.spawn];
+  const cells = level.map.cols * level.map.cols;
+  const roster = spawns.map((at, i) => newPlayer(i, at, carry, cells, level.timeLimit));
+  const pl = roster[0]!;
+  const state = {
     seed,
     night: opts.night ?? seed,
     chapter: opts.chapter ?? 0,
     carry: { ...carry, arsenal: cloneArsenal(carry.arsenal) },
-    phase: 'playing',
+    mode: (spawns.length > 1 ? 'room' : 'solo') as 'solo' | 'room',
+    phase: 'playing' as const,
     lossReason: null,
     map: level.map,
     rng: createRng(seed ^ 0x9e3779b9),
     elapsed: 0,
     timeLimit: level.timeLimit,
-    remaining: level.timeLimit,
     tier: 0,
-    player: { pos: { ...level.spawn }, vel: { x: 0, y: 0 }, heading: 0, health: carry.health, invuln: 0, vehicleId: null, slowT: 0 },
-    killerId: null,
-    engineT: 0,
-    dangerT: 0,
+    players: roster,
+    cur: pl,
+    seatsLeft: spawns.length > 1 ? Math.max(1, Math.ceil(spawns.length * EXIT_SEATS_SHARE)) : 0,
+    roomLimit: spawns.length > 1 ? ROOM_SECONDS : 0,
+    placements: null,
     guarded: [],
     corpses: [],
-    swarmT: 0,
-    arsenal: cloneArsenal(carry.arsenal),
     pickups: level.pickups.map((p) => ({ ...p, pos: { ...p.pos } })),
     stores: level.stores.map((st) => ({ ...st, pos: { ...st.pos } })),
-    storeLatch: null,
-    safeT: 0,
     houses: level.houses.map((h) => ({ ...h, pos: { ...h.pos } })),
     survivors: level.survivors.map((v) => ({ ...v, pos: { ...v.pos }, fetchPos: { ...v.fetchPos }, targets: [] })),
     alarms: [],
     alarmUsed: [],
     thrown: [],
-    work: null,
-    pumping: false,
-    kills: carry.kills,
     zombies: [],
     vehicles: level.vehicles.map((v) => ({ ...v, pos: { ...v.pos } })),
     crates: level.crates.map((c) => ({ ...c, pos: { ...c.pos } })),
@@ -253,33 +243,48 @@ export function createGame(
       ...(t.parts ? { parts: t.parts.map((q) => ({ ...q })), got: t.got!.slice() } : {}),
     })),
     safehouse: { ...level.safehouse },
-    escort: null,
     flare: null,
     safehouseKnown: !level.tasks.some((t) => t.effect === 'reveal-exit'),
-    hold: { taskId: null, progress: 0 },
-    speedMul: 1,
     zombieMul: 1,
-    funds: carry.funds,
-    light: true,
-    coughT: 3,
-    director: { phase: 'quiet', t: 0, at: null },
+    director: { phase: 'quiet' as const, t: 0, at: null },
     fallOrder: [],
     fallenN: 0,
-    inFallen: false,
     abandoned: [],
-    escortLost: false,
     huskLoot: null,
+    huskDown: false,
     rng2: fork(seed, 'horror'),
     events: [],
-    flow: new Int16Array(level.map.cols * level.map.cols),
-    flowCell: -1,
     nextZombieId: 1,
-    lockedNotice: null,
-  };
+  } as unknown as GameState;
+  bindPlayer(state);
   populate(state);
   seedHorror(state, opts.husk ?? null);
   refreshFlow(state);
   return state;
+}
+
+/**
+ * A room: `players` seats in one district at once (2 to ROOM_PLAYERS_MAX), a shared chain of steps, one
+ * exit with seats for half of them. The level comes from the seed alone (no vehicles, nobody to escort),
+ * so the server and every client build the same district.
+ */
+export function createRoom(seed: number, players: number): GameState {
+  const n = Math.max(2, Math.min(ROOM_PLAYERS_MAX, Math.floor(players)));
+  const level = generateLevel(seed, { night: seed, chapter: 0, room: true });
+  // seats: spread out, and a long walk from the exit
+  const rng = fork(seed, 'spawns');
+  const away = distanceField(level.map, level.safehouse);
+  const ok = shuffle(rng, level.map.points.filter((p) => { const f = away[cellOf(level.map, p)] as number; return f !== UNREACHABLE && f >= SPAWN_FROM_EXIT; }));
+  const spawns: Vec2[] = [];
+  for (const gap of [SPAWN_APART, SPAWN_APART / 2, 8, 0]) {
+    for (const p of ok) {
+      if (spawns.length >= n) break;
+      if (spawns.every((q) => dist(p, q) >= gap)) spawns.push({ x: p.x, y: p.y });
+    }
+    if (spawns.length >= n) break;
+  }
+  while (spawns.length < n) spawns.push({ ...level.spawn });
+  return createGame(seed, level, { night: seed, chapter: 0, spawns });
 }
 
 /** The last chapter: its way out is the helicopter, not a door. */
@@ -344,6 +349,7 @@ function depsMet(s: GameState, t: Task): boolean {
 
 /** Working an objective or talking to someone (or just finished): zombies hold back. */
 export function isBusy(s: GameState): boolean {
+  if (s.mode === 'room') return false; // in a room nobody works under cover: the zombies do not wait
   return s.hold.taskId !== null || s.work !== null || s.safeT > 0;
 }
 
@@ -353,7 +359,7 @@ export function playerVehicle(s: GameState): Vehicle | null {
 
 /** Current ground speed of the player (or their vehicle), units/s. */
 export function playerSpeed(s: GameState): number {
-  return Math.hypot(s.player.vel.x, s.player.vel.y);
+  return dhypot(s.player.vel.x, s.player.vel.y);
 }
 
 function refreshFlow(s: GameState): void {
@@ -406,6 +412,11 @@ export function infection(s: GameState): number {
   return Math.max(0, Math.min(1, 1 - s.remaining / s.timeLimit));
 }
 
+/** How far the night has got, 0 to 1: your own infection when playing alone, the room's clock in a room. */
+export function plagueProgress(s: GameState): number {
+  return s.mode === 'room' ? Math.max(0, Math.min(1, s.elapsed / s.roomLimit)) : infection(s);
+}
+
 /** Your light is on (in a vehicle, the headlights always are). */
 export function lightOn(s: GameState): boolean {
   return s.light || s.player.vehicleId !== null;
@@ -415,9 +426,9 @@ export function lightOn(s: GameState): boolean {
 export function inLight(s: GameState, pos: Vec2): boolean {
   if (!lightOn(s)) return false;
   const k = s.player.vehicleId !== null ? 'car' : 'foot';
-  const p = s.player.pos, dx = pos.x - p.x, dy = pos.y - p.y, d = Math.hypot(dx, dy);
+  const p = s.player.pos, dx = pos.x - p.x, dy = pos.y - p.y, d = dhypot(dx, dy);
   if (d > LIGHT_RANGE[k]) return false;
-  if (d > 1.2 && Math.abs(wrap(Math.atan2(dy, dx) - s.player.heading)) > LIGHT_HALF_ANGLE[k]) return false;
+  if (d > 1.2 && Math.abs(wrap(datan2(dy, dx) - s.player.heading)) > LIGHT_HALF_ANGLE[k]) return false;
   return lineClear(s.map, p, pos, 0.2);
 }
 
@@ -444,7 +455,7 @@ function blockAt(s: GameState, p: Vec2): number {
 
 function fallenWanted(s: GameState): number {
   const f = byChapter(FALLEN, s);
-  return Math.floor(s.fallOrder.length * (f.from + (f.to - f.from) * infection(s)));
+  return Math.floor(s.fallOrder.length * (f.from + (f.to - f.from) * plagueProgress(s)));
 }
 
 /** A dose: the infection is held back (never past a full clock). Returns the seconds gained. */
@@ -489,7 +500,7 @@ function seedHorror(s: GameState, husk: Husk | null): void {
     while (spots.length) {
       const q = spots.pop()!;
       const at = { x: q.x + range(rng, -2.5, 2.5), y: q.y + range(rng, -2.5, 2.5) };
-      if (s.map.blocked[cellOf(s.map, at)] === 1 || dist(at, p) < minFromYou) continue;
+      if (s.map.blocked[cellOf(s.map, at)] === 1 || nearestPlayerDist(s, at) < minFromYou) continue;
       if (keep.some((k) => dist(k, at) < 7) || lying.some((k) => dist(k, at) < 9)) continue;
       lying.push(at);
       return at;
@@ -510,7 +521,7 @@ function seedHorror(s: GameState, husk: Husk | null): void {
   const far = (min: number): Vec2 | null => {
     for (let tries = 0; tries < 40; tries++) {
       const q = pick(rng, s.map.points);
-      if (dist(q, p) >= min) return { x: q.x + range(rng, -2, 2), y: q.y + range(rng, -2, 2) };
+      if (nearestPlayerDist(s, q) >= min) return { x: q.x + range(rng, -2, 2), y: q.y + range(rng, -2, 2) };
     }
     return null;
   };
@@ -538,6 +549,7 @@ function killed(s: GameState, z: Zombie): void {
   s.events.push({ type: 'zombie-killed', id: z.id });
   if (!z.husk) return;
   s.funds += 40;
+  s.huskDown = true;
   if (s.huskLoot) s.pickups.push({ id: s.pickups.reduce((m, q) => Math.max(m, q.id), 0) + 1, kind: s.huskLoot, pos: { ...z.pos }, taken: false });
   s.events.push({ type: 'husk-down', id: z.id });
 }
@@ -684,7 +696,7 @@ function populate(s: GameState): void {
       for (let tries = 0; tries < 8; tries++) {
         // inside the block (yards, plazas, lots) or on its kerb
         const p = { x: b.x + range(s.rng, -3, b.size + 3), y: b.y + range(s.rng, -3, b.size + 3) };
-        if (s.map.blocked[cellOf(s.map, p)] === 1 || dist(p, s.player.pos) < 28) continue;
+        if (s.map.blocked[cellOf(s.map, p)] === 1 || nearestPlayerDist(s, p) < 28) continue;
         addZombie(s, runners > 0 && next(s.rng) < runners ? 'runner' : 'walker', p, false);
         break;
       }
@@ -697,7 +709,7 @@ function populate(s: GameState): void {
 function roomFor(s: GameState): boolean {
   if (s.zombies.length < ZOMBIE_CAP) return true;
   let far = -1, farD = 0;
-  s.zombies.forEach((z, i) => { const d = dist(z.pos, s.player.pos); if (d > farD) { farD = d; far = i; } });
+  s.zombies.forEach((z, i) => { const d = nearestPlayerDist(s, z.pos); if (d > farD) { farD = d; far = i; } });
   if (far < 0 || farD < ZOMBIE_ACTIVE_RADIUS) return false;
   s.zombies.splice(far, 1);
   return true;
@@ -718,9 +730,9 @@ function guardCurrent(s: GameState): void {
   let n = 0;
   for (let k = 0; k < GUARDS[ch]!; k++) {
     const at = spots[k % spots.length]!;
-    if (dist(at, s.player.pos) < 18 || !roomFor(s)) continue; // never drop them on top of you
+    if (nearestPlayerDist(s, at) < 18 || !roomFor(s)) continue; // never drop them on top of you
     const a = next(s.rng) * Math.PI * 2, r = range(s.rng, 4, 7);
-    addZombie(s, next(s.rng) < 0.25 + 0.15 * ch ? 'runner' : 'walker', { x: at.x + Math.cos(a) * r, y: at.y + Math.sin(a) * r }, false);
+    addZombie(s, next(s.rng) < 0.25 + 0.15 * ch ? 'runner' : 'walker', { x: at.x + dcos(a) * r, y: at.y + dsin(a) * r }, false);
     const z = s.zombies[s.zombies.length - 1]!;
     z.lure = { ...at };
     z.lureT = 1e9; // they stay with it
@@ -732,7 +744,7 @@ function guardCurrent(s: GameState): void {
 /** They heard the engine: runners come out of the side streets ahead of you and to the sides, to cut you off. */
 function releaseSwarm(s: GameState, v: Vehicle): void {
   const n = SWARM[Math.min(s.chapter, SWARM.length - 1)]!;
-  const ahead = { x: v.pos.x + Math.cos(v.heading) * 20, y: v.pos.y + Math.sin(v.heading) * 20 };
+  const ahead = { x: v.pos.x + dcos(v.heading) * 20, y: v.pos.y + dsin(v.heading) * 20 };
   const ring = s.map.points.filter((p) => { const d = dist(p, v.pos); return d >= 18 && d <= 40 && dist(p, ahead) < 30; });
   let k = 0;
   for (; k < n && roomFor(s); k++) {
@@ -765,14 +777,11 @@ function spawnWave(s: GameState, tier: number): void {
   const kinds: ZombieKind[] = [
     ...Array<ZombieKind>(Math.round(wave.runner * more)).fill('runner'), ...Array<ZombieKind>(Math.round(wave.walker * more)).fill('walker'),
   ];
-  const ring = s.map.points.filter((p) => {
-    const d = dist(p, s.player.pos);
-    return d >= ZOMBIE_SPAWN_MIN_DIST && d <= WAVE_SPAWN_MAX_DIST;
-  });
+  const ring = s.map.points.filter((p) => nearestPlayerDist(s, p) >= ZOMBIE_SPAWN_MIN_DIST && dist(p, s.player.pos) <= WAVE_SPAWN_MAX_DIST);
   for (const kind of kinds) {
     if (s.zombies.length >= ZOMBIE_CAP) {
       let far = -1, farD = 0;
-      s.zombies.forEach((z, i) => { const d = dist(z.pos, s.player.pos); if (d > farD) { farD = d; far = i; } });
+      s.zombies.forEach((z, i) => { const d = nearestPlayerDist(s, z.pos); if (d > farD) { farD = d; far = i; } });
       if (far < 0 || farD < ZOMBIE_ACTIVE_RADIUS) break;
       s.zombies.splice(far, 1);
     }
@@ -786,19 +795,247 @@ function tierFor(fraction: number): number {
 }
 
 function lose(s: GameState, reason: LossReason): void {
+  if (s.mode === 'room') { fall(s, s.cur, reason); return; } // in a room one player going down is not the end
   s.phase = 'lost';
   s.lossReason = reason;
   s.events.push({ type: 'lost', reason });
 }
 
+// ---------------------------------------------------------------- rooms: several players at once
+
+/** Players still in the district (not out through the exit, not put down). */
+const present = (p: Player) => p.status === 'alive' || p.status === 'down' || p.status === 'turned';
+
+/** How far a point is from the nearest player still in the district. */
+export function nearestPlayerDist(s: GameState, at: Vec2): number {
+  let best = Infinity;
+  for (const p of s.players) if (present(p)) { const d = dist(at, p.pos); if (d < best) best = d; }
+  return best === Infinity ? dist(at, s.players[0]!.pos) : best;
+}
+
+/** Events that belong to one player (the rest are the district's and everyone may get them). */
+const PERSONAL = new Set<GameEvent['type']>([
+  'player-hit', 'gear-hit', 'gear-broken', 'bitten', 'grabbed', 'pickup', 'purchase', 'healed', 'equip', 'reload', 'empty', 'light', 'cough',
+  'crate-opened', 'house-searched', 'checked', 'work-started', 'store-open', 'task-started', 'task-locked', 'safehouse-locked', 'puzzle-open', 'puzzle-wrong',
+  'part-taken', 'down', 'turned', 'escaped', 'lunge', 'antiviral', 'throw', 'survivor-asked', 'survivor-ready', 'survivor-done', 'fetched',
+]);
+function tagEvent(e: GameEvent, seat: number): void {
+  if (PERSONAL.has(e.type) && (e as { seat?: number }).seat === undefined) (e as { seat?: number }).seat = seat;
+}
+/** Whose a personal event is (rooms), or undefined for the district's. */
+export const eventSeat = (e: GameEvent): number | undefined => (e as { seat?: number }).seat;
+
+/** The living player a zombie goes for: the nearest it can reach, kept for a couple of seconds so it does not dither. */
+function pickTarget(s: GameState, z: Zombie, dt: number): Player | null {
+  z.targetT = (z.targetT ?? 0) - dt;
+  let t = z.targetId !== undefined && z.targetT > 0 ? s.players[z.targetId] : undefined;
+  if (t && (t.status !== 'alive' || dist(z.pos, t.pos) > ZOMBIE_ACTIVE_RADIUS)) t = undefined;
+  if (!t) {
+    let best = ZOMBIE_ACTIVE_RADIUS;
+    for (const q of s.players) {
+      if (q.status !== 'alive') continue;
+      const d = dist(z.pos, q.pos);
+      if (d < best) { best = d; t = q; }
+    }
+    if (t) { z.targetId = t.id; z.targetT = TARGET_HOLD; }
+  }
+  return t ?? null;
+}
+
+/** Can `a` hurt `b` right now? The living are safe at the start and near the exit; the turned never are. */
+function canHurt(s: GameState, a: Player, b: Player): boolean {
+  if (a === b || (b.status !== 'alive' && b.status !== 'turned')) return false;
+  if (a.status !== 'alive' && a.status !== 'turned') return false;
+  if (b.status === 'turned') return true;
+  if (a.status === 'alive' && s.elapsed < PVP_GRACE) return false;
+  return dist(a.pos, s.safehouse) > SAFE_RADIUS && dist(b.pos, s.safehouse) > SAFE_RADIUS;
+}
+
+/** The first other player a shot passes through before `maxT`, if any. */
+function playerOnRay(s: GameState, from: Vec2, dx: number, dy: number, maxT: number): { who: Player; t: number } | null {
+  let best: { who: Player; t: number } | null = null;
+  for (const o of s.players) {
+    if (o === s.cur || !canHurt(s, s.cur, o)) continue;
+    const ox = o.pos.x - from.x, oy = o.pos.y - from.y, t = ox * dx + oy * dy;
+    if (t <= 0 || t >= (best?.t ?? maxT)) continue;
+    if (Math.abs(ox * dy - oy * dx) > PLAYER_RADIUS + 0.2) continue;
+    best = { who: o, t };
+  }
+  return best;
+}
+
+/** One player hurts another: half damage to the living (their gear takes its share first), full to the turned. */
+function hurtOther(s: GameState, by: Player, victim: Player, amount: number, full = false): void {
+  const was = s.cur;
+  s.cur = victim;
+  const took = hurtPlayer(s, victim.status === 'turned' || full ? amount : amount * PVP_DAMAGE);
+  s.events.push({ type: 'player-hit', damage: took, by: -1 - by.id, seat: victim.id });
+  if (victim.health <= 0) {
+    victim.health = 0;
+    victim.killerId = null;
+    by.kills++;
+    by.funds += PVP_KILL_REWARD;
+    if (victim.status === 'alive') fall(s, victim, 'caught');
+    else if (victim.status === 'turned') { victim.status = 'dead'; s.events.push({ type: 'down', seat: victim.id }); }
+  }
+  s.cur = was;
+}
+
+/** A player is out: lying still for a moment before they turn (health), or turning at once (the dose ran out). */
+function fall(s: GameState, pl: Player, reason: LossReason): void {
+  if (pl.status !== 'alive') return;
+  pl.hold = { taskId: null, progress: 0 };
+  pl.work = null;
+  if (reason === 'time') { turnPlayer(s, pl); return; }
+  pl.status = 'down';
+  pl.downT = DOWN_SECONDS;
+  pl.vel = { x: 0, y: 0 };
+  s.events.push({ type: 'down', seat: pl.id });
+}
+
+/** Now one of them: fast, melee only, the zombies leave them alone. */
+function turnPlayer(s: GameState, pl: Player): void {
+  pl.status = 'turned';
+  pl.health = TURNED_HEALTH;
+  pl.speedMul = RUNNER_SPEED / PLAYER_SPEED;
+  pl.light = false;
+  pl.hold = { taskId: null, progress: 0 };
+  pl.work = null;
+  pl.lungeCd = 0;
+  s.events.push({ type: 'turned', seat: pl.id, pos: { ...pl.pos } });
+}
+
+/** A turned player's lunge: everything living in front of them, close, is hit at full strength. */
+function lunge(s: GameState, pl: Player): void {
+  pl.lungeCd = LUNGE_COOLDOWN;
+  let hits = 0;
+  for (const o of s.players) {
+    if (o.status !== 'alive' || !canHurt(s, pl, o)) continue;
+    const d = dist(o.pos, pl.pos);
+    if (d > ATTACK_REACH || (d > 0.8 && Math.abs(wrap(datan2(o.pos.y - pl.pos.y, o.pos.x - pl.pos.x) - pl.heading)) > LUNGE_ARC)) continue;
+    hurtOther(s, pl, o, ATTACK_DAMAGE, true);
+    hits++;
+  }
+  s.events.push({ type: 'lunge', seat: pl.id, pos: { ...pl.pos }, hits });
+}
+
+/** Walking into the exit with the steps done: out, if there is still a seat. */
+function updateExit(s: GameState): void {
+  const pl = s.cur;
+  if (pl.status !== 'alive') return;
+  if (dist(s.safehouse, pl.pos) >= SAFEHOUSE_RADIUS) { pl.lockedNotice = null; return; }
+  if (requiredDone(s)) {
+    if (s.seatsLeft <= 0) return;
+    pl.status = 'escaped';
+    pl.escapedAt = s.elapsed;
+    pl.vel = { x: 0, y: 0 };
+    s.seatsLeft--;
+    s.events.push({ type: 'escaped', seat: pl.id });
+  } else if (pl.lockedNotice !== 'safehouse') {
+    pl.lockedNotice = 'safehouse';
+    s.events.push({ type: 'safehouse-locked' });
+  }
+}
+
+/** How each seat finished: out through the exit first (earliest first), then the rest by what they did. */
+export function placementsOf(s: GameState): Placement[] {
+  return s.players
+    .map((p) => ({ seat: p.id, status: p.status, escapedAt: p.escapedAt, kills: p.kills }))
+    .sort((a, b) => (a.escapedAt === null ? 1 : 0) - (b.escapedAt === null ? 1 : 0) || (a.escapedAt ?? 0) - (b.escapedAt ?? 0) || b.kills - a.kills || a.seat - b.seat);
+}
+
+function finishRound(s: GameState): void {
+  for (const p of s.players) if (p.status === 'alive' || p.status === 'down') p.status = 'missed';
+  s.placements = placementsOf(s);
+  s.phase = s.players.some((p) => p.status === 'escaped') ? 'won' : 'lost';
+  s.events.push({ type: 'round-end', placements: s.placements });
+}
+
+/** One simulated step of a room: every seat acts, then the district does. Seats with no input stand still. */
+function stepRoom(s: GameState, inputs: readonly Input[], dt: number): GameState {
+  const idle: Input = { dx: 0, dy: 0 };
+  const first = s.cur;
+  const alive = s.players.filter((p) => p.status === 'alive');
+  const turnOf = (): Player => alive[Math.floor(s.elapsed / 7) % Math.max(1, alive.length)] ?? s.players[0]!; // waves and the director take turns at who they look at
+
+  const frac = 1 - s.elapsed / s.roomLimit;
+  s.cur = turnOf();
+  const tier = tierFor(frac);
+  while (s.tier < tier) {
+    s.tier++;
+    s.events.push({ type: 'tier-up', tier: s.tier });
+    spawnWave(s, s.tier);
+  }
+  const want = fallenWanted(s);
+  while (s.fallenN < want) s.events.push({ type: 'block-fallen', block: s.fallOrder[s.fallenN++]! });
+
+  for (const pl of s.players) {
+    if (!present(pl)) continue;
+    s.cur = pl;
+    const mark = s.events.length;
+    const input = inputs[pl.id] ?? idle;
+    pl.invuln = Math.max(0, pl.invuln - dt);
+    pl.lungeCd = Math.max(0, pl.lungeCd - dt);
+    const b = blockAt(s, pl.pos);
+    pl.inFallen = b >= 0 && s.fallOrder.indexOf(b) >= 0 && s.fallOrder.indexOf(b) < s.fallenN;
+    if (pl.status === 'down') {
+      pl.downT -= dt;
+      if (pl.downT <= 0) turnPlayer(s, pl);
+    } else if (pl.status === 'turned') {
+      movePlayer(s, input, dt);
+      if (input.fire && pl.lungeCd <= 0) lunge(s, pl);
+    } else {
+      pl.remaining -= dt;
+      if (pl.remaining <= 0) { pl.remaining = 0; fall(s, pl, 'time'); }
+      else playerTurn(s, pl, input, dt);
+    }
+    for (let i = mark; i < s.events.length; i++) tagEvent(s.events[i]!, pl.id);
+  }
+
+  s.cur = turnOf();
+  updateThrown(s, dt);
+  updateAlarms(s, dt);
+  updateFlare(s, dt);
+  updateDirector(s, dt);
+  updateZombies(s, dt);
+  s.cur = first;
+
+  if (s.seatsLeft <= 0 || s.elapsed >= s.roomLimit || !s.players.some((p) => p.status === 'alive' || p.status === 'down')) finishRound(s);
+  return s;
+}
+
+/** What a living player does in one step of a room (the single-player step, for one body, without vehicles or company). */
+function playerTurn(s: GameState, pl: Player, input: Input, dt: number): void {
+  if (input.light) { pl.light = !pl.light; s.events.push({ type: 'light', on: pl.light }); }
+  if (input.action) interact(s);
+  pl.slowT = Math.max(0, pl.slowT - dt);
+  updateWeapons(s, input, dt);
+  if (input.throw) throwBottle(s);
+  takePickups(s);
+  takeParts(s);
+  guardCurrent(s);
+  movePlayer(s, input, dt);
+  enterStores(s);
+  updateWork(s, dt);
+  updateSurvivors(s);
+  updateClear(s);
+  updateCough(s, dt);
+  pl.safeT = Math.max(0, pl.safeT - dt);
+  pl.dangerT = Math.max(0, pl.dangerT - dt);
+  refreshFlow(s);
+  updateTasks(s, dt);
+  updateExit(s);
+}
+
 // ---------------------------------------------------------------- the step
 
 /** Advance the game by dt seconds. Mutates and returns state. */
-export function step(s: GameState, input: Input, dt: number): GameState {
+export function step(s: GameState, inputs: Input | readonly Input[], dt: number): GameState {
   s.events.length = 0;
   if (s.phase !== 'playing') return s;
-
   s.elapsed += dt;
+  if (s.mode === 'room') return stepRoom(s, Array.isArray(inputs) ? inputs : [inputs as Input], dt);
+  const input: Input = Array.isArray(inputs) ? (inputs[0] ?? { dx: 0, dy: 0 }) : (inputs as Input);
   s.remaining -= dt;
   if (s.remaining <= 0) {
     s.remaining = 0;
@@ -843,7 +1080,7 @@ export function step(s: GameState, input: Input, dt: number): GameState {
   if (still) {
     s.player.pos.x = still.pos.x;
     s.player.pos.y = still.pos.y;
-    s.player.vel = { x: Math.cos(still.heading) * still.speed, y: Math.sin(still.heading) * still.speed };
+    s.player.vel = { x: dcos(still.heading) * still.speed, y: dsin(still.heading) * still.speed };
     s.player.heading = still.heading;
   }
 
@@ -874,9 +1111,9 @@ export function step(s: GameState, input: Input, dt: number): GameState {
 /** Distance from p to a vehicle's body (0 or less means touching). */
 function vehicleReach(v: Vehicle, p: Vec2): number {
   const spec = VEHICLES[v.kind];
-  const hx = Math.cos(v.heading), hy = Math.sin(v.heading);
+  const hx = dcos(v.heading), hy = dsin(v.heading);
   const t = Math.max(-spec.length / 2, Math.min(spec.length / 2, (p.x - v.pos.x) * hx + (p.y - v.pos.y) * hy));
-  return Math.hypot(p.x - (v.pos.x + hx * t), p.y - (v.pos.y + hy * t)) - spec.width / 2;
+  return dhypot(p.x - (v.pos.x + hx * t), p.y - (v.pos.y + hy * t)) - spec.width / 2;
 }
 
 /** What the Use button would do right now, if anything. */
@@ -912,6 +1149,12 @@ export function interactionFor(s: GameState): Interaction | null {
     let who = -1, wd = CHECK_RADIUS;
     escortGroup(s).forEach((m, i) => { const d = dist(m.pos, p); if (m.checked !== 'clean' && !m.riding && d < wd) { wd = d; who = i; } });
     if (who >= 0) return { kind: escortGroup(s)[who]!.checked === 'bitten' ? 'leave' : 'check', who };
+    // in a room: look another survivor over (who is the seat). They may be bitten and hiding it; so may you be, to them.
+    if (s.mode === 'room') {
+      let seat = -1, sd = CHECK_RADIUS;
+      for (const o of s.players) { const d = dist(o.pos, p); if (o !== s.cur && o.status === 'alive' && d < sd) { sd = d; seat = o.id; } }
+      if (seat >= 0) return { kind: 'check', who: seat };
+    }
   }
   return null;
 }
@@ -922,7 +1165,7 @@ function parkedCarNear(s: GameState, p: Vec2, reach: number): number | null {
     const b = s.map.buildings[idx]!;
     if (b.kind !== 'car' || s.alarmUsed.includes(idx)) continue;
     const nx = Math.max(b.x, Math.min(p.x, b.x + b.w)), ny = Math.max(b.y, Math.min(p.y, b.y + b.h));
-    if (Math.hypot(p.x - nx, p.y - ny) < reach) return idx;
+    if (dhypot(p.x - nx, p.y - ny) < reach) return idx;
   }
   return null;
 }
@@ -1014,7 +1257,7 @@ function startWork(s: GameState, kind: Work['kind'], id: number, seconds: number
 function workTarget(s: GameState, w: Work): Vec2 | null {
   if (w.kind === 'search') return s.houses.find((h) => h.id === w.id)?.pos ?? null;
   if (w.kind === 'talk') return s.survivors.find((v) => v.id === w.id)?.pos ?? null;
-  if (w.kind === 'check') return escortGroup(s)[w.id]?.pos ?? null;
+  if (w.kind === 'check') return s.mode === 'room' ? (s.players[w.id]?.status === 'alive' ? s.players[w.id]!.pos : null) : escortGroup(s)[w.id]?.pos ?? null;
   return s.vehicles.find((v) => v.id === w.id)?.pos ?? null;
 }
 
@@ -1042,6 +1285,11 @@ function updateWork(s: GameState, dt: number): void {
     }
   } else if (w.kind === 'talk') {
     talkTo(s, s.survivors.find((x) => x.id === w.id)!);
+  } else if (w.kind === 'check' && s.mode === 'room') {
+    const o = s.players[w.id];
+    if (!o) return;
+    s.cur.checks[o.id] = o.bitten;
+    s.events.push({ type: 'checked', name: `Survivor ${o.id + 1}`, bitten: o.bitten });
   } else if (w.kind === 'check') {
     const m = escortGroup(s)[w.id];
     if (!m) return;
@@ -1065,7 +1313,7 @@ function talkTo(s: GameState, v: Survivor): void {
       for (let k = 0; k < CLEAR_COUNT; k++) {
         const a = (k / CLEAR_COUNT) * Math.PI * 2 + next(s.rng);
         const r = range(s.rng, 7, 10);
-        const pos = { x: v.pos.x + Math.cos(a) * r, y: v.pos.y + Math.sin(a) * r };
+        const pos = { x: v.pos.x + dcos(a) * r, y: v.pos.y + dsin(a) * r };
         if (s.map.blocked[cellOf(s.map, pos)] === 1) continue;
         const id = s.nextZombieId;
         addZombie(s, 'walker', pos, true);
@@ -1131,7 +1379,7 @@ function throwBottle(s: GameState): void {
   const a = s.arsenal;
   if (a.bottles <= 0) return;
   const p = s.player.pos;
-  const hx = Math.cos(s.player.heading), hy = Math.sin(s.player.heading);
+  const hx = dcos(s.player.heading), hy = dsin(s.player.heading);
   // it flies over cars and fences, but lands on open ground: pull it back if it would land inside something
   let r = BOTTLE_RANGE;
   let to = { x: p.x + hx * r, y: p.y + hy * r };
@@ -1371,9 +1619,9 @@ export function aimTarget(s: GameState, w: WeaponKind): Zombie | null {
   let best: Zombie | null = null, bestScore = Infinity;
   for (const z of s.zombies) {
     if (z.action === 'dead' || z.action === 'dormant') continue; // it never picks out a body: you find out the hard way
-    const dx = z.pos.x - p.x, dy = z.pos.y - p.y, d = Math.hypot(dx, dy);
+    const dx = z.pos.x - p.x, dy = z.pos.y - p.y, d = dhypot(dx, dy);
     if (d > range || d < 1e-3) continue;
-    const off = Math.abs(wrap(Math.atan2(dy, dx) - s.player.heading));
+    const off = Math.abs(wrap(datan2(dy, dx) - s.player.heading));
     if (off > AIM_CONE && d > 3) continue; // behind you, unless it is right on top of you
     if (rayToWall(s, p, dx / d, dy / d, d) < d) continue;
     const score = d + off * 6;
@@ -1401,7 +1649,7 @@ function hurtZombie(s: GameState, z: Zombie, damage: number, dirX: number, dirY:
     z.action = 'dead';
     z.actionT = CORPSE_SECONDS;
     z.speed = 0;
-    z.heading = Math.atan2(-dirY, -dirX); // falls away from the shot
+    z.heading = datan2(-dirY, -dirX); // falls away from the shot
     killed(s, z);
     return;
   }
@@ -1456,14 +1704,14 @@ function updateWeapons(s: GameState, input: Input, dt: number): void {
   // aim: snap to the best target in front, otherwise fire where you face
   const p = s.player.pos;
   const target = aimTarget(s, w);
-  const aim = target ? Math.atan2(target.pos.y - p.y, target.pos.x - p.x) : s.player.heading;
+  const aim = target ? datan2(target.pos.y - p.y, target.pos.x - p.x) : s.player.heading;
   s.player.heading = aim;
   a.mag[w]--;
   a.fireCd = spec.interval;
 
   for (let k = 0; k < spec.pellets; k++) {
     const ang = aim + (next(s.rng) - 0.5) * spec.spread;
-    const dx = Math.cos(ang), dy = Math.sin(ang);
+    const dx = dcos(ang), dy = dsin(ang);
     const wall = rayToWall(s, p, dx, dy, spec.range);
     const reach = Math.min(spec.range, wall);
     // first zombie the ray passes through
@@ -1476,7 +1724,11 @@ function updateWeapons(s: GameState, input: Input, dt: number): void {
       if (Math.abs(ox * dy - oy * dx) > ZOMBIE_RADIUS + 0.2) continue;
       hit = z; hitT = t;
     }
-    if (hit) hurtZombie(s, hit, spec.damage * (hitT > spec.range * 0.6 ? 0.7 : 1), dx, dy, STAGGER_SECONDS, 0.25, true);
+    const vic = s.mode === 'room' ? playerOnRay(s, p, dx, dy, hitT) : null; // in a room the first thing on the line may be a person
+    if (vic) { hit = null; hitT = vic.t; }
+    const dmg = spec.damage * (hitT > spec.range * 0.6 ? 0.7 : 1);
+    if (vic) hurtOther(s, s.cur, vic.who, dmg);
+    else if (hit) hurtZombie(s, hit, dmg, dx, dy, STAGGER_SECONDS, 0.25, true);
     if (k === 0) s.events.push({ type: 'shot', weapon: w, from: { ...p }, to: { x: p.x + dx * hitT, y: p.y + dy * hitT }, hit: hit?.id ?? null });
   }
 
@@ -1502,21 +1754,29 @@ function swingMelee(s: GameState, w: MeleeKind, input: Input): void {
   const spec = meleeStats(a, w);
   const p = s.player.pos;
   const target = aimTarget(s, w);
-  if (target) s.player.heading = Math.atan2(target.pos.y - p.y, target.pos.x - p.x);
+  if (target) s.player.heading = datan2(target.pos.y - p.y, target.pos.x - p.x);
   a.fireCd = spec.interval;
   a.swing++;
   const inArc = s.zombies
     .filter((z) => z.action !== 'dead')
     .map((z) => ({ z, d: dist(z.pos, p) }))
-    .filter(({ z, d }) => d < spec.range + ZOMBIE_RADIUS && (d < 0.8 || Math.abs(wrap(Math.atan2(z.pos.y - p.y, z.pos.x - p.x) - s.player.heading)) < spec.arc / 2))
+    .filter(({ z, d }) => d < spec.range + ZOMBIE_RADIUS && (d < 0.8 || Math.abs(wrap(datan2(z.pos.y - p.y, z.pos.x - p.x) - s.player.heading)) < spec.arc / 2))
     .sort((x, y) => x.d - y.d)
     .slice(0, spec.cleave);
   for (const { z, d } of inArc) {
-    const dx = d > 1e-6 ? (z.pos.x - p.x) / d : Math.cos(s.player.heading);
-    const dy = d > 1e-6 ? (z.pos.y - p.y) / d : Math.sin(s.player.heading);
+    const dx = d > 1e-6 ? (z.pos.x - p.x) / d : dcos(s.player.heading);
+    const dy = d > 1e-6 ? (z.pos.y - p.y) / d : dsin(s.player.heading);
     hurtZombie(s, z, spec.damage, dx, dy, spec.stagger, MELEE_KNOCKBACK);
   }
-  s.events.push({ type: 'swing', weapon: w, hits: inArc.length });
+  let hits = inArc.length;
+  if (s.mode === 'room') {
+    for (const o of s.players) {
+      if (o === s.cur || !canHurt(s, s.cur, o)) continue;
+      const d = dist(o.pos, p);
+      if (d < spec.range + PLAYER_RADIUS && (d < 0.8 || Math.abs(wrap(datan2(o.pos.y - p.y, o.pos.x - p.x) - s.player.heading)) < spec.arc / 2)) { hurtOther(s, s.cur, o, spec.damage); hits++; }
+    }
+  }
+  s.events.push({ type: 'swing', weapon: w, hits });
   alertWithin(s, spec.noise);
 }
 
@@ -1526,7 +1786,7 @@ function exitVehicle(s: GameState): void {
   const spec = VEHICLES[v.kind];
   // step out on the driver's side, or the other side if that is blocked
   for (const side of [1, -1]) {
-    const nx = -Math.sin(v.heading) * side, ny = Math.cos(v.heading) * side;
+    const nx = -dsin(v.heading) * side, ny = dcos(v.heading) * side;
     const p = { x: v.pos.x + nx * (spec.width / 2 + 0.9), y: v.pos.y + ny * (spec.width / 2 + 0.9) };
     const before = { ...p };
     resolve(s.map, p, PLAYER_RADIUS);
@@ -1542,18 +1802,19 @@ function exitVehicle(s: GameState): void {
 
 // ---------------------------------------------------------------- movement
 
-function movePlayer(s: GameState, input: Input, dt: number): void {
+/** One step of a body walking (also what a browser re-runs to predict its own movement in a room). */
+export function movePlayer(s: GameState, input: Input, dt: number): void {
   let dx = input.dx, dy = input.dy;
-  const len = Math.hypot(dx, dy);
+  const len = dhypot(dx, dy);
   if (len > 1) { dx /= len; dy /= len; }
   const top = PLAYER_SPEED * s.speedMul * (s.player.slowT > 0 ? GRAB_SLOW : 1); // a crawler on your leg
   const tx = dx * top, ty = dy * top; // analog: a light push walks, a full push runs
   const v = s.player.vel;
   const ex = tx - v.x, ey = ty - v.y;
-  const e = Math.hypot(ex, ey);
+  const e = dhypot(ex, ey);
   const stepV = PLAYER_ACCEL * dt;
   if (e <= stepV) { v.x = tx; v.y = ty; } else { v.x += (ex / e) * stepV; v.y += (ey / e) * stepV; }
-  const sp = Math.hypot(v.x, v.y);
+  const sp = dhypot(v.x, v.y);
   if (sp < 1e-4) { v.x = 0; v.y = 0; return; }
   const before = { x: s.player.pos.x, y: s.player.pos.y };
   s.player.pos.x += v.x * dt;
@@ -1562,22 +1823,22 @@ function movePlayer(s: GameState, input: Input, dt: number): void {
   for (const c of s.vehicles) pushOutOfVehicle(c, s.player.pos, PLAYER_RADIUS);
   // sliding along a wall: keep only the velocity that actually happened
   if (dt > 0) { v.x = (s.player.pos.x - before.x) / dt; v.y = (s.player.pos.y - before.y) / dt; }
-  if (len > 0.05) s.player.heading = Math.atan2(dy, dx);
-  else if (sp > 0.2) s.player.heading = Math.atan2(v.y, v.x);
+  if (len > 0.05) s.player.heading = datan2(dy, dx);
+  else if (sp > 0.2) s.player.heading = datan2(v.y, v.x);
 }
 
 /** Vehicles collide as three circles along their length. */
 export function vehicleCircles(v: Vehicle): Array<{ x: number; y: number; r: number }> {
   const spec = VEHICLES[v.kind];
   const half = spec.length / 2 - spec.width / 2;
-  const hx = Math.cos(v.heading), hy = Math.sin(v.heading);
+  const hx = dcos(v.heading), hy = dsin(v.heading);
   return [-half, 0, half].map((o) => ({ x: v.pos.x + hx * o, y: v.pos.y + hy * o, r: spec.width / 2 }));
 }
 
 function pushOutOfVehicle(v: Vehicle, p: Vec2, r: number): boolean {
   let hit = false;
   for (const c of vehicleCircles(v)) {
-    const dx = p.x - c.x, dy = p.y - c.y, d = Math.hypot(dx, dy), min = c.r + r;
+    const dx = p.x - c.x, dy = p.y - c.y, d = dhypot(dx, dy), min = c.r + r;
     if (d >= min) continue;
     hit = true;
     if (d < 1e-6) { p.x += min; continue; }
@@ -1595,17 +1856,17 @@ function drive(v: Vehicle, input: Input, dt: number, load = 1): void {
   if (v.wrecked) return;
   const base = VEHICLES[v.kind];
   const spec = { ...base, maxSpeed: base.maxSpeed * load };
-  const mag = v.fuel > 0 ? Math.min(1, Math.hypot(input.dx, input.dy)) : 0; // an empty tank coasts
+  const mag = v.fuel > 0 ? Math.min(1, dhypot(input.dx, input.dy)) : 0; // an empty tank coasts
   let target = 0;
   let steerTo: number | null = null;
   if (mag > 0.1) {
-    const want = Math.atan2(input.dy, input.dx);
+    const want = datan2(input.dy, input.dx);
     const diff = wrap(want - v.heading);
     if (Math.abs(diff) > 2.0 && v.speed < 2) {
       target = -spec.reverse * mag;
       steerTo = wrap(want + Math.PI);
     } else {
-      target = spec.maxSpeed * mag * Math.max(0.35, Math.cos(diff));
+      target = spec.maxSpeed * mag * Math.max(0.35, dcos(diff));
       steerTo = want;
     }
   }
@@ -1623,8 +1884,8 @@ function moveVehicle(s: GameState, v: Vehicle, dt: number, driven: boolean): voi
   if (!driven) v.speed = approach(v.speed, 0, 6 * dt);
   if (Math.abs(v.speed) < 1e-3) return;
   const spec = VEHICLES[v.kind];
-  v.pos.x += Math.cos(v.heading) * v.speed * dt;
-  v.pos.y += Math.sin(v.heading) * v.speed * dt;
+  v.pos.x += dcos(v.heading) * v.speed * dt;
+  v.pos.y += dsin(v.heading) * v.speed * dt;
 
   // collide each circle with the city and with other vehicles; apply the average push
   let px = 0, py = 0, hits = 0;
@@ -1652,7 +1913,7 @@ function moveVehicle(s: GameState, v: Vehicle, dt: number, driven: boolean): voi
   for (const z of s.zombies) {
     if (z.action === 'dead' || z.latch != null) continue;
     for (const c of vehicleCircles(v)) {
-      if (Math.hypot(z.pos.x - c.x, z.pos.y - c.y) >= c.r + ZOMBIE_RADIUS) continue;
+      if (dhypot(z.pos.x - c.x, z.pos.y - c.y) >= c.r + ZOMBIE_RADIUS) continue;
       if (Math.abs(v.speed) > RUN_OVER_SPEED) {
         z.action = 'dead';
         z.actionT = CORPSE_SECONDS;
@@ -1682,7 +1943,7 @@ function shakeOff(s: GameState, z: Zombie, v: Vehicle, hurt: number): void {
   z.latchT = 0;
   z.action = 'chase';
   z.staggerT = 1.2;
-  const dx = z.pos.x - v.pos.x, dy = z.pos.y - v.pos.y, d = Math.hypot(dx, dy) || 1;
+  const dx = z.pos.x - v.pos.x, dy = z.pos.y - v.pos.y, d = dhypot(dx, dy) || 1;
   z.pos.x += (dx / d) * 1.2;
   z.pos.y += (dy / d) * 1.2;
   resolve(s.map, z.pos, ZOMBIE_RADIUS);
@@ -1700,7 +1961,7 @@ function shakeOff(s: GameState, z: Zombie, v: Vehicle, hurt: number): void {
 function latchOn(s: GameState, z: Zombie, v: Vehicle): boolean {
   if (latchedOn(s, v.id) >= LATCH_MAX) return false;
   const spec = VEHICLES[v.kind];
-  const c = Math.cos(v.heading), sn = Math.sin(v.heading);
+  const c = dcos(v.heading), sn = dsin(v.heading);
   const rx = z.pos.x - v.pos.x, ry = z.pos.y - v.pos.y;
   const along = Math.max(-spec.length / 2, Math.min(spec.length / 2, rx * c + ry * sn));
   const across = rx * -sn + ry * c;
@@ -1726,10 +1987,10 @@ function updateLatched(s: GameState, z: Zombie, dt: number): void {
     z.alertT = Math.max(z.alertT, ALERT_SECONDS);
     return;
   }
-  const c = Math.cos(v.heading), sn = Math.sin(v.heading), at = z.latchAt!;
+  const c = dcos(v.heading), sn = dsin(v.heading), at = z.latchAt!;
   z.pos.x = v.pos.x + at.x * c - at.y * sn;
   z.pos.y = v.pos.y + at.x * sn + at.y * c;
-  z.heading = Math.atan2(v.pos.y - z.pos.y, v.pos.x - z.pos.x);
+  z.heading = datan2(v.pos.y - z.pos.y, v.pos.x - z.pos.x);
   z.speed = 0;
   if (Math.abs(v.speed) > LATCH_SHAKE_SPEED) {
     z.latchT = (z.latchT ?? 0) + dt;
@@ -1774,6 +2035,7 @@ function damageVehicle(s: GameState, v: Vehicle, amount: number): void {
 function updateTasks(s: GameState, dt: number): void {
   if (!s.hold.taskId) return;
   const t = s.tasks.find((x) => x.id === s.hold.taskId)!;
+  if (t.done) { s.hold.taskId = null; s.hold.progress = 0; return; } // someone else finished it first
   // walking away (or driving off) cancels the job
   if (s.player.vehicleId !== null || dist(t.pos, s.player.pos) > TASK_RADIUS + 0.3) {
     s.hold.taskId = null;
@@ -1869,7 +2131,7 @@ function updateClear(s: GameState): void {
     for (let k = 0; k < (t.clear ?? 4); k++) {
       const a = (k / (t.clear ?? 4)) * Math.PI * 2 + next(s.rng);
       t.targets.push(s.nextZombieId);
-      addZombie(s, k % 3 === 2 ? 'runner' : 'walker', { x: t.pos.x + Math.cos(a) * range(s.rng, 4, 8), y: t.pos.y + Math.sin(a) * range(s.rng, 4, 8) }, true);
+      addZombie(s, k % 3 === 2 ? 'runner' : 'walker', { x: t.pos.x + dcos(a) * range(s.rng, 4, 8), y: t.pos.y + dsin(a) * range(s.rng, 4, 8) }, true);
       s.zombies[s.zombies.length - 1]!.alertT = 30; // they know you are there
     }
     s.events.push({ type: 'clear-start', id: t.id, count: t.targets.length });
@@ -1915,7 +2177,7 @@ function follow(s: GameState, e: Escort, p: Vec2, dt: number): void {
   const car = playerVehicle(s);
   if (car) { e.riding = true; e.pos = { ...car.pos }; e.speed = 0; return; }
   if (e.riding) { e.riding = false; e.pos = { x: s.player.pos.x + 1, y: s.player.pos.y }; resolve(s.map, e.pos, PLAYER_RADIUS); }
-  const dx = p.x - e.pos.x, dy = p.y - e.pos.y, d = Math.hypot(dx, dy);
+  const dx = p.x - e.pos.x, dy = p.y - e.pos.y, d = dhypot(dx, dy);
   let vx = 0, vy = 0;
   if (d > (p === s.player.pos ? 2.2 : 1.5)) {
     if (d < 3 || lineClear(s.map, e.pos, p, PLAYER_RADIUS)) { vx = dx / d; vy = dy / d; }
@@ -1927,13 +2189,13 @@ function follow(s: GameState, e: Escort, p: Vec2, dt: number): void {
         if ((s.flow[n] as number) < best) { best = s.flow[n] as number; bc = n; }
       }
       if (bc >= 0 && best !== UNREACHABLE) {
-        const tx = (bc % cols) + 0.5 - e.pos.x, ty = Math.floor(bc / cols) + 0.5 - e.pos.y, tl = Math.hypot(tx, ty) || 1;
+        const tx = (bc % cols) + 0.5 - e.pos.x, ty = Math.floor(bc / cols) + 0.5 - e.pos.y, tl = dhypot(tx, ty) || 1;
         vx = tx / tl; vy = ty / tl;
       }
     }
   }
   // left far behind (you drove off and got out somewhere else): she catches up the back way
-  if (d > 45) { e.pos = { x: p.x - Math.cos(s.player.heading) * 2, y: p.y - Math.sin(s.player.heading) * 2 }; resolve(s.map, e.pos, PLAYER_RADIUS); }
+  if (d > 45) { e.pos = { x: p.x - dcos(s.player.heading) * 2, y: p.y - dsin(s.player.heading) * 2 }; resolve(s.map, e.pos, PLAYER_RADIUS); }
   if (d > 45) return;
   const before = { ...e.pos };
   const v = ESCORT_SPEED * (d > 8 ? 1.15 : 1);
@@ -1941,8 +2203,8 @@ function follow(s: GameState, e: Escort, p: Vec2, dt: number): void {
   e.pos.y += vy * v * dt;
   resolve(s.map, e.pos, PLAYER_RADIUS);
   for (const c of s.vehicles) pushOutOfVehicle(c, e.pos, PLAYER_RADIUS);
-  e.speed = dt > 0 ? Math.hypot(e.pos.x - before.x, e.pos.y - before.y) / dt : 0;
-  if (vx !== 0 || vy !== 0) e.heading = Math.atan2(vy, vx);
+  e.speed = dt > 0 ? dhypot(e.pos.x - before.x, e.pos.y - before.y) / dt : 0;
+  if (vx !== 0 || vy !== 0) e.heading = datan2(vy, vx);
 }
 
 /** A burning flare keeps pulling everything near it. */
@@ -1955,6 +2217,7 @@ function updateFlare(s: GameState, dt: number): void {
 }
 
 function updateSafehouse(s: GameState): void {
+  if (s.mode === 'room') { updateExit(s); return; }
   const inside = dist(s.safehouse, s.player.pos) < SAFEHOUSE_RADIUS + (s.player.vehicleId !== null ? 2 : 0);
   if (!inside) {
     s.lockedNotice = null;
@@ -1975,18 +2238,29 @@ function updateSafehouse(s: GameState): void {
 // ---------------------------------------------------------------- zombies
 
 function updateZombies(s: GameState, dt: number): void {
-  const p = s.player.pos;
   const cols = s.map.cols;
-  const ride = playerVehicle(s);
-  const car = ride && ride.kind !== 'bike' ? ride : null; // on a bike they go for you, not the bike
-  const reachBonus = car ? VEHICLES[car.kind].length / 2 - 0.4 : ride ? 0.3 : 0; // a car is a bigger target
-  const busy = isBusy(s);
-  const seen = sightScale(s);
   const walk = WALKER_SPEED_BY_TIER[s.tier]!;
+  const room = s.mode === 'room';
+  const first = s.cur;
+  let tagFrom = s.events.length, tagSeat = first.id; // rooms: which player each event of this pass belongs to
+  const tag = () => { for (let i = tagFrom; i < s.events.length; i++) tagEvent(s.events[i]!, tagSeat); tagFrom = s.events.length; };
 
   for (const z of s.zombies) {
     if (z.action === 'dead') { z.actionT -= dt; continue; }
     if (z.latch != null) { updateLatched(s, z, dt); if (s.phase !== 'playing') return; continue; }
+    if (room) { // each one goes for the nearest living player it can reach; their rules are those of whoever it chose
+      const t = pickTarget(s, z, dt);
+      tag();
+      if (!t) continue;
+      s.cur = t;
+      tagSeat = t.id;
+    }
+    const p = s.player.pos;
+    const ride = playerVehicle(s);
+    const car = ride && ride.kind !== 'bike' ? ride : null; // on a bike they go for you, not the bike
+    const reachBonus = car ? VEHICLES[car.kind].length / 2 - 0.4 : ride ? 0.3 : 0; // a car is a bigger target
+    const busy = isBusy(s);
+    const seen = sightScale(s);
     if (z.action === 'dormant') { // lying among the dead until you walk (or drive) close
       if (!busy && dist(z.pos, p) < DORMANT_WAKE + reachBonus) wake(s, z);
       continue;
@@ -2003,7 +2277,7 @@ function updateZombies(s: GameState, dt: number): void {
         z.biteT = (z.biteT ?? 0) + dt;
         if (z.biteT < BITE_SECONDS) break;
         z.action = 'feed';
-        z.heading = Math.atan2(m.pos.y - z.pos.y, m.pos.x - z.pos.x);
+        z.heading = datan2(m.pos.y - z.pos.y, m.pos.x - z.pos.x);
         s.killerId = z.id;
         lose(s, 'infected');
         return;
@@ -2011,7 +2285,7 @@ function updateZombies(s: GameState, dt: number): void {
       if (!held) z.biteT = 0;
     }
     const dx = p.x - z.pos.x, dy = p.y - z.pos.y;
-    const d = Math.hypot(dx, dy);
+    const d = dhypot(dx, dy);
     if (d > ZOMBIE_ACTIVE_RADIUS) continue; // dormant
     const lash = z.kind === 'lasher'; // strikes from well out of arm's reach
     const aRange = (lash ? LASH_RANGE : ATTACK_RANGE) + reachBonus, aReach = (lash ? LASH_REACH : ATTACK_REACH) + reachBonus;
@@ -2038,7 +2312,7 @@ function updateZombies(s: GameState, dt: number): void {
         if (z.action === 'attack') z.cooldown = ATTACK_COOLDOWN * 0.5;
         z.action = 'idle';
         z.speed = 0;
-        if (d > 1e-6) z.heading = Math.atan2(dy, dx);
+        if (d > 1e-6) z.heading = datan2(dy, dx);
         continue;
       }
     }
@@ -2048,13 +2322,13 @@ function updateZombies(s: GameState, dt: number): void {
       if (z.action === 'attack') z.cooldown = ATTACK_COOLDOWN;
       z.action = 'idle';
       z.speed = 0;
-      if (d > 1e-6) z.heading = Math.atan2(dy, dx);
+      if (d > 1e-6) z.heading = datan2(dy, dx);
       continue;
     }
 
     if (z.action === 'scream') { // drawing breath: put it down (or hit it) before it lets go
       z.speed = 0;
-      if (d > 1e-6) z.heading = Math.atan2(dy, dx);
+      if (d > 1e-6) z.heading = datan2(dy, dx);
       z.actionT -= dt;
       if (z.actionT > 0) continue;
       z.action = 'chase';
@@ -2065,7 +2339,7 @@ function updateZombies(s: GameState, dt: number): void {
 
     if (z.action === 'attack') {
       z.speed = 0;
-      if (d > 1e-6) z.heading = Math.atan2(dy, dx); // track the target during the wind-up
+      if (d > 1e-6) z.heading = datan2(dy, dx); // track the target during the wind-up
       z.actionT -= dt;
       if (z.actionT > 0) continue;
       z.action = 'chase';
@@ -2084,6 +2358,7 @@ function updateZombies(s: GameState, dt: number): void {
       const lost = Math.min(s.remaining, BITE_COST * (took / ATTACK_DAMAGE));
       s.remaining -= lost;
       s.events.push({ type: 'bitten', seconds: lost });
+      s.player.bitten = true;
       s.player.invuln = HIT_INVULNERABLE;
       if (z.kind === 'crawler') { // it does not knock you back: it holds on
         s.player.slowT = GRAB_SECONDS;
@@ -2099,6 +2374,7 @@ function updateZombies(s: GameState, dt: number): void {
         z.action = 'feed';
         s.killerId = z.id;
         lose(s, 'caught');
+        if (room) continue;
         return;
       }
       continue;
@@ -2107,18 +2383,18 @@ function updateZombies(s: GameState, dt: number): void {
     // drawn to a noise: walk to it and mill about, unless you are right there
     if ((z.lureT ?? 0) > 0 && z.lure && d > 4.5) {
       z.lureT = (z.lureT ?? 0) - dt;
-      const lx = z.lure.x - z.pos.x, ly = z.lure.y - z.pos.y, ld = Math.hypot(lx, ly);
+      const lx = z.lure.x - z.pos.x, ly = z.lure.y - z.pos.y, ld = dhypot(lx, ly);
       const before = { x: z.pos.x, y: z.pos.y };
       const v = ld > 1.5 ? (z.kind === 'runner' ? RUNNER_SPEED * 0.7 : WALKER_SPEED_BY_TIER[s.tier]!) * s.zombieMul : 0;
       z.action = v > 0 ? 'wander' : 'idle';
       if (ld > 1e-6) {
         z.pos.x += (lx / ld) * v * dt;
         z.pos.y += (ly / ld) * v * dt;
-        if (v > 0) z.heading = Math.atan2(ly, lx);
+        if (v > 0) z.heading = datan2(ly, lx);
       }
       resolve(s.map, z.pos, ZOMBIE_RADIUS);
       for (const c of s.vehicles) pushOutOfVehicle(c, z.pos, ZOMBIE_RADIUS);
-      z.speed = dt > 0 ? Math.hypot(z.pos.x - before.x, z.pos.y - before.y) / dt : 0;
+      z.speed = dt > 0 ? dhypot(z.pos.x - before.x, z.pos.y - before.y) / dt : 0;
       continue;
     }
 
@@ -2155,7 +2431,7 @@ function updateZombies(s: GameState, dt: number): void {
       if (d < 3 || lineClear(s.map, z.pos, p, ZOMBIE_RADIUS)) {
         // after a vehicle, they run for where it will be, to get in front of it
         const lead = ride ? Math.min(1.2, d / 12) : 0;
-        const tx = dx + s.player.vel.x * lead, ty = dy + s.player.vel.y * lead, tl = Math.hypot(tx, ty);
+        const tx = dx + s.player.vel.x * lead, ty = dy + s.player.vel.y * lead, tl = dhypot(tx, ty);
         if (tl > 1e-6) { vx = tx / tl; vy = ty / tl; }
       } else {
         // follow the BFS gradient toward the player through the streets
@@ -2169,7 +2445,7 @@ function updateZombies(s: GameState, dt: number): void {
         if (bc >= 0 && best !== UNREACHABLE) {
           const tx = (bc % cols) + 0.5 - z.pos.x;
           const ty = Math.floor(bc / cols) + 0.5 - z.pos.y;
-          const tl = Math.hypot(tx, ty) || 1;
+          const tl = dhypot(tx, ty) || 1;
           vx = tx / tl; vy = ty / tl;
         }
       }
@@ -2181,7 +2457,7 @@ function updateZombies(s: GameState, dt: number): void {
         if (next(s.rng) < 0.45) z.wanderDir = { x: 0, y: 0 };
         else {
           const a = next(s.rng) * Math.PI * 2;
-          z.wanderDir = { x: Math.cos(a), y: Math.sin(a) };
+          z.wanderDir = { x: dcos(a), y: dsin(a) };
         }
       }
       vx = z.wanderDir.x; vy = z.wanderDir.y;
@@ -2195,10 +2471,11 @@ function updateZombies(s: GameState, dt: number): void {
     z.pos.y += vy * v * dt;
     resolve(s.map, z.pos, ZOMBIE_RADIUS);
     for (const c of s.vehicles) pushOutOfVehicle(c, z.pos, ZOMBIE_RADIUS);
-    z.speed = dt > 0 ? Math.hypot(z.pos.x - before.x, z.pos.y - before.y) / dt : 0;
-    if (vx !== 0 || vy !== 0) z.heading = Math.atan2(vy, vx);
+    z.speed = dt > 0 ? dhypot(z.pos.x - before.x, z.pos.y - before.y) / dt : 0;
+    if (vx !== 0 || vy !== 0) z.heading = datan2(vy, vx);
     if (z.action === 'wander' && z.speed < v * 0.3) z.wanderT = 0; // hit a wall: turn next time
   }
+  if (room) { tag(); s.cur = first; }
   for (const z of s.zombies) if (z.action === 'dead' && z.actionT <= 0) s.corpses.push({ id: z.id, pos: { ...z.pos }, heading: z.heading, ...(z.kind === 'crawler' ? { half: true } : {}) });
   if (s.corpses.length > CORPSES_KEPT) s.corpses.splice(0, s.corpses.length - CORPSES_KEPT);
   s.zombies = s.zombies.filter((z) => z.action !== 'dead' || z.actionT > 0);
@@ -2207,14 +2484,13 @@ function updateZombies(s: GameState, dt: number): void {
 
 /** Push overlapping zombies apart so a crowd spreads out instead of stacking. */
 function separate(s: GameState): void {
-  const p = s.player.pos;
-  const zs = s.zombies.filter((z) => z.action !== 'dead' && z.action !== 'dormant' && z.latch == null && dist(z.pos, p) < ZOMBIE_ACTIVE_RADIUS);
+  const zs = s.zombies.filter((z) => z.action !== 'dead' && z.action !== 'dormant' && z.latch == null && nearestPlayerDist(s, z.pos) < ZOMBIE_ACTIVE_RADIUS);
   const min = ZOMBIE_RADIUS * 2;
   for (let i = 0; i < zs.length; i++) {
     for (let j = i + 1; j < zs.length; j++) {
       const a = zs[i]!.pos, b = zs[j]!.pos;
       const dx = b.x - a.x, dy = b.y - a.y;
-      const d = Math.hypot(dx, dy);
+      const d = dhypot(dx, dy);
       if (d >= min || d < 1e-6) continue;
       const push = (min - d) / 2;
       a.x -= (dx / d) * push; a.y -= (dy / d) * push;
