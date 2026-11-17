@@ -26,12 +26,12 @@ import { noopProgress, type RunResult } from './seams/progress';
 
 const SIM_DT = STEP; // fixed timestep (the same one a replay uses)
 const MAX_STEPS_PER_FRAME = 5;
+// The game itself. The site (app.ts: home, play, ranks, profile...) loads first and imports this in the background;
+// the import resolves once the city's assets are in, and the site then calls playSolo() or openRooms().
 const params = new URLSearchParams(location.search);
-// The cold open runs while everything else loads (its own chunk; nothing to do if it is not showing).
-let splashOn = !document.documentElement.classList.contains('intro-seen');
-if (splashOn) void import('./ui/splash').then((m) => m.runSplash()).then(() => { splashOn = false; });
-void import('./ui/home').then((m) => m.initHome()); // the home page's nav, sign-in and tonight's board (its own chunk)
-/** Into play: from here a phone held upright is asked to turn (the home page and lobby read fine upright). */
+/** The cold open (run by the site) is still on screen: nothing to draw under it. */
+const splashOn = () => !!document.getElementById('splash') && !document.documentElement.classList.contains('intro-seen');
+/** Into play: the site hides, and from here a phone held upright is asked to turn (the site and lobby read fine upright). */
 const playing = () => document.documentElement.classList.add('playing');
 const debug = params.has('debug');
 
@@ -88,8 +88,7 @@ let lastTaskId: TaskId | null = null;
 let wasReady = false;
 
 const $ = (id: string) => document.getElementById(id)!;
-const startBtn = $('start') as HTMLButtonElement;
-const [assets] = await Promise.all([loadCharacterAssets(), loadModels()]).catch((e) => { startBtn.textContent = `Failed to load: ${e}`; throw e; });
+const [assets] = await Promise.all([loadCharacterAssets(), loadModels()]); // a failure rejects the site's import: it says so
 
 const view = new GameView($('game'), assets);
 const controls = new Controls($('game'), $('stick'), $('knob'));
@@ -167,24 +166,21 @@ const quality = (() => {
   };
 })();
 
-startBtn.disabled = false;
-startBtn.textContent = 'Begin';
-const multiBtn = $('multi') as HTMLButtonElement;
-multiBtn.disabled = false;
 const roomHost: Host = {
   view, controls,
   toast: (t) => hud.toast(t),
   enter(shadow, driver) {
     state = shadow; roomDriver = driver; mode = 'room';
-    $('title').style.display = 'none'; playing();
+    playing();
     hud.reset(); setChapter(0); paused = false; controls.enabled = true; hud.cinema(false); convo.length = 0;
   },
   refreshStore: () => storePage?.refresh(),
 };
-multiBtn.addEventListener('click', () => {
+/** The multiplayer lobby, over the site (it reads fine upright): straight into quick play or a new room if asked, or a room by its code. */
+export function openRooms(opts: { join?: string; act?: 'quick' | 'create' } = {}): void {
   sound.start();
-  void import('./net/room').then((m) => m.openLobby(roomHost));
-});
+  void import('./net/room').then((m) => m.openLobby(roomHost, opts));
+}
 // an invite link (?join=CODE, or ?staked=USDT:5 for a staked room) opens the lobby straight away
 if (params.has('join') || params.has('staked')) void import('./net/room').then((m) => { document.addEventListener('pointerdown', () => sound.start(), { once: true }); m.openLobby(roomHost, { join: params.get('join') ?? undefined, staked: params.get('staked') ?? undefined }); });
 // signed in on this device: ask the server where your last selves are waiting
@@ -208,13 +204,16 @@ for (const ev of ['gesturestart', 'gesturechange', 'gestureend', 'dblclick', 'co
 }
 document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
-startBtn.addEventListener('click', () => {
+/** Start a night from the site (called from a tap, so full screen and the sideways lock are allowed). Tonight's city,
+ * the same for everyone and on the board; or, for practice, a city nobody else has. */
+export function playSolo(practice = false): void {
   void goLandscape();
   sound.start();
-  $('title').style.display = 'none'; playing();
-  // the title shows a city while tonight's is fetched: play tonight's if it came
-  begin(tonight !== null && state.night !== tonight && state.chapter === 0 ? fresh((husk) => createGame(tonight!, undefined, { husk }), 0) : state, !params.has('skipintro'));
-});
+  playing();
+  // a city was made while tonight's was fetched: play tonight's if it came
+  const seed = practice ? newSeed() : tonight;
+  begin(seed !== null && state.night !== seed && state.chapter === 0 ? fresh((husk) => createGame(seed, undefined, { husk }), 0) : state, !params.has('skipintro'));
+}
 void import('./net/account').then((m) => m.tonight(content().version)).then((r) => { serverUp = r !== null; if (!params.has('seed')) tonight = r?.night ?? null; });
 if (debug) Object.defineProperty(window, '__outbreak', { get: () => ({ state, mode, view, sound, log: rec.log() }) }); // test hook
 
@@ -478,8 +477,8 @@ const debugEl = $('debug');
 let miniTick = 0;
 
 function frame(now: number): void {
-  if (splashOn) { last = now; requestAnimationFrame(frame); return; } // nothing to draw under the cold open
-  // Draw only as often as it is worth: under the home page (which covers it) twice a second, a held
+  if (splashOn()) { last = now; requestAnimationFrame(frame); return; } // nothing to draw under the cold open
+  // Draw only as often as it is worth: under the site (which covers it) twice a second, a held
   // story moment or the store is still (20/s), phones run at 30/s; a computer plays at the screen's
   // rate. The sim's fixed step does not care: it catches up on the time between frames.
   const still = (paused && !cityMap.open) || talk.open;

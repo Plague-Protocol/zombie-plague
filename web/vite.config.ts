@@ -4,10 +4,10 @@ export default defineConfig({
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 700,
-    // Everything the game needs at start stays in one file; only the pages loaded later (puzzle,
-    // store, full map, multiplayer) are split off. Shared modules would otherwise become extra startup chunks.
+    // The site (app.ts, site/) is what loads first; it imports the game in the background. Everything the game needs
+    // stays in one 'game' file; only the pages it loads later (puzzle, store, full map, multiplayer) are split off.
     // The game's rules live in ../core (shared with the server); the parts only rooms use (view, codec, protocol) stay out.
-    rolldownOptions: { output: { advancedChunks: { groups: [{ name: 'game', test: /web\/src\/(?!ui\/(store|fullmap|puzzle|splash|home)|net\/)|^(?!.*node_modules).*\/core\/(?!view|codec|protocol)[^/]+$|node_modules\/three\// }] } } },
+    rolldownOptions: { output: { advancedChunks: { groups: [{ name: 'preload', test: /preload-helper|modulepreload-polyfill/, priority: 2 }, { name: 'game', test: /web\/src\/(?!ui\/(store|fullmap|puzzle|splash)|net\/|site\/|app\.ts)|^(?!.*node_modules).*\/core\/(?!view|codec|protocol)[^/]+$|node_modules\/three\// }] } } },
   },
   server: { fs: { allow: ['..'] } }, // ../core is outside this folder
   test: { include: ['tests/**/*.test.ts'], setupFiles: ['tests/setup.ts'], testTimeout: 30000 },

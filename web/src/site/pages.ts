@@ -1,0 +1,325 @@
+// The site's pages. Each is markup (filled from the server where it needs to be) plus what happens once it is on screen.
+// Buttons that start the game carry data-play (app.ts wires them, and keeps them disabled until the city has loaded).
+import {
+  account, api, board, BOARD_NAMES, detail, esc, fmt, ICON, ago, setName, shown, signInThen, unitOf,
+  type Board, type Kind, type Me,
+} from './kit';
+
+export interface Ctx {
+  /** Draw the page (and the header) again: after a sign-in, a sign-out, a new name. */
+  refresh(): void;
+  /** The admin page, inside this element. */
+  admin(into: HTMLElement): void;
+}
+export interface Page { title: string; html(): string; mount?(root: HTMLElement, ctx: Ctx): void }
+
+const loading = '<div class="loading" data-loading><i></i>Loading the city&hellip;</div>';
+const head = (kicker: string, title: string, sub = '') => `<div class="kicker">${kicker}</div><h1 class="ph1">${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ''}`;
+
+const DISTRICTS = `
+  <div class="card"><img class="art" src="/intro/bg-game.webp" alt="" loading="lazy" /><div class="ph">01 &middot; Downtown</div><h3>Where it started</h3><p>Scavenge, help who you can and find the parts you need, then get down into the subway before the streets close in.</p></div>
+  <div class="card"><img class="art" src="/intro/bg-horror.webp" alt="" loading="lazy" /><div class="ph">02 &middot; The docks</div><h3>Across the tracks</h3><p>Work through the yards to the gate in the army barricade. Cars and bikes get you there faster, but every engine is heard.</p></div>
+  <div class="card"><img class="art" src="/intro/bg-patient-zero.webp" alt="" loading="lazy" /><div class="ph">03 &middot; The edge</div><h3>The last helicopter</h3><p>The landing zone is the only way out of Port Halden. Get there before the infection reaches zero.</p></div>`;
+
+const THREATS = `
+  <div class="card"><div class="ph">The clock</div><h3>It is your infection</h3><p>Every bite jumps it forward. Antiviral doses hold it back. When it runs out, you are one of them.</p></div>
+  <div class="card"><div class="ph">People</div><h3>Survivors, and who is bitten</h3><p>People ask for help and some will follow you. Someone coughing may already be bitten: check them, and decide whether to leave them.</p></div>
+  <div class="card"><div class="ph">Stealth</div><h3>Light and noise</h3><p>Your light shows you the street and shows you to them. Kill it, throw a bottle to pull them away, and listen for screamers.</p></div>
+  <div class="card"><div class="ph">Loot</div><h3>Houses and stores</h3><p>Search houses for doses, cash and rounds, but a red X means something is inside. Spend what you find at weapon stores.</p></div>
+  <div class="card"><div class="ph">Wheels</div><h3>Cars and bikes</h3><p>Faster than running, with seats for the people you saved. Watch the fuel, and shake off what grabs on.</p></div>
+  <div class="card"><div class="ph">Memory</div><h3>Your last self</h3><p>Where you fell, you wait, still carrying what you carried. Put it down to take your gear back.</p></div>`;
+
+// ---------------------------------------------------------------- home
+
+export const home: Page = {
+  title: 'Zombie Plague',
+  html: () => {
+    const me = account();
+    return `
+  <section class="hero"><div class="wrap">
+    <span class="badge">Survival horror &middot; A new night every day</span>
+    <h1><span>BITTEN.</span><span class="red">GET OUT.</span></h1>
+    <p class="lede">You were bitten in Port Halden, and the infection is your clock. Cross three districts, find the doses that hold it back, and reach the last evacuation helicopter before you turn.</p>
+    <div class="ctas">
+      <button class="btn" type="button" data-play="solo" disabled>Play tonight</button>
+      <a class="btn red" href="/play">Play with friends</a>
+      <a class="btn ghost" href="/how-to-play">How to play</a>
+    </div>
+    <p class="note">${me ? `Signed in as ${esc(shown(me))}. Tonight's best run goes on the board.` : 'Free in your browser. Sign in after a few minutes to keep playing and save your nights.'}</p>
+    <div class="ios-tip">For full screen on iPhone: tap Share, then <b>Add to Home Screen</b>, and play from the new icon.</div>
+    <div class="stats">
+      <div class="stat"><b>3</b><span>Districts</span></div>
+      <div class="stat"><b data-k="players">&mdash;</b><span>On tonight's board</span></div>
+      <div class="stat"><b data-k="best">&mdash;</b><span>Best score tonight</span></div>
+    </div>
+  </div></section>
+  <div class="ticker" aria-hidden="true"><div>THE CLOCK IS YOUR INFECTION  |  FIND THE DOSES  |  CHECK WHO IS COUGHING  |  KILL THE LIGHT  |  MIND THE RED X  |  REACH THE HELICOPTER  |  THE CLOCK IS YOUR INFECTION  |  FIND THE DOSES  |  CHECK WHO IS COUGHING  |  KILL THE LIGHT  |  MIND THE RED X  |  REACH THE HELICOPTER  |  </div></div>
+  <div class="wrap page">
+    ${me ? `<div class="status" data-k="status"><span class="k">Your night</span><span class="muted">Loading your standing&hellip;</span></div>` : ''}
+    <div class="tiles" style="margin-top:${me ? 18 : 0}px">
+      <a class="tile" href="/play"><span class="ico">${ICON.play}</span><h3>Play</h3><p>Tonight's city &middot; Quick play &middot; Private rooms &middot; Practice</p><span class="go">${ICON.chev}</span></a>
+      <a class="tile" href="/ranks"><span class="ico a">${ICON.trophy}</span><h3>Ranks</h3><p>Tonight &middot; This week &middot; Streaks &middot; Rooms</p><span class="go">${ICON.chev}</span></a>
+      <a class="tile" href="/profile"><span class="ico b">${ICON.user}</span><h3>Profile</h3><p>${me ? 'Your name, your standing, your last nights' : 'Sign in to keep a record'}</p><span class="go">${ICON.chev}</span></a>
+      <a class="tile" href="/how-to-play"><span class="ico g">${ICON.book}</span><h3>How to play</h3><p>The night &middot; The controls &middot; Scoring &middot; Questions</p><span class="go">${ICON.chev}</span></a>
+    </div>
+    <div class="split sec">
+      <div>
+        <div class="kicker">How a night goes</div>
+        <h2 class="ph2">Three districts. One clock.</h2>
+        <p class="sub">Every chapter is a district with jobs to do before the way out opens. Leave one with time to spare and it pays, in cash for the stores ahead.</p>
+        <div class="grid">${DISTRICTS}</div>
+      </div>
+      <div class="panel">
+        <h3>Top of tonight</h3>
+        <ol id="top5"><li class="msg">Loading the board&hellip;</li></ol>
+        <a class="btn ghost sm" href="/ranks">All rankings</a>
+      </div>
+    </div>
+    <div class="sec card" style="display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));align-items:center">
+      <div>
+        <div class="kicker">Multiplayer</div>
+        <h2 class="ph2">Not everyone gets out</h2>
+        <p class="sub" style="margin-bottom:16px">The same streets with up to seven others in them, and one exit with seats for half of you. The server runs the round, so what happens is what happened.</p>
+        <a class="btn red" href="/play">Find a room</a>
+      </div>
+      <img src="/intro/bg-zombie-portrait.webp" alt="" loading="lazy" style="width:100%;border-radius:12px;aspect-ratio:16/10;object-fit:cover;filter:saturate(.8) brightness(.8)" />
+    </div>
+  </div>`;
+  },
+  mount(root) {
+    void board('night').then((b) => {
+      const list = root.querySelector('#top5');
+      if (!list) return;
+      if (!b) { list.innerHTML = '<li class="msg">The board is not reachable right now. You can still play.</li>'; return; }
+      root.querySelector('[data-k=players]')!.textContent = fmt(b.of);
+      root.querySelector('[data-k=best]')!.textContent = b.rows[0] ? fmt(b.rows[0].value) : '—';
+      list.innerHTML = b.rows.length
+        ? b.rows.slice(0, 5).map((r) => `<li><span><i>#${r.rank}</i>${esc(r.name)}</span><span>${fmt(r.value)} pts</span></li>`).join('')
+        : '<li class="msg">Nobody has a score in tonight\'s city yet. Be the first.</li>';
+      const st = root.querySelector('[data-k=status]');
+      if (st) {
+        void board('streak').then((s) => {
+          const n = b.me, k = s?.me;
+          st.innerHTML = `<span class="k">Your night</span>`
+            + (n ? `<span><b>#${n.rank}</b> <span class="muted">of ${fmt(b.of)}</span></span><span><b>${fmt(n.value)}</b> <span class="muted">pts</span></span><span class="tag">${esc(n.title)}</span>`
+              : '<span class="muted">No run in tonight\'s city yet.</span>')
+            + `<span><b>${k ? k.value : 0}</b> <span class="muted">${k?.value === 1 ? 'night' : 'nights'} streak</span></span>`
+            + (n?.toNext ? `<span class="muted">${fmt(n.toNext.gap)} pts to pass ${esc(n.toNext.name)}</span>` : '');
+        });
+      }
+    });
+  },
+};
+
+// ---------------------------------------------------------------- play
+
+const stakingOn = !!(import.meta as unknown as { env: Record<string, string | undefined> }).env.VITE_STAKE_STACKS;
+export const play: Page = {
+  title: 'Play',
+  html: () => `
+  <div class="wrap page">
+    ${head('Choose your night', 'Play', 'Tonight\'s city is the same for everyone and counts for the board. Rooms put you on the streets with others. On a phone, the game turns sideways when it starts.')}
+    ${loading}
+    <div class="modes">
+      <button class="mode hot" type="button" data-play="solo" disabled><span class="ico">${ICON.bio}</span><span class="body"><h3>Tonight's city <span class="tag g">Counts for ranks</span></h3><p>Solo &middot; three districts &middot; the same streets for everyone today</p></span>${ICON.chev}</button>
+      <button class="mode" type="button" data-play="quick" disabled><span class="ico a">${ICON.users}</span><span class="body"><h3>Quick play <span class="tag m">Sign in</span></h3><p>Drop into the next open room with whoever is around &middot; 2 to 8 players</p></span>${ICON.chev}</button>
+      <button class="mode" type="button" data-play="create" disabled><span class="ico p">${ICON.door}</span><span class="body"><h3>Private room <span class="tag m">Sign in</span></h3><p>Make a room, then share its five-letter code or an invite link</p></span>${ICON.chev}</button>
+      <div class="mode" style="cursor:default"><span class="ico b">${ICON.key}</span><span class="body"><h3>Join with a code</h3><p>A friend read out their room's code? Type it here.</p>
+        <form data-join><input name="code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" aria-label="Room code" /><button class="btn sm" type="submit" disabled data-play="join">Join</button></form></span></div>
+      <button class="mode" type="button" data-play="practice" disabled><span class="ico g">${ICON.dice}</span><span class="body"><h3>Practice night <span class="tag m">Not ranked</span></h3><p>A city nobody else has. Learn the streets without it counting.</p></span>${ICON.chev}</button>
+      <button class="mode" type="button" ${stakingOn ? 'data-play="rooms" disabled' : 'disabled'} data-k="staked"><span class="ico a">${ICON.coin}</span><span class="body"><h3>Staked rooms <span class="tag">${stakingOn ? 'USDm &middot; USDT' : 'Coming soon'}</span></h3><p>Everyone stakes the same on a room; those who get out split the pot, less a 1.5% fee. On Celo.</p></span>${ICON.chev}</button>
+    </div>
+    <div class="sec grid">
+      <div class="card"><div class="ph">Guests</div><h3>About three minutes free</h3><p>Play straight away. After a few minutes the game asks you to sign in to carry on: free, with Google, a passkey or a wallet.</p></div>
+      <div class="card"><div class="ph">Sound</div><h3>Turn it up</h3><p>You will hear them before you see them: footsteps, coughs, screamers, engines.</p></div>
+      <div class="card"><div class="ph">Phones</div><h3>Sideways to play</h3><p>The site works upright; the game asks you to turn your phone when it starts. On iPhone, play from the Home Screen for full screen.</p></div>
+    </div>
+  </div>`,
+};
+
+// ---------------------------------------------------------------- ranks
+
+const EMPTY: Record<Kind, string> = {
+  night: 'Nobody has a score in tonight\'s city yet. Be the first: everyone plays the same streets today.',
+  week: 'No scores this week yet.',
+  streak: 'No one has got out of the city two nights running. Yet.',
+  rooms: 'Play three rounds of multiplayer signed in to be listed.',
+};
+export const ranks: Page = {
+  title: 'Ranks',
+  html: () => `
+  <div class="wrap page">
+    ${head('Rankings', 'Leaderboards', 'Every run is replayed on the server before it counts, so the scores here are the ones that really happened. Titles go by where you stand among everyone on the board.')}
+    <div class="seg" role="tablist">${(Object.keys(BOARD_NAMES) as Kind[]).map((k, i) => `<button type="button" role="tab" data-kind="${k}"${i ? '' : ' class="on"'}>${BOARD_NAMES[k]}</button>`).join('')}</div>
+    <div data-k="board"><div class="loading"><i></i>Loading the board&hellip;</div></div>
+  </div>`,
+  mount(root, ctx) {
+    const out = root.querySelector<HTMLElement>('[data-k=board]')!;
+    let kind: Kind = (sessionStorage.getItem('zp.board') as Kind | null) ?? 'night';
+    const show = async () => {
+      root.querySelectorAll<HTMLButtonElement>('[data-kind]').forEach((b) => b.classList.toggle('on', b.dataset.kind === kind));
+      out.innerHTML = '<div class="loading"><i></i>Loading the board&hellip;</div>';
+      const want = kind, b = await board(kind);
+      if (want !== kind) return; // switched while it loaded
+      out.innerHTML = b ? drawBoard(b) : '<p class="muted">The board is not reachable right now.</p>';
+      out.querySelector('[data-signin]')?.addEventListener('click', () => signInThen(ctx.refresh));
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-kind]').forEach((b) => b.addEventListener('click', () => {
+      kind = b.dataset.kind as Kind;
+      try { sessionStorage.setItem('zp.board', kind); } catch { /* fine */ }
+      void show();
+    }));
+    void show();
+  },
+};
+function drawBoard(b: Board): string {
+  const v = (n: number) => `${fmt(n)} ${unitOf(b, n)}`;
+  const me = b.me
+    ? `<div class="mine">You: <b>#${b.me.rank}</b> of ${fmt(b.of)} &middot; <b>${esc(b.me.title)}</b> &middot; ${v(b.me.value)}${b.me.toNext ? ` &middot; ${fmt(b.me.toNext.gap)} to pass ${esc(b.me.toNext.name)}` : ''}</div>`
+    : account() ? '' : '<div class="mine">Sign in and play to see where you stand. <button class="linkish" type="button" data-signin>Sign in</button></div>';
+  if (!b.rows.length) return `${me}<p class="muted">${EMPTY[b.kind]}</p>${rules(b)}`;
+  const top = b.rows.slice(0, 3), order = top.length === 3 ? [top[1]!, top[0]!, top[2]!] : top;
+  const pod = `<div class="podium">${order.map((r) => `<div class="pod${r === top[0] ? ' p1' : ''}"><div class="medal">#${r.rank}</div><span class="n">${esc(r.name)}</span><span class="tag r">${esc(r.title)}</span><div class="v">${v(r.value)}</div></div>`).join('')}</div>`;
+  const myName = account() ? shown(account()!) : null;
+  const rows = `<ol class="rows">${b.rows.map((r) => `<li${r.name === myName ? ' class="me"' : ''}><span class="rk">#${r.rank}</span><span class="n"><b>${esc(r.name)} <span class="tag r">${esc(r.title)}</span></b><span class="d">${esc(detail(b.kind, r.detail))}</span></span><span class="v">${v(r.value)}</span></li>`).join('')}</ol>`;
+  return `${me}${pod}${rows}${rules(b)}`;
+}
+const rules = (b: Board) => (b.rules.length ? `<details class="rules"><summary>How this board is scored</summary><ul>${b.rules.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></details>` : '');
+
+// ---------------------------------------------------------------- profile
+
+export const profile: Page = {
+  title: 'Profile',
+  html: () => {
+    const me = account();
+    if (!me) return `
+  <div class="wrap page">
+    ${head('Your record', 'Profile')}
+    <div class="card" style="max-width:640px">
+      <h3>Sign in to keep a record</h3>
+      <p>Signed in, your best run each night goes on the leaderboard, your streak counts, your last self waits for you where you fell, and multiplayer opens. It is free: Google, a passkey, or a wallet like MiniPay.</p>
+      <p style="margin-top:16px"><button class="btn" type="button" data-signin>Sign in</button></p>
+    </div>
+  </div>`;
+    return `
+  <div class="wrap page">
+    ${head('Your record', 'Profile')}
+    <div class="prof">
+      <div>
+        <div class="pcard">
+          <h2>${esc(shown(me))}</h2>
+          <div class="addr">${esc(me.address)}</div>
+          <div class="muted" data-k="since" style="font-size:13px;margin-top:4px">&nbsp;</div>
+          <form data-k="name"><input name="name" maxlength="20" placeholder="Set a name others see" value="${esc(me.name ?? '')}" aria-label="Name" /><button class="btn sm" type="submit">Save</button></form>
+          <div class="err" data-k="nameerr" style="font-size:14px;min-height:1.2em;margin-top:4px"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn sm" type="button" data-play="solo" disabled>Play tonight</button>
+          <button class="btn ghost sm" type="button" data-k="out">Sign out</button>
+        </div>
+      </div>
+      <div>
+        <div class="kicker">Standing</div>
+        <div class="boxes" data-k="boxes" style="margin:8px 0 26px">${(Object.keys(BOARD_NAMES) as Kind[]).map((k) => `<div class="box" data-box="${k}"><div class="k">${BOARD_NAMES[k]}</div><b>&mdash;</b><small>&nbsp;</small></div>`).join('')}</div>
+        <div class="kicker">Last nights</div>
+        <ul class="runs" data-k="runs" style="margin-top:8px"><li><span class="body muted">Loading&hellip;</span></li></ul>
+      </div>
+    </div>
+  </div>`;
+  },
+  mount(root, ctx) {
+    const me = account();
+    if (!me) return;
+    root.querySelector('[data-k=out]')?.addEventListener('click', () => {
+      if (!confirm(`Sign out ${shown(me)} on this device?`)) return;
+      void import('../net/account').then((m) => { m.signOut(); ctx.refresh(); });
+    });
+    const form = root.querySelector<HTMLFormElement>('[data-k=name]')!;
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = (form.elements.namedItem('name') as HTMLInputElement).value.trim();
+      if (!v) return;
+      void setName(v).then((err) => { if (err) root.querySelector('[data-k=nameerr]')!.textContent = err; else ctx.refresh(); });
+    });
+    for (const k of Object.keys(BOARD_NAMES) as Kind[]) {
+      void board(k).then((b) => {
+        const box = root.querySelector(`[data-box=${k}]`);
+        if (!box || !b) return;
+        box.querySelector('b')!.textContent = b.me ? `#${b.me.rank}` : '—';
+        box.querySelector('small')!.textContent = b.me ? `${b.me.title} · ${fmt(b.me.value)} ${unitOf(b, b.me.value)}` : k === 'rooms' ? 'Three rounds to be listed' : 'Not on it yet';
+      });
+    }
+    void api<Me>('/me').then((m) => {
+      const list = root.querySelector('[data-k=runs]');
+      if (!list) return;
+      if (!m) { list.innerHTML = '<li><span class="body muted">Could not load your nights. Your sign-in may have expired: sign out and in again.</span></li>'; return; }
+      root.querySelector('[data-k=since]')!.textContent = `Joined ${new Date(m.account.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })} · ${m.okRuns} checked ${m.okRuns === 1 ? 'run' : 'runs'}`;
+      list.innerHTML = m.runs.length ? m.runs.map((r) => {
+        const won = r.outcome === 'won';
+        const what = won ? `Got out with ${Math.round(r.secondsLeft)}s left` : `${r.lossReason === 'caught' ? 'Caught' : 'Turned'} in district ${r.chapter + 1}`;
+        return `<li class="${won ? 'won' : ''}"><span class="body"><b>${what}</b> <span class="tag ${won ? 'g' : 'r'}">${won ? 'Escaped' : 'Lost'}</span><small>${r.kills} kills &middot; ${ago(r.createdAt)}</small></span>`
+          + `<span class="v">${r.replayOk ? `${fmt(r.score)} pts<small>&#10003; verified</small>` : '<small style="color:#ff7a6b">not verified</small>'}</span></li>`;
+      }).join('') : '<li><span class="body muted">No nights yet. Play tonight\'s city and it shows up here.</span></li>';
+    });
+  },
+};
+
+// ---------------------------------------------------------------- how to play
+
+export const how: Page = {
+  title: 'How to play',
+  html: () => `
+  <div class="wrap page">
+    ${head('Field manual', 'How to play', 'You were bitten in Port Halden. The quarantine is closing district by district, and one last helicopter leaves tonight from the far side of the city.')}
+    <div class="split">
+      <div class="card"><div class="ph">The goal</div><h3>Get out before you turn</h3>
+        <ol class="steps"><li><b>Do the district's jobs.</b> The yellow arrow and the ring on your map show the next one.</li><li><b>Find the way out.</b> It opens once the required jobs are done: the subway, the barricade gate, the landing zone.</li><li><b>Watch the clock.</b> It is your infection. Bites take time off; antiviral doses put it back.</li></ol></div>
+      <div class="card"><div class="ph">Every day</div><h3>A new city, the same for everyone</h3><p>Tonight's streets, houses and stores are laid out the same for every player, so the board is a fair fight. Practice nights are random and do not count.</p></div>
+    </div>
+    <div class="sec"><div class="kicker">The night</div><h2 class="ph2">Three districts</h2><div class="grid three">${DISTRICTS}</div></div>
+    <div class="sec"><div class="kicker">What is out there</div><h2 class="ph2">The city plays back</h2><div class="grid three">${THREATS}</div></div>
+    <div class="sec">
+      <div class="kicker">Controls</div><h2 class="ph2">Pick it up in a minute</h2>
+      <div class="card only-touch"><div class="ph">On a phone</div><h3>Thumbs</h3><p style="margin-bottom:14px">Drag anywhere on the screen to move. The buttons sit on the right, under your thumb:</p>
+        <div class="pads"><div><span>FIRE</span>Shoot, or swing the baton</div><div><span>USE</span>Search, talk, drive, open (shows up when there is something)</div><div><span>&#8635;</span>Reload</div><div><span>SWAP</span>Change weapon</div><div><span>THROW</span>A bottle, to pull them away</div><div><span>LIGHT</span>Your flashlight on or off</div></div>
+        <p style="margin-top:14px">Tap the minimap for the full city map. <button class="linkish" type="button" data-toggle="show-keys">Show keyboard controls</button></p></div>
+      <div class="card only-keys"><div class="ph">On a keyboard</div><h3>Keys</h3>
+        <div class="keys"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>Move</span><span><kbd>Space</kbd></span><span>Fire</span><span><kbd>E</kbd></span><span>Use: search, talk, drive, open</span>
+          <span><kbd>R</kbd></span><span>Reload</span><span><kbd>Q</kbd></span><span>Swap weapon</span><span><kbd>F</kbd></span><span>Flashlight</span><span><kbd>G</kbd></span><span>Throw a bottle</span><span><kbd>M</kbd></span><span>Full map</span></div>
+        <p style="margin-top:14px">The mouse is not needed. <button class="linkish" type="button" data-toggle="show-touch">Show phone controls</button></p></div>
+    </div>
+    <div class="sec split">
+      <div><div class="kicker">Scoring</div><h2 class="ph2">What counts</h2><ul class="steps" data-k="rules"><li class="muted">Loading the rules&hellip;</li></ul></div>
+      <div class="card"><div class="ph">Multiplayer</div><h3>Rooms</h3><p>2 to 8 players on the same streets, one exit with seats for half of you. Quick play finds an open room; a private room is joined by its code or an invite link. Rooms need a sign-in, and three rounds put you on the rooms board.</p></div>
+    </div>
+    <div class="sec faq"><div class="kicker">Questions</div><h2 class="ph2">Before you ask</h2>
+      <details><summary>Do I need a wallet?</summary><p>No. Sign in with Google or a passkey, and a wallet is made for you. MiniPay and other wallet browsers can sign in with the wallet they already have.</p></details>
+      <details><summary>Is it free?</summary><p>Yes. Guests get about three minutes before the game asks for a (free) sign-in. Staked rooms, when they open, are the only part that uses money, and they are optional.</p></details>
+      <details><summary>Why do I have to turn my phone?</summary><p>The streets need the width, and the controls need both thumbs. The site itself works upright; only the game asks you to turn.</p></details>
+      <details><summary>How do I get full screen on iPhone?</summary><p>Safari will not let a web page hide its bars. Tap Share, then Add to Home Screen, and play from the new icon: it opens full screen.</p></details>
+      <details><summary>Can someone fake a score?</summary><p>Every run is sent as the inputs that made it, and the server plays it again before it counts. A run that does not replay to the same result is not on the board.</p></details>
+      <details><summary>Where is my progress kept?</summary><p>Signed in, on the server: your runs, your standing and your last self. As a guest, only on this device.</p></details>
+    </div>
+  </div>`,
+  mount(root) {
+    root.querySelectorAll<HTMLButtonElement>('[data-toggle]').forEach((b) => b.addEventListener('click', () => document.documentElement.classList.toggle(b.dataset.toggle!)));
+    void board('night').then((b) => {
+      const ul = root.querySelector('[data-k=rules]');
+      if (ul) ul.innerHTML = b?.rules.length ? b.rules.map((r) => `<li>${esc(r)}</li>`).join('') : '<li>Clearing districts, getting out and the time you have left count most; kills, people helped and a clean run add to it; bites and doses cost a little. Only your best run of the night counts.</li>';
+    });
+  },
+};
+
+// ---------------------------------------------------------------- admin
+
+export const admin: Page = {
+  title: 'Admin',
+  html: () => `<div class="wrap page">${head('Operations', 'Admin', `Server, players, live rooms, stake contracts and settlements.${account() ? '' : ' Sign in with an admin wallet.'}`)}<div data-k="admin"></div></div>`,
+  mount(root, ctx) { ctx.admin(root.querySelector('[data-k=admin]')!); },
+};
+
+export const notFound: Page = {
+  title: 'Not found',
+  html: () => `<div class="wrap page">${head('404', 'Nothing here', 'Whatever was on this street is gone.')}<a class="btn" href="/">Back home</a></div>`,
+};
+

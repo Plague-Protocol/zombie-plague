@@ -1,4 +1,4 @@
-// The operator's page (open the game with ?admin). Like plague-celo's /admin: server health, players, live rooms,
+// The operator's page (/admin on the site, listed in the nav for admins). Like plague-celo's /admin: server health, players, live rooms,
 // the stake contracts (gas, fees, paused), settlements, and the accounts whose replays fail. Who may see it is
 // decided by the server (a signed-in wallet in ADMIN_ADDRESSES, or one holding a contract's admin role). Pausing a
 // contract and taking the fees out are sent from the admin's own wallet straight to the contracts.
@@ -33,6 +33,8 @@ const CSS = `
 #admin button:disabled { opacity: .4; }
 #admin .wide { grid-column: 1 / -1; }
 #admin .msg { margin: 8px 0; color: #f2b630; min-height: 1.2em; }
+#admin.inpage > h1 { display: none; }
+#admin.inpage { position: static; inset: auto; z-index: auto; overflow: visible; background: transparent; padding: 0; }
 `;
 
 const el = (tag: string, text = '', cls = '') => { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; };
@@ -43,10 +45,12 @@ const units = (wei: string | undefined, decimals: number) => {
 };
 const ago = (s: number) => (s < 120 ? `${s}s` : s < 7200 ? `${Math.round(s / 60)}m` : s < 172800 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`);
 
-export function openAdmin(): void {
+/** The admin page, inside `parent` (a site page), or over everything. */
+export function openAdmin(parent?: HTMLElement): void {
   if (!document.getElementById('admin-css')) { const st = el('style'); st.id = 'admin-css'; st.textContent = CSS; document.head.appendChild(st); }
   const root = el('div'); root.id = 'admin';
-  document.body.appendChild(root);
+  if (parent) root.className = 'inpage';
+  (parent ?? document.body).appendChild(root);
   let msg = '';
   let decimals: Record<string, number> = {};
   void import('./stake').then((m) => { decimals = Object.fromEntries(m.stakeConfigs().map((c) => [c.symbol, c.decimals])); });
@@ -79,7 +83,7 @@ export function openAdmin(): void {
     const top = el('div');
     const refresh = el('button', 'Refresh', 'ghost'); refresh.onclick = () => void draw();
     const back = el('button', 'Close', 'ghost'); back.onclick = () => root.remove();
-    top.append(refresh, back, el('div', msg, 'msg'));
+    top.append(refresh, ...(parent ? [] : [back]), el('div', msg, 'msg'));
     root.append(top);
     const grid = el('div', '', 'grid');
     root.append(grid);

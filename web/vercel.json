@@ -24,5 +24,11 @@
         }
       ]
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/(play|ranks|profile|how-to-play|admin)",
+      "destination": "/index.html"
+    }
   ]
 }

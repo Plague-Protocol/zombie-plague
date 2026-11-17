@@ -105,7 +105,7 @@ const ERRORS: Record<string, string> = {
 const RETRY = new Set(['not-staked', 'no-room', 'no-chain']);
 
 /** The lobby: choose a name, make or join a room, wait for the others, go. Resolves when the round begins. */
-export function openLobby(host: Host, opts: { join?: string; staked?: string } = {}): void {
+export function openLobby(host: Host, opts: { join?: string; staked?: string; act?: 'quick' | 'create' } = {}): void {
   if (!document.getElementById('mp-css')) document.head.appendChild(el('style', { id: 'mp-css' }, CSS));
   const root = el('div', { id: 'mp' });
   document.body.appendChild(root);
@@ -295,7 +295,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string } =
     }
     root.append(el('div', { class: 'err' }, err));
     const back = el('button', { class: 'ghost' }, 'Back');
-    back.onclick = () => { ws?.close(); root.remove(); document.getElementById('title')!.style.display = ''; };
+    back.onclick = () => { ws?.close(); root.remove(); };
     if (!roomInfo) root.append(back);
   }
   let linkShown: string | null = null;
@@ -319,6 +319,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string } =
 
   draw();
   if (invite && me) connect(() => send({ t: 'join', code: invite }));
+  else if (me && opts.act) { const t = opts.act; connect(() => send({ t })); } // the site's Quick play / Private room
 }
 
 // ---------------------------------------------------------------- the round
