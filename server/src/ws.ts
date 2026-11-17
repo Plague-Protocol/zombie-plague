@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { Auth } from './auth.ts';
 import { Limiter } from './limiter.ts';
 import type { Conn, Hub, Room } from './rooms.ts';
-import type { ServerMsg } from '../../src/net/protocol.ts';
+import type { ServerMsg } from '../../core/protocol.ts';
 import type { Store } from './store.ts';
 import type { Staked } from './staked.ts';
 

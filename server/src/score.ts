@@ -1,7 +1,7 @@
 // A night's score, from what the server's own replay counted. Built to reward getting further first, then doing it
 // well, and to be hard to farm: kills are capped, time left only counts on a night you survived, and every bite, dose
 // and person you let turn costs you. The numbers are published on the leaderboard page so players can see why.
-import type { RunStats } from '../../src/core/replay.ts';
+import type { RunStats } from '../../core/replay.ts';
 
 export const SCORE = {
   perChapter: 1000, // each district cleared

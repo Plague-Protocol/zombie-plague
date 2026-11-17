@@ -13,3 +13,6 @@ docs/private/
 contracts/out/
 contracts/cache/
 contracts/broadcast/
+
+# Vite and vitest caches
+.vite/

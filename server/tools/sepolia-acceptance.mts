@@ -60,7 +60,7 @@ async function round(name: string, winnersAt: number[]) {
   assert(before.every((b) => b === STAKE), 'each player is down exactly one stake, held by escrow');
 
   // the server's half
-  ContentRegistry.fromDir(new URL('../../public/content', import.meta.url).pathname);
+  ContentRegistry.fromDir(new URL('../../web/public/content', import.meta.url).pathname);
   const store = new MemoryStore();
   let staked!: Staked;
   const rounds: RoundResult[] = [];

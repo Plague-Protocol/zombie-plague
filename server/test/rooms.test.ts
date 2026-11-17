@@ -2,13 +2,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Hub, AUTO_START_AT, AUTO_START_SECONDS, type Conn, type RoundResult } from '../src/rooms.ts';
 import { ContentRegistry } from '../src/content.ts';
-import { replayRoom, hashState, type RoomLog } from '../../src/core/replay.ts';
+import { replayRoom, hashState, type RoomLog } from '../../core/replay.ts';
 import { gunzipSync } from 'node:zlib';
 import { CONTENT_DIR } from './helpers.ts';
-import type { ServerMsg } from '../../src/net/protocol.ts';
-import { RECONNECT_SECONDS } from '../../src/net/protocol.ts';
-import { makeDecoder } from '../../src/net/codec.ts';
-import { ROOM_PLAYERS_MAX } from '../../src/core/config.ts';
+import type { ServerMsg } from '../../core/protocol.ts';
+import { RECONNECT_SECONDS } from '../../core/protocol.ts';
+import { makeDecoder } from '../../core/codec.ts';
+import { ROOM_PLAYERS_MAX } from '../../core/config.ts';
 
 /** A clock and timers the test drives by hand. */
 function clock() {

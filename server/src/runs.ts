@@ -1,10 +1,10 @@
 // A run is a claim ("I won night 7 with 41 seconds left"); the replay is the proof. The server believes the
 // claim only if replaying the log through the same rules ends where the claim says.
 import { gzipSync } from 'node:zlib';
-import { replayChapters, type ChapterEnd, type NightLog, type RunStats } from '../../src/core/replay.ts';
+import { replayChapters, type ChapterEnd, type NightLog, type RunStats } from '../../core/replay.ts';
 import { scoreRun, type Scored } from './score.ts';
-import { hashState } from '../../src/core/replay.ts';
-import type { Husk, LossReason, WeaponKind } from '../../src/core/types.ts';
+import { hashState } from '../../core/replay.ts';
+import type { Husk, LossReason, WeaponKind } from '../../core/types.ts';
 import type { ContentRegistry } from './content.ts';
 import type { RunRecord, Store } from './store.ts';
 

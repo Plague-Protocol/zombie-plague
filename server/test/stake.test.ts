@@ -2,7 +2,7 @@
 // send a real transaction to the wrong function, so every one is checked against the contract's actual ABI.
 import { describe, expect, it } from 'vitest';
 import { encodeEventTopics, parseAbi, toFunctionSelector } from 'viem';
-import { formatAmount, parseAmount, ROOM_CREATED, SEL } from '../../src/net/stake.ts';
+import { formatAmount, parseAmount, ROOM_CREATED, SEL } from '../../web/src/net/stake.ts';
 
 const abi = parseAbi([
   'function createRoom(uint8 maxPlayers, uint96 stake, uint40 expirySecs) returns (uint256)',

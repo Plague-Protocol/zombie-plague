@@ -2,13 +2,13 @@
 // may know. Players send inputs; the rules (the same ones the browser runs) do the rest.
 import { randomInt } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { command, hashState, quantize, RoomRecorder, type Command, type RoomLog } from '../../src/core/replay.ts';
-import { createRoom, step, type GameState } from '../../src/core/state.ts';
-import { ROOM_PLAYERS_MAX } from '../../src/core/config.ts';
-import { viewFor } from '../../src/core/view.ts';
-import { makeEncoder, type WireSnap } from '../../src/net/codec.ts';
-import { RECONNECT_SECONDS, ROOM_DT, SNAPSHOT_EVERY, type SeatInfo, type ServerMsg } from '../../src/net/protocol.ts';
-import type { Input } from '../../src/core/types.ts';
+import { command, hashState, quantize, RoomRecorder, type Command, type RoomLog } from '../../core/replay.ts';
+import { createRoom, step, type GameState } from '../../core/state.ts';
+import { ROOM_PLAYERS_MAX } from '../../core/config.ts';
+import { viewFor } from '../../core/view.ts';
+import { makeEncoder, type WireSnap } from '../../core/codec.ts';
+import { RECONNECT_SECONDS, ROOM_DT, SNAPSHOT_EVERY, type SeatInfo, type ServerMsg } from '../../core/protocol.ts';
+import type { Input } from '../../core/types.ts';
 
 export const MAX_ROOMS = 40;
 export const AUTO_START_AT = 4; // seats filled before the countdown starts

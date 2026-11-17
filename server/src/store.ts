@@ -1,7 +1,7 @@
 // Where accounts, runs and last selves are kept. One interface, two implementations: memory (development,
 // tests) and Postgres. Nothing else in the server knows which.
 import pg from 'pg';
-import type { RunStats } from '../../src/core/replay.ts';
+import type { RunStats } from '../../core/replay.ts';
 
 export interface Account {
   id: string;

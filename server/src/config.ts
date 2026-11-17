@@ -5,7 +5,7 @@ const schema = z.object({
   ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
   DATABASE_URL: z.string().optional().transform((v) => v || undefined),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
-  CONTENT_DIR: z.string().default('../public/content'),
+  CONTENT_DIR: z.string().default('../web/public/content'),
   CELO_RPC: z.string().optional().transform((v) => v || undefined),
   CHAIN_ID: z.coerce.number().int().default(42220),
   // Staked rooms. Off unless STAKED=true; needs the rooms proxy, an RPC and the backend (settle) key.

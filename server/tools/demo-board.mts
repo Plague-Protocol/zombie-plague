@@ -4,7 +4,7 @@ import { ContentRegistry, nightOf } from '../src/content.ts';
 import { buildApp } from '../src/http.ts';
 import { MemoryStore } from '../src/store.ts';
 const store = new MemoryStore();
-const content = ContentRegistry.fromDir(new URL('../../public/content', import.meta.url).pathname);
+const content = ContentRegistry.fromDir(new URL('../../web/public/content', import.meta.url).pathname);
 const app = await buildApp({ store, auth: new Auth('a-demo-secret-that-is-at-least-32-characters', makeSignatureChecker()), content, origins: ['http://localhost:4179'] });
 const names = ['Ada', 'Kofi', 'Mira', 'Tunde', 'Lena', 'Sam', 'Ife', 'Chen', null, 'Zara', 'Ola', null];
 const today = new Date();

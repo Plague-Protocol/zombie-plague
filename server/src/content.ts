@@ -3,7 +3,7 @@
 // content, so the swap is always undone (and never held across an await).
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { setContent, type Content } from '../../src/core/content.ts';
+import { setContent, type Content } from '../../core/content.ts';
 
 export class ContentRegistry {
   private byVersion = new Map<number, Content>();

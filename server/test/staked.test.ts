@@ -6,7 +6,7 @@ import { ContentRegistry } from '../src/content.ts';
 import { eligible, Staked } from '../src/staked.ts';
 import { MemoryStore } from '../src/store.ts';
 import type { Chain, ChainRoom } from '../src/chain.ts';
-import type { ServerMsg } from '../../src/net/protocol.ts';
+import type { ServerMsg } from '../../core/protocol.ts';
 import { CONTENT_DIR } from './helpers.ts';
 
 const A = '0x' + 'a'.repeat(40), B = '0x' + 'b'.repeat(40), C = '0x' + 'c'.repeat(40), D = '0x' + 'd'.repeat(40);

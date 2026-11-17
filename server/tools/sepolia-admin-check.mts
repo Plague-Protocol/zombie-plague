@@ -1,9 +1,9 @@
-// The admin page's wallet acts (src/net/stake.ts adminTx) against a real contract, with a stand-in wallet holding the
+// The admin page's wallet acts (web/src/net/stake.ts adminTx) against a real contract, with a stand-in wallet holding the
 // admin key: pause, unpause, take the fees. Use the TEST stack only.
 //   RPC=... PROXY=0x... ADMIN_KEY=0x... npx tsx tools/sepolia-admin-check.mts
 import { createPublicClient, createWalletClient, http, parseAbi, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { adminTx } from '../../src/net/stake.ts';
+import { adminTx } from '../../web/src/net/stake.ts';
 const env = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`set ${k}`); return v; };
 const RPC = env('RPC'), PROXY = env('PROXY') as Hex, KEY = env('ADMIN_KEY') as Hex;
 const chain = { id: 11142220, name: 'celo-sepolia', nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 }, rpcUrls: { default: { http: [RPC] } } } as const;

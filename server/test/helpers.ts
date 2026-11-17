@@ -4,11 +4,11 @@ import { Auth, makeSignatureChecker, signInMessage } from '../src/auth.ts';
 import { ContentRegistry } from '../src/content.ts';
 import { buildApp } from '../src/http.ts';
 import { MemoryStore } from '../src/store.ts';
-import { createGame, step } from '../../src/core/state.ts';
-import { quantize, Recorder, STEP, type NightLog } from '../../src/core/replay.ts';
+import { createGame, step } from '../../core/state.ts';
+import { quantize, Recorder, STEP, type NightLog } from '../../core/replay.ts';
 import type { Claim } from '../src/runs.ts';
 
-export const CONTENT_DIR = fileURLToPath(new URL('../../public/content', import.meta.url));
+export const CONTENT_DIR = fileURLToPath(new URL('../../web/public/content', import.meta.url));
 export const SECRET = 'a-test-secret-that-is-at-least-32-characters-long';
 
 export async function makeServer(extra: { now?: () => Date } = {}) {

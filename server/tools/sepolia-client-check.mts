@@ -1,4 +1,4 @@
-// The page's own staking code (src/net/stake.ts) against the real contracts, with a stand-in wallet that signs with a
+// The page's own staking code (web/src/net/stake.ts) against the real contracts, with a stand-in wallet that signs with a
 // test key: proves the calldata the browser builds really creates, joins and starts a room, and that the server then
 // seats the same wallets from the chain. Needs a stack with a MINTABLE token (see sepolia-acceptance.mts).
 //
@@ -10,7 +10,7 @@ import { ViemChain } from '../src/chain.ts';
 import { Hub } from '../src/rooms.ts';
 import { Staked } from '../src/staked.ts';
 import { MemoryStore } from '../src/store.ts';
-import { createStaked, joinStaked, parseAmount, readRoom, startStaked, leaveStaked, cancelStaked, type StakeConfig } from '../../src/net/stake.ts';
+import { createStaked, joinStaked, parseAmount, readRoom, startStaked, leaveStaked, cancelStaked, type StakeConfig } from '../../web/src/net/stake.ts';
 
 const env = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`set ${k}`); return v; };
 const SYM = process.env.SYM ?? 'USDm';
@@ -66,7 +66,7 @@ for (let i = 0; i < 15 && r.players.length < 2; i++) { await sleep(1000); r = aw
 assert(r.players.length === 2, 'the second wallet staked the amount the ROOM asks (read from the chain), not one it typed');
 
 console.log('\n== the server seats both from the chain, the host starts it on chain, the server plays it');
-ContentRegistry.fromDir(new URL('../../public/content', import.meta.url).pathname);
+ContentRegistry.fromDir(new URL('../../web/public/content', import.meta.url).pathname);
 const store = new MemoryStore();
 const hub = new Hub({ contentVersion: () => 1 });
 const staked = new Staked({ chains: { [SYM]: new ViemChain({ rpc: RPC, chainId: 11142220, rooms: PROXY, key: KEY }) }, store, hub, minAgeMs: 0, minOkRuns: 0, log: () => {} });

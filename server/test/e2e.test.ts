@@ -7,12 +7,12 @@ import WebSocket from 'ws';
 import { Hub, type RoundResult } from '../src/rooms.ts';
 import { attachWs, MAX_FRAME_BYTES } from '../src/ws.ts';
 import { makeServer, wallet, type Server } from './helpers.ts';
-import { replayRoom, hashState, type RoomLog } from '../../src/core/replay.ts';
-import { viewFor } from '../../src/core/view.ts';
-import { ROOM_DT, type ClientMsg, type ServerMsg } from '../../src/net/protocol.ts';
-import { makeDecoder } from '../../src/net/codec.ts';
-import type { PlayerView } from '../../src/core/view.ts';
-import type { GameState } from '../../src/core/state.ts';
+import { replayRoom, hashState, type RoomLog } from '../../core/replay.ts';
+import { viewFor } from '../../core/view.ts';
+import { ROOM_DT, type ClientMsg, type ServerMsg } from '../../core/protocol.ts';
+import { makeDecoder } from '../../core/codec.ts';
+import type { PlayerView } from '../../core/view.ts';
+import type { GameState } from '../../core/state.ts';
 
 /** A clock that only moves when the next timer is due, one timer per turn of the event loop. */
 function virtualTime() {

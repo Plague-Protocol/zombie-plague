@@ -1,19 +1,18 @@
-# Build from the repository root (the server imports the game's rules from ../src/core):
+# Build from the repository root (the server imports the game's rules from ../core):
 #   docker build -f server/Dockerfile -t outbreak-server .
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY server/package.json server/package-lock.json server/.npmrc server/
 RUN cd server && npm ci
 COPY server server
-COPY src/core src/core
-COPY src/net/protocol.ts src/net/codec.ts src/net/
-COPY public/content public/content
+COPY core core
+COPY web/public/content web/public/content
 RUN cd server && npm run build
 
 FROM node:22-alpine
 WORKDIR /app
 COPY --from=build /app/server/dist/server.mjs ./server.mjs
-COPY public/content ./content
+COPY web/public/content ./content
 ENV CONTENT_DIR=/app/content PORT=8787 NODE_ENV=production
 USER node
 EXPOSE 8787
