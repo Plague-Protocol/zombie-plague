@@ -1,0 +1,8 @@
+# The server
+node_modules/
+dist/
+# Its settings hold the settle key and the JWT secret: only the template is kept
+.env
+.env.*
+!.env.example
+.DS_Store

@@ -1,0 +1,10 @@
+# The game page
+node_modules/
+dist/
+.vite/
+.vercel
+# Build-time settings: .env.example is the template, the rest are local
+.env
+.env.*
+!.env.example
+.DS_Store

@@ -1,0 +1,9 @@
+# Foundry build output
+out/
+cache/
+broadcast/
+# The deployer key lives here locally: never committed
+.env
+.env.*
+!.env.example
+.DS_Store

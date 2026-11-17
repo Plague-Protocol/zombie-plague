@@ -1,18 +1,9 @@
-node_modules/
-dist/
+# Repository-wide. Each part (web/, server/, contracts/) has its own .gitignore for what it builds and keeps locally.
+.DS_Store
+.vercel
+# Local-only drafts (candid assessments; never commit)
+docs/private/
+# A second line of defence for secrets anywhere in the tree
 .env
 .env.*
 !.env.example
-.DS_Store
-
-# Local-only drafts (candid assessments; never commit)
-docs/private/
-.vercel
-
-# Foundry build output
-contracts/out/
-contracts/cache/
-contracts/broadcast/
-
-# Vite and vitest caches
-.vite/
