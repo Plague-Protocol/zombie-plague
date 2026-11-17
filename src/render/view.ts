@@ -7,7 +7,7 @@ import { Actor, type CharacterAssets, type ClipName } from './characters';
 import { Crowd, MUT, type CrowdClip } from './crowd';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
-import { ArmyGate, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
+import { ArmyGate, bandageMesh, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
 import { currentTask, escortGroup, finalChapter, gunStats, infection, isGun, isRevealed, lightOn, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
 import { ATTACK_WINDUP, COUGH_NOISE, LASH_REACH, MELEE, PLAYER_HEALTH, SAFEHOUSE_RADIUS, SCREAM_WINDUP, TASK_RADIUS } from '../core/config';
 import { plagueDressing, Spores, Tentacles, Waves } from './plague';
@@ -15,6 +15,8 @@ import type { GameEvent, Task, TaskId, Vec2, WeaponKind, Zombie } from '../core/
 import { chapterInfo, stepDef } from '../core/content';
 
 const params = new URLSearchParams(location.search);
+/** How close (units) one of the infected must be to show through a building. */
+const XRAY_NEAR = 8;
 const VIEW_SPAN = Number(params.get('zoom')) || 24; // world units visible across the narrower screen axis
 const FOV = 32;
 const ELEVATION = (52 * Math.PI) / 180; // camera pitch: steeper than isometric so streets read
@@ -45,7 +47,7 @@ function blobTexture(): CanvasTexture {
 
 export class GameView {
   readonly renderer: WebGLRenderer;
-  private scene = new Scene();
+  readonly scene = new Scene();
   private camera = new PerspectiveCamera(FOV, 1, 1, 600);
   private city: CityMeshes | null = null;
   private lightSources: LightSource[] = [];
@@ -137,7 +139,7 @@ export class GameView {
   /** 0 = wide establishing shot, 1 = gameplay camera. Driven by the intro. */
   cinematic = 1;
 
-  constructor(private container: HTMLElement, private assets: CharacterAssets) {
+  constructor(private container: HTMLElement, readonly assets: CharacterAssets) {
     this.renderer = new WebGLRenderer({ antialias: false, stencil: true, powerPreference: 'high-performance' });
     this.setQuality(0);
     this.renderer.setClearColor(FOG);
@@ -161,8 +163,7 @@ export class GameView {
     this.player.root.rotation.order = 'YXZ'; // so he can lean and roll about his own axes (a cough, a limp)
     // Sam shows it: his own skin (it loses its colour as the infection climbs) and the bandage over the bite
     this.playerMat = this.player.ownMaterial();
-    const wrap = new MeshBuilder().box(0, 0, 0, 0.3, 0.34, 0.3, 0xd6d1c2).box(0.02, 0.02, 0.1, 0.2, 0.2, 0.12, 0x6e1410).box(0, 0.19, 0, 0.32, 0.05, 0.32, 0xbdb7a6);
-    this.player.bind('LeftForeArm', 'LeftHand', new Mesh(wrap.build(), new MeshLambertMaterial({ vertexColors: true })), 0.5);
+    this.player.bind('LeftForeArm', 'LeftHand', bandageMesh(0.084, 0.24), 0.78); // between the cuff and the wrist (the paddle below it is the hand)
     this.scene.add(this.spores.points, this.waves.mesh, this.tentacles.mesh);
     this.crowd = new Crowd(assets);
     this.scene.add(this.crowd.group);
@@ -561,6 +562,12 @@ export class GameView {
     return out;
   }
 
+  /** Where a point on the ground is on screen, in CSS pixels (null if it is behind the camera). */
+  projectPx(p: Vec2, height = 0): { x: number; y: number } | null {
+    const v = new Vector3(p.x, height, p.y).project(this.camera);
+    return v.z < 1 ? { x: (v.x * 0.5 + 0.5) * this.size.w, y: (-v.y * 0.5 + 0.5) * this.size.h } : null;
+  }
+
   private screenPoint(p: Vec2): Vector3 {
     return new Vector3(p.x, 0, p.y).project(this.camera);
   }
@@ -890,7 +897,9 @@ export class GameView {
             : z.kind === 'crawler' ? { mut: MUT.legs + (z.id % 3 === 0 ? MUT.leftArm : 0) }
               : z.kind === 'lasher' ? { mut: MUT.head, tint: 0xc08890, wide: 1.12, tall: 1.04 }
                 : z.kind === 'walker' && z.id % 6 === 0 ? { mut: z.id % 4 === 0 ? MUT.leftArm : MUT.rightArm } : null;
-        this.crowd.draw(z.id, z.pos.x, z.pos.y, z.heading, clip, dt, look ? { ...o, ...look } : o);
+        // close to you and behind a building: its silhouette shows through, as yours does (not the street beyond)
+        const close = z.action !== 'dead' && Math.hypot(z.pos.x - s.player.pos.x, z.pos.y - s.player.pos.y) < XRAY_NEAR;
+        this.crowd.draw(z.id, z.pos.x, z.pos.y, z.heading, clip, dt, { ...o, ...look, near: close });
         if (z.kind === 'lasher' && z.action !== 'dead') this.lash(z);
       }
       if (z.action !== 'dead' && z.action !== 'dormant') shadowAt(z.pos.x, z.pos.y);

@@ -11,8 +11,8 @@
 // leaves a raw stump. So half a body dragging itself along, a missing arm and no head at all are the same
 // mesh as everyone else.
 import {
-  AnimationMixer, BufferAttribute, Color, DataTexture, FloatType, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, type Material,
-  MeshLambertMaterial, Quaternion, RGBAFormat, type SkinnedMesh, Vector3, Vector4,
+  AnimationMixer, BufferAttribute, Color, DataTexture, EqualStencilFunc, FloatType, GreaterDepth, Group, InstancedBufferAttribute, InstancedMesh, KeepStencilOp,
+  Matrix4, type Material, MeshBasicMaterial, MeshLambertMaterial, Quaternion, RGBAFormat, type SkinnedMesh, Vector3, Vector4,
 } from 'three';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { CharacterAssets, ClipName } from './characters';
@@ -40,6 +40,14 @@ export class Crowd {
   private meshes: InstancedMesh[] = [];
   private rows: InstancedBufferAttribute[] = [];
   private muts: InstancedBufferAttribute[] = [];
+  /** Per instance: 1 if it is close enough to the player to show through a building (see `xrays`). */
+  private nears: InstancedBufferAttribute[] = [];
+  /**
+   * Their red silhouettes through buildings: the same instances again, drawn only where a building is in front
+   * (the stencil the city writes, as for the player's own blue one) and only for the ones close to the player.
+   * Something about to bite you behind a wall is shown; the street beyond it is not.
+   */
+  private xrays: InstancedMesh[] = [];
   private counts = [0, 0];
   private baked = new Map<CrowdClip, Baked>();
   private tracks = new Map<number, Track>();
@@ -98,9 +106,13 @@ export class Crowd {
       return new Vector4(at.x, at.y, at.z, i);
     });
 
-    for (const skin of ['zombieMaleA', 'zombieFemaleA'] as const) {
-      const mat = new MeshLambertMaterial({ map: (assets.materials[skin] as MeshLambertMaterial).map });
-      mat.onBeforeCompile = (shader) => {
+    /**
+     * Pose each instance on the graphics chip from the baked bone texture, and pull lost parts in to their stump.
+     * The silhouette (`xray`) draws the same pose, flat and only for instances flagged near: the rest are put
+     * outside the screen before a single pixel of them is drawn.
+     */
+    const patch = (m: MeshLambertMaterial | MeshBasicMaterial, xray: boolean) => {
+      m.onBeforeCompile = (shader) => {
         shader.uniforms.boneTex = { value: tex };
         shader.uniforms.joints = { value: joints };
         shader.vertexShader = shader.vertexShader
@@ -110,17 +122,19 @@ attribute vec4 skinWeight;
 attribute float animRow;
 attribute vec4 part;
 attribute float mut;
+attribute float near;
 uniform vec4 joints[4];
 varying float vStump;
 uniform highp sampler2D boneTex;
 mat4 crowdBone(float b) {
   ivec2 p = ivec2(int(b) * 4, int(animRow));
   return mat4(texelFetch(boneTex, p, 0), texelFetch(boneTex, p + ivec2(1, 0), 0), texelFetch(boneTex, p + ivec2(2, 0), 0), texelFetch(boneTex, p + ivec2(3, 0), 0));
+}
+mat4 crowdSkin() {
+  return skinWeight.x * crowdBone(skinIndex.x) + skinWeight.y * crowdBone(skinIndex.y) + skinWeight.z * crowdBone(skinIndex.z) + skinWeight.w * crowdBone(skinIndex.w);
 }`)
-          .replace('#include <beginnormal_vertex>', `mat4 skinM = skinWeight.x * crowdBone(skinIndex.x) + skinWeight.y * crowdBone(skinIndex.y)
-  + skinWeight.z * crowdBone(skinIndex.z) + skinWeight.w * crowdBone(skinIndex.w);
-vec3 objectNormal = normalize(mat3(skinM) * normal);`)
-          .replace('#include <begin_vertex>', `vec3 transformed = (skinM * vec4(position, 1.0)).xyz;
+          .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = normalize(mat3(crowdSkin()) * normal);')
+          .replace('#include <begin_vertex>', `vec3 transformed = (crowdSkin() * vec4(position, 1.0)).xyz;
 vStump = 0.0;
 float bits = mut;
 for (int k = 3; k >= 0; k--) {
@@ -131,18 +145,35 @@ for (int k = 3; k >= 0; k--) {
     if (w > 0.4) { transformed = (crowdBone(joints[k].w) * vec4(joints[k].xyz, 1.0)).xyz; vStump = 1.0; }
     else vStump = max(vStump, w * 2.0);
   }
-}`);
-        shader.fragmentShader = shader.fragmentShader
-          .replace('#include <common>', '#include <common>\nvarying float vStump;')
-          .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.015, 0.02), clamp(vStump, 0.0, 1.0));');
+}`)
+          .replace('#include <project_vertex>', xray ? '#include <project_vertex>\nif (near < 0.5) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);' : '#include <project_vertex>');
+        if (!xray) {
+          shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', '#include <common>\nvarying float vStump;')
+            .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.015, 0.02), clamp(vStump, 0.0, 1.0));');
+        }
       };
+    };
+    // one silhouette material for both skins: dull blood red, only where the city drew a building (stencil 1), behind it
+    const xrayMat = new MeshBasicMaterial({
+      color: 0xb3261e, depthFunc: GreaterDepth, depthWrite: false, transparent: true, opacity: 0.42,
+      stencilWrite: true, stencilRef: 1, stencilFunc: EqualStencilFunc, stencilFail: KeepStencilOp, stencilZFail: KeepStencilOp, stencilZPass: KeepStencilOp,
+    });
+    patch(xrayMat, true);
+
+    for (const skin of ['zombieMaleA', 'zombieFemaleA'] as const) {
+      const mat = new MeshLambertMaterial({ map: (assets.materials[skin] as MeshLambertMaterial).map });
+      patch(mat, false);
       const geo = sm.geometry.clone();
       const row = new InstancedBufferAttribute(new Float32Array(max), 1);
       geo.setAttribute('animRow', row);
       geo.setAttribute('part', new BufferAttribute(part, 4));
       const mut = new InstancedBufferAttribute(new Float32Array(max), 1);
       geo.setAttribute('mut', mut);
+      const near = new InstancedBufferAttribute(new Float32Array(max), 1);
+      geo.setAttribute('near', near);
       this.muts.push(mut);
+      this.nears.push(near);
       const im = new InstancedMesh(geo, mat as Material, max);
       im.frustumCulled = false; // spread over the street: the bounds of one would cull the rest
       im.setColorAt(0, this.tint.setHex(0xffffff)); // a colour each, so a kind can be told apart (pallid, or nearly black)
@@ -150,6 +181,14 @@ for (int k = 3; k >= 0; k--) {
       this.meshes.push(im);
       this.rows.push(row);
       this.group.add(im);
+      // the same instances (same geometry and matrices, so no extra upload), drawn as a silhouette after the city
+      const x = new InstancedMesh(geo, xrayMat as Material, max);
+      x.instanceMatrix = im.instanceMatrix;
+      x.frustumCulled = false;
+      x.renderOrder = 2;
+      x.count = 0;
+      this.xrays.push(x);
+      this.group.add(x);
     }
   }
 
@@ -169,6 +208,7 @@ for (int k = 3; k >= 0; k--) {
       /** What it has lost (MUT bits). */ mut?: number;
       /** Stand still at this point of the clip (0..1). */ hold?: number;
       /** Play back and forth between these two points of the clip (0..1): a crawl made from the start of getting up. */ pong?: readonly [number, number];
+      /** Close enough to the player to show through a building. */ near?: boolean;
     } = {}): void {
     const skin = id % 2;
     const n = this.counts[skin]!;
@@ -195,6 +235,7 @@ for (int k = 3; k >= 0; k--) {
     if (o.hold !== undefined) row = b.start + Math.floor(o.hold * (b.rows - 1));
     this.rows[skin]!.setX(n, row);
     this.muts[skin]!.setX(n, o.mut ?? 0);
+    this.nears[skin]!.setX(n, o.near ? 1 : 0);
     this.q.setFromAxisAngle(this.up, t.yaw);
     this.m.compose(this.at.set(x, o.y ?? 0, z), this.q, this.sv.set(this.s.x * (o.wide ?? 1), this.s.y * (o.tall ?? 1), this.s.z * (o.wide ?? 1)));
     this.meshes[skin]!.setMatrixAt(n, this.m);
@@ -210,6 +251,8 @@ for (int k = 3; k >= 0; k--) {
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
       this.rows[i]!.needsUpdate = true;
       this.muts[i]!.needsUpdate = true;
+      this.nears[i]!.needsUpdate = true;
+      this.xrays[i]!.count = this.counts[i]!;
     });
     if (this.frame % 60 === 0) for (const [id, t] of this.tracks) if (this.frame - t.seen > 30) this.tracks.delete(id);
   }
