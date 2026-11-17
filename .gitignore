@@ -8,3 +8,8 @@ dist/
 # Local-only drafts (candid assessments; never commit)
 docs/private/
 .vercel
+
+# Foundry build output
+contracts/out/
+contracts/cache/
+contracts/broadcast/
