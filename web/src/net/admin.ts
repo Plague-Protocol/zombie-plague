@@ -14,6 +14,23 @@ interface Overview {
   suspicious: Array<{ address: string; name: string | null; failed: number; ok: number }>;
 }
 
+interface PlayerMoney { address: string; in: string; out: string; owed: string; how: string }
+interface RoomMoney {
+  id: string; host: string; stake: string; maxPlayers: number; state: string; createdAt: number; expiresAt: number; startedAt: number | null; endedAt: number | null;
+  staked: string; pot: string; winners: string[]; share: string; fee: string; refunded: string; reclaimed: string; owed: string; why: string | null;
+  txs: { created: string; started: string | null; ended: string | null }; players: PlayerMoney[];
+  settlement: { status: string; error: string | null; tx: string | null } | null; issues: string[];
+}
+interface Totals {
+  rooms: number; started: number; settled: number; refundedRooms: number; staked: string; staked30d: string; paidToWinners: string; refunded: string; reclaimed: string;
+  leftBeforeStart: string; fees: string; fees30d: string; feesWithdrawn: string; emergency: string; owed: string; expectHeld: string; expectFees: string;
+}
+interface FundsView {
+  on: boolean; syncing?: boolean;
+  stacks: Array<{ symbol: string; cursor: number | null; error: string | null; reclaimAfter: number; onChain: { held: string; fees: string } | null; totals: Totals; attention: RoomMoney[]; rooms: RoomMoney[] }>;
+  topups: { count: number; cash: number; recent: Array<{ address: string; name: string | null; cash: number; tx: string; at: string }>; config: { symbol: string; rate: number; treasury: string; decimals: number } | null };
+}
+
 const CSS = `
 #admin { position: fixed; inset: 0; z-index: 50; overflow-y: auto; background: #050806; color: #d4c9b2; font: 15px/1.45 system-ui, sans-serif; padding: 16px; }
 #admin h1 { margin: 0 0 4px; font: 400 34px 'Eater', system-ui, sans-serif; color: #e8e0cc; }
@@ -65,6 +82,14 @@ const CSS = `
 #admin .ad-gate { max-width: 560px; border: 1px solid rgba(107,142,35,.25); border-radius: 14px; padding: 22px; background: linear-gradient(180deg, #0d150d, #080d08); }
 #admin .ad-gate p { margin: 0 0 14px; color: #a0bb94; }
 #admin.inpage > h1 { display: none; }
+#admin .ad-sec { margin: 26px 0 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+#admin .ad-sec h2 { margin: 0; font: 400 26px 'VT323', monospace; letter-spacing: .14em; text-transform: uppercase; color: #e8e0cc; }
+#admin .ad-sec .grow { flex: 1; }
+#admin input.ad-find { font: 14px ui-monospace, Menlo, monospace; background: #0b0f0b; color: #d4c9b2; border: 1px solid rgba(107,142,35,.4); border-radius: 6px; padding: 5px 9px; min-width: 0; width: min(320px, 100%); }
+#admin tr.ad-more td { background: rgba(132,204,22,.03); }
+#admin tr.ad-open { cursor: pointer; }
+#admin .ad-issue { color: #f2b630; font-size: 13px; margin-top: 3px; }
+#admin a { color: #a8c46a; }
 #admin.inpage { position: static; inset: auto; z-index: auto; overflow: visible; background: transparent; padding: 0; }
 `;
 
@@ -74,6 +99,16 @@ const units = (wei: string | undefined, decimals: number) => {
   const v = BigInt(wei), d = 10n ** BigInt(decimals);
   return `${v / d}.${(v % d).toString().padStart(decimals, '0').slice(0, 4)}`;
 };
+const EXPLORER: Record<number, string> = { 42220: 'https://celoscan.io', 11142220: 'https://celo-sepolia.blockscout.com', 44787: 'https://celo-alfajores.blockscout.com' };
+const chainId = Number((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_CHAIN_ID ?? 42220);
+const txLink = (tx: string | null | undefined): HTMLElement => {
+  if (!tx) return document.createElement('span');
+  const base = EXPLORER[chainId];
+  const c = document.createElement('code'); c.textContent = `${tx.slice(0, 10)}…`; c.title = tx;
+  if (!base) return c;
+  const a = document.createElement('a'); a.href = `${base}/tx/${tx}`; a.target = '_blank'; a.rel = 'noopener'; a.append(c); return a;
+};
+const when = (s: number | null) => (s ? new Date(s * 1000).toISOString().slice(0, 16).replace('T', ' ') : '');
 const ago = (s: number) => (s < 120 ? `${s}s` : s < 7200 ? `${Math.round(s / 60)}m` : s < 172800 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`);
 
 /** The admin page, inside `parent` (a site page), or over everything. */
@@ -162,6 +197,10 @@ export function openAdmin(parent?: HTMLElement): void {
     }
     if (!o.stacks.length) { const c = card('Stake contracts'); c.append(el('div', 'Staked rooms are off on this server.', 'ad-none'), el('p', 'Set STAKED=true with the contract addresses to turn them on.', 'ad-note')); grid.append(c); }
 
+    const fundsBox = el('div', '', 'wide');
+    fundsBox.append(el('div', 'Reading the money in staked rooms…', 'ad-none'));
+    void drawFunds(fundsBox, false, o.stacks);
+
     const rooms = card('Live rooms', true, o.rooms.length);
     if (!o.rooms.length) rooms.append(el('div', 'No rooms open right now.', 'ad-none'));
     else {
@@ -208,6 +247,163 @@ export function openAdmin(parent?: HTMLElement): void {
     }
     sus.append(el('p', 'A failed replay is a run whose log does not end the way the player said: a modified client, or a bug. Several from one account is worth a look.', 'ad-note'));
     grid.append(sus);
+    root.append(fundsBox);
+  }
+
+  /** The Funds section: totals, a check against the contracts, the rooms that need someone, every room's money, top-ups. */
+  async function drawFunds(box: HTMLElement, sync: boolean, contracts: Overview['stacks']): Promise<void> {
+    const f = await call<FundsView>('GET', `/admin/funds${sync ? '?sync=1' : ''}`).catch(() => 0);
+    box.replaceChildren();
+    const head = el('div', '', 'ad-sec');
+    head.append(el('h2', 'Funds'), el('span', '', 'grow'));
+    const read = el('button', 'Read the chain now', 'ghost') as HTMLButtonElement;
+    read.onclick = () => { read.disabled = true; read.textContent = 'Reading…'; void drawFunds(box, true, contracts); };
+    head.append(read);
+    box.append(head);
+    if (typeof f === 'number' || !f) { box.append(el('div', 'The funds view did not load. Try Refresh.', 'ad-none')); return; }
+    if (f.syncing) box.append(el('p', 'Still reading the chain (the first read walks back through the contract history). These numbers fill in as it goes; read again in a minute.', 'ad-note'));
+    if (!f.on) box.append(el('div', 'Staked rooms are off on this server, so there is no stake money to account for.', 'ad-none'));
+
+    for (const s of f.stacks) {
+      const dec = decimals[s.symbol] ?? 18;
+      const u = (v: string | undefined) => `${units(v, dec)} ${s.symbol}`;
+      const t = s.totals;
+      const sub = el('div', '', 'ad-sec'); sub.append(el('h2', s.symbol), el('span', `read to block ${s.cursor ?? '—'}`, 'ad-pill'));
+      if (s.error) sub.append(el('span', `chain read failed: ${s.error}`, 'bad'));
+      box.append(sub);
+
+      const kpis = el('div', '', 'ad-kpis');
+      const kpi = (k: string, v: string, small: string, cls = '') => { const d = el('div', '', `ad-kpi${cls ? ` ${cls}` : ''}`); d.append(el('div', k, 'k'), el('b', v), el('small', small)); return d; };
+      const back = BigInt(t.refunded) + BigInt(t.leftBeforeStart) + BigInt(t.reclaimed);
+      kpis.append(
+        kpi('Staked', units(t.staked, dec), `${units(t.staked30d, dec)} in 30 days · ${t.rooms} rooms`),
+        kpi('Paid to winners', units(t.paidToWinners, dec), `${t.settled} rooms settled`),
+        kpi('Given back', units(String(back), dec), `refunds ${units(t.refunded, dec)} · left ${units(t.leftBeforeStart, dec)} · reclaimed ${units(t.reclaimed, dec)}`),
+        kpi('Fees earned', units(t.fees, dec), `${units(t.fees30d, dec)} in 30 days`, 'good'),
+        kpi('Fees withdrawn', units(t.feesWithdrawn, dec), `${units(t.expectFees, dec)} still in the fee contract`),
+        kpi('Owed, unclaimed', units(t.owed, dec), 'payouts the token refused', BigInt(t.owed) > 0n ? 'warn' : ''),
+      );
+      box.append(kpis);
+
+      const grid = el('div', '', 'grid');
+      box.append(grid);
+      const rec = card('Check against the contracts');
+      const diff = (chain: string | undefined, expect: string) => {
+        if (chain === undefined) return { text: 'chain not answering', cls: 'warn' };
+        const d = BigInt(chain) - BigInt(expect);
+        return d === 0n ? { text: 'matches', cls: 'good' } : { text: `differs by ${units(String(d < 0n ? -d : d), dec)} (${d > 0n ? 'more' : 'less'} on chain)`, cls: 'bad' };
+      };
+      const h = diff(s.onChain?.held, t.expectHeld), fz = diff(s.onChain?.fees, t.expectFees);
+      rec.append(kv('Escrow holds (chain)', s.onChain ? u(s.onChain.held) : '?'), kv('Escrow should hold (events)', u(t.expectHeld)), kv('Escrow', h.text, h.cls),
+        kv('Fee contract holds (chain)', s.onChain ? u(s.onChain.fees) : '?'), kv('Fees should be (events)', u(t.expectFees)), kv('Fees', fz.text, fz.cls));
+      if (BigInt(t.emergency) > 0n) rec.append(kv('Emergency withdrawals', u(t.emergency), 'bad'));
+      rec.append(el('p', 'The escrow should hold exactly the stakes of rooms still open plus payouts waiting to be claimed. A difference means history the server has not read (set STAKE_FROM_BLOCK to the deploy block) or money moved outside the game.', 'ad-note'));
+      grid.append(rec);
+
+      const policy = card('Refund rules');
+      policy.append(
+        kv('Waiting room past expiry', 'anyone can refund all (expireRoom)'),
+        kv('Started, never settled', `each player reclaims after ${Math.round(s.reclaimAfter / 3600)} h`),
+        kv('Nobody got out', 'all stakes back, no fee'),
+        kv('Payout refused by token', 'held; player calls claim'),
+      );
+      grid.append(policy);
+
+      // the rooms that need someone
+      const att = card('Needs attention', true, s.attention.length);
+      if (!s.attention.length) att.append(el('div', 'Nothing. Every room is either open, paid out or refunded.', 'ad-none'));
+      else {
+        const tb = el('table'); tb.innerHTML = '<tr><th>Room</th><th>State</th><th>In the room</th><th>What is wrong</th><th></th></tr>';
+        for (const r of s.attention) {
+          const tr = el('tr');
+          const what = el('td'); for (const i of r.issues) what.append(el('div', i, 'ad-issue'));
+          tr.append(el('td', `#${r.id}`), el('td', r.state), el('td', u(String(BigInt(r.pot) + BigInt(r.owed)))), what);
+          const td = el('td');
+          if (r.settlement && r.settlement.status !== 'done') { const b = el('button', 'Retry settlement'); b.onclick = () => void act(`Retry ${s.symbol}:${r.id}`, () => call('POST', `/admin/settlements/${encodeURIComponent(`${s.symbol}:${r.id}`)}/retry`)); td.append(b); }
+          const rooms = contracts.find((c) => c.symbol === s.symbol)?.rooms;
+          if (r.state === 'waiting' && rooms) {
+            const b = el('button', 'Refund everyone', 'danger');
+            b.onclick = () => { if (confirm(`Refund every stake in ${s.symbol} room #${r.id}? This sends expireRoom(${r.id}) from your wallet.`)) void act(`Refund #${r.id}`, async () => (await import('./stake')).adminTx({ chainId }, rooms, 'expireRoom', BigInt(r.id))); };
+            td.append(b);
+          }
+          tr.append(td); tb.append(tr);
+        }
+        att.append(wrap(tb));
+      }
+      grid.append(att);
+
+      // every room, newest first, searchable, with each player's money on a click
+      const all = card('Rooms', true, s.rooms.length ? `latest ${s.rooms.length}` : undefined);
+      const tools = el('div', '', 'ad-actions');
+      const find = el('input', '', 'ad-find') as HTMLInputElement; find.placeholder = 'Room number or wallet address';
+      const csv = el('button', 'Download CSV', 'ghost');
+      csv.onclick = () => {
+        const rows = [['room', 'state', 'created', 'started', 'ended', 'stake', 'player', 'in', 'out', 'owed', 'result', 'why', 'end_tx']];
+        for (const r of s.rooms) for (const p of r.players) rows.push([r.id, r.state, when(r.createdAt), when(r.startedAt), when(r.endedAt), units(r.stake, dec), p.address, units(p.in, dec), units(p.out, dec), units(p.owed, dec), p.how, r.why ?? '', r.txs.ended ?? '']);
+        const blob = new Blob([rows.map((x) => x.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')], { type: 'text/csv' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `stakes-${s.symbol}-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      };
+      tools.append(find, csv);
+      all.append(tools);
+      const tb = el('table');
+      const fill = () => {
+        const q = find.value.trim().toLowerCase().replace(/^#/, '');
+        tb.innerHTML = '<tr><th>Room</th><th>State</th><th>Created</th><th>Players</th><th>Staked</th><th>Winners · share</th><th>Fee</th><th>Given back</th><th>Ended</th></tr>';
+        const list = q ? s.rooms.filter((r) => r.id === q || r.players.some((p) => p.address.includes(q))) : s.rooms;
+        if (!list.length) { const tr = el('tr'); const td = el('td', q ? 'No room matches.' : 'No staked room yet.', 'ad-none'); (td as HTMLTableCellElement).colSpan = 9; tr.append(td); tb.append(tr); return; }
+        for (const r of list) {
+          const tr = el('tr', '', 'ad-open');
+          const state = el('td'); state.append(el('span', r.state, `ad-badge ${r.state === 'settled' ? 'good' : r.state === 'refunded' ? '' : r.issues.length ? 'bad' : 'warn'}`));
+          const ended = el('td'); ended.append(document.createTextNode(`${when(r.endedAt)} `), txLink(r.txs.ended));
+          tr.append(el('td', `#${r.id}`), state, el('td', when(r.createdAt)), el('td', `${r.players.length}/${r.maxPlayers}`), el('td', u(r.staked)),
+            el('td', r.winners.length ? `${r.winners.length} · ${units(r.share, dec)}` : ''), el('td', BigInt(r.fee) ? units(r.fee, dec) : ''),
+            el('td', BigInt(r.refunded) + BigInt(r.reclaimed) ? units(String(BigInt(r.refunded) + BigInt(r.reclaimed)), dec) : ''), ended);
+          tb.append(tr);
+          let more: HTMLElement | null = null;
+          tr.onclick = () => {
+            if (more) { more.remove(); more = null; return; }
+            more = el('tr', '', 'ad-more');
+            const td = el('td') as HTMLTableCellElement; td.colSpan = 9;
+            const inner = el('table'); inner.innerHTML = '<tr><th>Player</th><th>Put in</th><th>Got back</th><th>Owed</th><th>Result</th></tr>';
+            for (const p of r.players) {
+              const pr = el('tr'); const who = el('td'); who.append(el('code', p.address));
+              if (p.address === r.host) who.append(document.createTextNode(' host'));
+              pr.append(who, el('td', units(p.in, dec)), el('td', units(p.out, dec)), el('td', BigInt(p.owed) ? units(p.owed, dec) : '', BigInt(p.owed) ? 'warn' : ''), el('td', p.how));
+              inner.append(pr);
+            }
+            const meta = el('p', '', 'ad-note');
+            meta.append(document.createTextNode(`Created ${when(r.createdAt)} `), txLink(r.txs.created), document.createTextNode(r.startedAt ? ` · started ${when(r.startedAt)} ` : ''), txLink(r.txs.started),
+              document.createTextNode(r.why ? ` · ${r.why}` : ''), document.createTextNode(r.settlement ? ` · server settlement: ${r.settlement.status}${r.settlement.error ? ` (${r.settlement.error})` : ''}` : ''));
+            td.append(inner, meta); more.append(td); tr.after(more);
+          };
+        }
+      };
+      find.oninput = fill;
+      fill();
+      all.append(wrap(tb));
+      grid.append(all);
+    }
+
+    // armoury top-ups: stablecoin paid to the treasury for game cash
+    const tp = f.topups;
+    const tc = card('Armoury top-ups', true, tp.count || undefined);
+    if (!tp.config && !tp.count) tc.append(el('div', 'Top-ups are off on this server.', 'ad-none'));
+    else {
+      const tokens = tp.config ? (tp.cash / tp.config.rate).toFixed(2) : '?';
+      tc.append(kv('Top-ups', String(tp.count)), kv('Cash credited', tp.cash.toLocaleString()), kv('Paid in', `≈ ${tokens} ${tp.config?.symbol ?? ''}`, 'good'));
+      if (tp.config) tc.append(kv('Treasury', tp.config.treasury));
+      if (tp.recent.length) {
+        const tb = el('table'); tb.innerHTML = '<tr><th>When</th><th>Account</th><th>Cash</th><th>Transaction</th></tr>';
+        for (const x of tp.recent) {
+          const tr = el('tr'); const who = el('td'); if (x.name) who.append(el('b', x.name), document.createTextNode(' ')); who.append(el('code', x.address));
+          const txd = el('td'); txd.append(txLink(x.tx));
+          tr.append(el('td', new Date(x.at).toISOString().slice(0, 16).replace('T', ' ')), who, el('td', x.cash.toLocaleString()), txd); tb.append(tr);
+        }
+        tc.append(wrap(tb));
+      }
+    }
+    const g2 = el('div', '', 'grid'); g2.append(tc); box.append(g2);
   }
   let last: Overview | null = null;
   void draw();

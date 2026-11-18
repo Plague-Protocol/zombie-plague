@@ -35,7 +35,7 @@ export function stakeConfigs(): StakeConfig[] {
 /** Function selectors and the RoomCreated topic. Checked against the real ABI by server/test/stake.test.ts: a wrong one here would send a real transaction to the wrong function. */
 export const SEL = {
   createRoom: '0x097f1288', joinRoom: '0x9cfc4b45', startGame: '0xe5ed1d59', cancelRoom: '0x2d172edf', leaveRoom: '0x779db573', getRoom: '0x6d8a74cb', approve: '0x095ea7b3', allowance: '0xdd62ed3e',
-  pause: '0x8456cb59', unpause: '0x3f4ba83a', withdrawAll: '0xfa09e630', transfer: '0xa9059cbb',
+  pause: '0x8456cb59', unpause: '0x3f4ba83a', withdrawAll: '0xfa09e630', transfer: '0xa9059cbb', expireRoom: '0x6e5e8a2e',
 } as const;
 export const ROOM_CREATED = '0xcff39d5f5e68c5ec23a0132dffcc54cd414ff88b613bb83083ca99da9e14fcc5';
 
@@ -156,7 +156,7 @@ export async function cancelStaked(cfg: StakeConfig, id: bigint): Promise<void> 
 }
 
 /** An admin act on a contract (pause, unpause, take the fees): sent from the connected wallet, which must hold the role. */
-export async function adminTx(cfg: Pick<StakeConfig, 'chainId'>, to: string, call: 'pause' | 'unpause' | 'withdrawAll', arg?: string): Promise<void> {
+export async function adminTx(cfg: Pick<StakeConfig, 'chainId'>, to: string, call: 'pause' | 'unpause' | 'withdrawAll' | 'expireRoom', arg?: string | bigint): Promise<void> {
   const who = await from();
   await ensureChain(cfg as StakeConfig);
   await send(to, SEL[call] + (arg ? word(arg) : ''), who);

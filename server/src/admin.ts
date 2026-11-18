@@ -5,7 +5,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Auth } from './auth.ts';
-import type { Chain } from './chain.ts';
+import type { Chain, ChainLog } from './chain.ts';
+import { accounts, type Funds } from './funds.ts';
 import type { Hub } from './rooms.ts';
 import type { Staked } from './staked.ts';
 import type { Store } from './store.ts';
@@ -15,7 +16,11 @@ export interface AdminDeps {
   auth: Auth;
   hub: Hub;
   staked?: Staked;
-  chains: Record<string, Chain>;
+  chains: Record<string, Chain & Partial<ChainLog>>;
+  /** The staked rooms' money, read from the chain (absent: staked rooms are off). */
+  funds?: Funds;
+  /** Armoury top-ups, if on: what they are paid in and how much cash a whole token buys. */
+  topup?: { symbol: string; rate: number; treasury: string; decimals: number };
   /** Lower-case addresses always let in (works without any contract). */
   admins: string[];
   startedAt: number;
@@ -62,6 +67,35 @@ export function registerAdmin(app: FastifyInstance, d: AdminDeps): void {
       settlements: await d.store.settlementsAll(50),
       suspicious: await d.store.failedAccounts(7, 20),
     };
+  });
+
+  // The money: every staked room's stakes, payouts, refunds and fees, the totals, a check against what the contracts
+  // hold, and the rooms that need someone. ?sync=1 reads the chain first (waiting up to 15 s).
+  app.get('/admin/funds', async (req, reply) => {
+    if (!(await admin(req))) return reply.code(403).send({ error: 'not_admin' });
+    const topups = { ...(await d.store.topups(30)), config: d.topup ?? null };
+    if (!d.funds) return { on: false, stacks: [], topups };
+    let syncing = false;
+    if ((req.query as { sync?: string }).sync === '1') {
+      syncing = await Promise.race([d.funds.syncAll().then(() => false), new Promise<boolean>((r) => setTimeout(() => r(true), 15_000))]);
+    }
+    const settlements = new Map((await d.store.settlementsAll(100_000)).map((s) => [s.roomId, s]));
+    const now = Math.floor(Date.now() / 1000);
+    const stacks = await Promise.all(Object.entries(d.chains).map(async ([symbol, c]) => {
+      const [events, cursor, reclaimAfter, onChain] = await Promise.all([
+        d.store.fundEvents(symbol),
+        d.store.fundCursor(symbol),
+        c.reclaimAfter ? c.reclaimAfter().catch(() => 6 * 3600) : 6 * 3600,
+        c.status().then((s) => ({ held: big(s.held), fees: big(s.fees) }), () => null),
+      ]);
+      const a = accounts(events, now, { reclaimAfter, settlements, stack: symbol });
+      return {
+        symbol, cursor, error: d.funds!.lastError(symbol), reclaimAfter, onChain, totals: a.totals,
+        attention: a.rooms.filter((r) => r.issues.length),
+        rooms: a.rooms.slice(0, 300),
+      };
+    }));
+    return { on: true, syncing, stacks, topups };
   });
 
   // A room that is stuck (nobody left in it, a round that will not end): close it. Everyone in it is told.

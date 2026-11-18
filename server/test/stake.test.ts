@@ -8,7 +8,7 @@ const abi = parseAbi([
   'function createRoom(uint8 maxPlayers, uint96 stake, uint40 expirySecs) returns (uint256)',
   'function joinRoom(uint256)', 'function startGame(uint256)', 'function leaveRoom(uint256)', 'function cancelRoom(uint256)',
   'function getRoom(uint256) view returns (address host, uint8 status, uint8 maxPlayers, uint96 stake, uint96 pot, uint40 createdAt, uint40 expiresAt, uint40 startedAt, address[] players)',
-  'function approve(address,uint256) returns (bool)', 'function transfer(address,uint256) returns (bool)', 'function pause()', 'function unpause()', 'function withdrawAll(address)', 'function allowance(address,address) view returns (uint256)',
+  'function approve(address,uint256) returns (bool)', 'function transfer(address,uint256) returns (bool)', 'function pause()', 'function unpause()', 'function withdrawAll(address)', 'function expireRoom(uint256)', 'function allowance(address,address) view returns (uint256)',
   'event RoomCreated(uint256 indexed roomId, address indexed host, uint8 maxPlayers, uint96 stake, uint40 expiresAt)',
 ]);
 

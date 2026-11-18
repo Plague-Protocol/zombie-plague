@@ -1,6 +1,7 @@
 // The chain, as the server sees it. Two jobs: say what the staked room on chain looks like (who staked, whether it
 // started), and, as the backend key, settle a finished round. Reads are always made fresh: a client's word, or an
 // event seen earlier, never decides who is seated.
+import type { FundEvent } from './store.ts';
 import { createPublicClient, createWalletClient, defineChain, http, parseAbi, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -29,11 +30,36 @@ export const ROOMS_ABI = parseAbi([
   'function feeManager() view returns (address)',
   'function potEscrow() view returns (address)',
   'function roomCount() view returns (uint256)',
+  'function reclaimAfter() view returns (uint40)',
 ]);
+/** The money events: the rooms contract's, the fee contract's withdrawals and the escrow's emergency withdrawals. */
+export const FUND_EVENTS = parseAbi([
+  'event RoomCreated(uint256 indexed roomId, address indexed host, uint8 maxPlayers, uint96 stake, uint40 expiresAt)',
+  'event PlayerJoined(uint256 indexed roomId, address indexed player)',
+  'event PlayerLeft(uint256 indexed roomId, address indexed player)',
+  'event GameStarted(uint256 indexed roomId, uint8 players)',
+  'event RoomSettled(uint256 indexed roomId, address[] winners, uint256 share, uint256 fee, bytes32 logHash)',
+  'event RoomRefunded(uint256 indexed roomId, string why)',
+  'event Reclaimed(uint256 indexed roomId, address indexed player, uint96 amount)',
+  'event PayoutOwed(uint256 indexed roomId, address indexed player, uint256 amount)',
+  'event Claimed(uint256 indexed roomId, address indexed player, uint256 amount)',
+  'event FeeWithdrawn(address indexed to, uint256 amount)',
+  'event EmergencyWithdrawn(uint256 indexed roomId, address indexed to, uint256 amount)',
+]);
+/** Reading a stake contract's history (the admin page's money view). */
+export interface ChainLog {
+  head(): Promise<number>;
+  roomCount(): Promise<number>;
+  /** Seconds after a round starts before a player may take their own stake back. */
+  reclaimAfter(): Promise<number>;
+  /** The money events between two blocks, inclusive, with their block times. */
+  fundEvents(from: number, to: number): Promise<FundEvent[]>;
+}
+
 const PLUMBING_ABI = parseAbi(['function balance() view returns (uint256)', 'function totalHeld() view returns (uint256)']);
 const STATUS: ChainStatus[] = ['none', 'waiting', 'started', 'settled', 'cancelled'];
 
-export class ViemChain implements Chain {
+export class ViemChain implements Chain, ChainLog {
   private pub;
   private wallet;
   private account;
@@ -59,6 +85,44 @@ export class ViemChain implements Chain {
     const rc = await this.pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
     if (rc.status !== 'success') throw new Error(`settle reverted (${hash})`);
     return hash;
+  }
+  private plumbing: Hex[] | null = null;
+  async head(): Promise<number> { return Number(await this.pub.getBlockNumber()); }
+  async roomCount(): Promise<number> { return Number(await this.pub.readContract({ address: this.proxy, abi: ROOMS_ABI, functionName: 'roomCount' })); }
+  async reclaimAfter(): Promise<number> { return Number(await this.pub.readContract({ address: this.proxy, abi: ROOMS_ABI, functionName: 'reclaimAfter' })); }
+  async fundEvents(from: number, to: number): Promise<FundEvent[]> {
+    if (!this.plumbing) {
+      const r = (fn: 'feeManager' | 'potEscrow') => this.pub.readContract({ address: this.proxy, abi: ROOMS_ABI, functionName: fn }) as Promise<Hex>;
+      this.plumbing = await Promise.all([r('feeManager'), r('potEscrow')]);
+    }
+    const logs = await this.pub.getLogs({ address: [this.proxy, ...this.plumbing], events: FUND_EVENTS, fromBlock: BigInt(from), toBlock: BigInt(to) });
+    // block times: most nodes put them on the log; an old block cannot be fetched from a node that is not an archive
+    // (Forno keeps ~10k blocks), so without one the time is reckoned back from the head at Celo's one block a second
+    const times = new Map<bigint, number>();
+    let tip: { n: bigint; t: number } | null = null;
+    for (const l of logs) {
+      if (l.blockNumber === null || times.has(l.blockNumber)) continue;
+      const own = (l as { blockTimestamp?: bigint | string | number }).blockTimestamp;
+      if (own !== undefined && own !== null) { times.set(l.blockNumber, Number(BigInt(own))); continue; }
+      try { times.set(l.blockNumber, Number((await this.pub.getBlock({ blockNumber: l.blockNumber })).timestamp)); } catch {
+        if (!tip) { const h = await this.pub.getBlock(); tip = { n: h.number, t: Number(h.timestamp) }; }
+        times.set(l.blockNumber, tip.t - Number(tip.n - l.blockNumber));
+      }
+    }
+    const out: FundEvent[] = [];
+    for (const l of logs) {
+      if (!l.eventName || l.blockNumber === null || l.logIndex === null || !l.transactionHash) continue;
+      const a = (l.args ?? {}) as Record<string, unknown>;
+      const addr = (v: unknown) => (typeof v === 'string' ? v.toLowerCase() : null);
+      out.push({
+        block: Number(l.blockNumber), logIndex: l.logIndex, tx: l.transactionHash, at: times.get(l.blockNumber) ?? 0, name: l.eventName,
+        roomId: a.roomId !== undefined ? String(a.roomId) : null,
+        player: addr(a.player) ?? addr(a.host) ?? addr(a.to),
+        amount: a.amount !== undefined ? String(a.amount) : a.stake !== undefined ? String(a.stake) : null,
+        data: JSON.stringify(a, (_k, v) => (typeof v === 'bigint' ? v.toString() : typeof v === 'string' && /^0x[0-9a-fA-F]{40}$/.test(v) ? v.toLowerCase() : v)),
+      });
+    }
+    return out;
   }
   async gas(): Promise<bigint> { return this.pub.getBalance({ address: this.account.address }); }
   async isAdmin(address: string): Promise<boolean> {

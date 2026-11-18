@@ -6,6 +6,7 @@ import { ViemChain } from './chain.ts';
 import { Hub } from './rooms.ts';
 import { Staked } from './staked.ts';
 import { registerAdmin } from './admin.ts';
+import { Funds } from './funds.ts';
 import { payForRound } from './armoury.ts';
 import { rpcReceipts } from './topup.ts';
 import { MemoryStore, PgStore, type Store } from './store.ts';
@@ -44,7 +45,10 @@ if (chain) {
   setInterval(() => { void staked!.resume(); }, 60_000).unref();
 }
 app.get('/rooms/live', async () => hub.live()); // the Play page: is anyone about?
-registerAdmin(app, { store, auth, hub, staked, chains, admins: cfg.admins, startedAt: Date.now(), db: cfg.DATABASE_URL ? 'postgres' : 'memory', content: () => content.latest });
+// the money in staked rooms, read from the contracts' events into the store (the admin page's Funds section)
+const funds = Object.keys(chains).length ? new Funds({ logs: chains, store, fromBlock: cfg.fromBlock }) : undefined;
+if (funds) { void funds.syncAll(); setInterval(() => { void funds.syncAll(); }, 120_000).unref(); }
+registerAdmin(app, { store, auth, hub, staked, chains, funds, topup: topup && { symbol: topup.config.symbol, rate: topup.config.rate, treasury: topup.config.treasury, decimals: topup.config.decimals }, admins: cfg.admins, startedAt: Date.now(), db: cfg.DATABASE_URL ? 'postgres' : 'memory', content: () => content.latest });
 await app.listen({ port: cfg.PORT, host: '0.0.0.0' });
 const closeWs = attachWs(app.server, { hub, auth, store, origins: cfg.origins, staked });
 console.log(`outbreak server on :${cfg.PORT} (content v${content.latest}, ${cfg.DATABASE_URL ? 'postgres' : 'memory'})`);

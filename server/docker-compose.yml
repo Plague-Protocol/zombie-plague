@@ -27,6 +27,7 @@ services:
       # Staked rooms: off unless STAKED=true (then ROOMS_ADDRESS, BACKEND_KEY and CELO_RPC are required).
       STAKED: ${STAKED:-false}
       STAKE_STACKS: ${STAKE_STACKS:-}
+      STAKE_FROM_BLOCK: ${STAKE_FROM_BLOCK:-}
       ADMIN_ADDRESSES: ${ADMIN_ADDRESSES:-}
       ROOMS_ADDRESS: ${ROOMS_ADDRESS:-}
       BACKEND_KEY: ${BACKEND_KEY:-}

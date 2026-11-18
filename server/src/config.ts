@@ -13,6 +13,9 @@ const schema = z.object({
   ROOMS_ADDRESS: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional().or(z.literal('').transform(() => undefined)),
   /** One PlagueRooms contract per stake token: "USDm=0x...,USDT=0x...". ROOMS_ADDRESS alone means a USDm one. */
   STAKE_STACKS: z.string().regex(/^([A-Za-z0-9]{1,8}=0x[0-9a-fA-F]{40})(,[A-Za-z0-9]{1,8}=0x[0-9a-fA-F]{40})*$/).optional().or(z.literal('').transform(() => undefined)),
+  /** Where each stake contract's history starts, for the admin page's money view: "USDm=41596650,USDT=..." (deploy blocks).
+   * Without it the first read walks back from the chain head to room #1. */
+  STAKE_FROM_BLOCK: z.string().regex(/^[A-Za-z0-9]{1,8}=\d{1,12}(,[A-Za-z0-9]{1,8}=\d{1,12})*$/).optional().or(z.literal('').transform(() => undefined)),
   BACKEND_KEY: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional().or(z.literal('').transform(() => undefined)),
   /** Wallets let into the admin page (comma-separated). Holders of a stake contract's admin role are let in as well. */
   ADMIN_ADDRESSES: z.string().default(''),
@@ -28,7 +31,7 @@ const schema = z.object({
 }).refine((c) => !c.STAKED || ((c.ROOMS_ADDRESS || c.STAKE_STACKS) && c.BACKEND_KEY && c.CELO_RPC), { message: 'STAKED=true needs STAKE_STACKS (or ROOMS_ADDRESS), BACKEND_KEY and CELO_RPC' })
   .refine((c) => !c.TOPUP_TOKEN || (c.TOPUP_TREASURY && c.CELO_RPC), { message: 'TOPUP_TOKEN needs TOPUP_TREASURY and CELO_RPC' });
 
-export type Config = z.infer<typeof schema> & { origins: string[]; stacks: Array<{ symbol: string; rooms: string }>; admins: string[] };
+export type Config = z.infer<typeof schema> & { origins: string[]; stacks: Array<{ symbol: string; rooms: string }>; admins: string[]; fromBlock: Record<string, number> };
 
 /** Read and check the environment; the server refuses to start on a bad one rather than guessing. */
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -36,5 +39,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const stacks = c.STAKE_STACKS ? c.STAKE_STACKS.split(',').map((x) => { const [symbol, rooms] = x.split('='); return { symbol: symbol!, rooms: rooms! }; })
     : c.ROOMS_ADDRESS ? [{ symbol: 'USDm', rooms: c.ROOMS_ADDRESS }] : [];
   const admins = c.ADMIN_ADDRESSES.split(',').map((a) => a.trim().toLowerCase()).filter((a) => /^0x[0-9a-f]{40}$/.test(a));
-  return { ...c, stacks, admins, origins: c.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean) };
+  const fromBlock = Object.fromEntries((c.STAKE_FROM_BLOCK ?? '').split(',').filter(Boolean).map((x) => { const [s, b] = x.split('='); return [s!, Number(b)]; }));
+  return { ...c, stacks, admins, fromBlock, origins: c.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean) };
 }

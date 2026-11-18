@@ -63,7 +63,34 @@ export interface Settlement {
   error: string | null;
 }
 
+/** A money event read from a stake contract (or its fee and escrow contracts), kept so the admin page can account for
+ * every stake, pot, payout, refund and fee without asking the chain again. Amounts are in the token's smallest unit. */
+export interface FundEvent {
+  block: number;
+  logIndex: number;
+  tx: string;
+  /** Unix seconds of the block. */
+  at: number;
+  name: string;
+  roomId: string | null;
+  player: string | null;
+  amount: string | null;
+  /** The rest of the event, as JSON (bigints as strings). */
+  data: string;
+}
+/** A stablecoin top-up that bought armoury cash. */
+export interface TopupRow { accountId: string; address: string; name: string | null; cash: number; tx: string; at: Date }
+
 export interface Store {
+  /** Money events of one stake token's contracts, oldest first. */
+  fundEvents(stack: string): Promise<FundEvent[]>;
+  /** Idempotent on (stack, tx, logIndex). */
+  addFundEvents(stack: string, rows: FundEvent[]): Promise<void>;
+  /** The last block read for this token (null: never read). */
+  fundCursor(stack: string): Promise<number | null>;
+  setFundCursor(stack: string, block: number): Promise<void>;
+  /** Top-ups, newest first, with the total ever. */
+  topups(limit: number): Promise<{ count: number; cash: number; recent: TopupRow[] }>;
   /** Idempotent on roomId: a second call for the same room changes nothing and returns false. */
   addSettlement(s: Settlement): Promise<boolean>;
   updateSettlement(roomId: string, patch: Partial<Pick<Settlement, 'status' | 'tx' | 'error'>>): Promise<void>;
@@ -185,6 +212,22 @@ export class MemoryStore implements Store {
       .map(([id, x]) => { const a = this.accounts.get(id)!; return { accountId: id, address: a.address, name: a.name, ...x }; });
   }
   async settlementsAll(limit: number) { return [...this.settlements.values()].slice(-limit).reverse().map((x) => ({ ...x })); }
+  private funds = new Map<string, FundEvent[]>();
+  private cursors = new Map<string, number>();
+  async fundEvents(stack: string) { return (this.funds.get(stack) ?? []).map((x) => ({ ...x })); }
+  async addFundEvents(stack: string, rows: FundEvent[]) {
+    const have = this.funds.get(stack) ?? [];
+    for (const r of rows) if (!have.some((x) => x.tx === r.tx && x.logIndex === r.logIndex)) have.push({ ...r });
+    have.sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
+    this.funds.set(stack, have);
+  }
+  async fundCursor(stack: string) { return this.cursors.get(stack) ?? null; }
+  async setFundCursor(stack: string, block: number) { this.cursors.set(stack, block); }
+  async topups(limit: number) {
+    const rows = this.ledgerRows.filter((x) => x.reason === 'topup');
+    const recent = rows.slice(-limit).reverse().map((x) => { const a = this.accounts.get(x.accountId); return { accountId: x.accountId, address: a?.address ?? '', name: a?.name ?? null, cash: x.delta, tx: x.ref, at: x.at }; });
+    return { count: rows.length, cash: rows.reduce((s, x) => s + x.delta, 0), recent };
+  }
   async addRoundSeats(rows: RoundSeat[]) { for (const r of rows) this.seats.push({ ...r, at: this.now() }); }
   async roomTotals(days: number): Promise<RoomRow[]> {
     const since = this.now().getTime() - days * 864e5, by = new Map<string, RoomRow>();
@@ -358,6 +401,24 @@ CREATE TABLE IF NOT EXISTS listing (
 );
 CREATE INDEX IF NOT EXISTS listing_owner_idx ON listing (owner_id, status);
 CREATE INDEX IF NOT EXISTS listing_open_idx ON listing (item) WHERE status = 'open';
+CREATE TABLE IF NOT EXISTS fund_event (
+  stack      text NOT NULL,
+  block      bigint NOT NULL,
+  log_index  integer NOT NULL,
+  tx         text NOT NULL,
+  at         bigint NOT NULL,
+  name       text NOT NULL,
+  room_id    text,
+  player     text,
+  amount     text,
+  data       text NOT NULL,
+  PRIMARY KEY (stack, tx, log_index)
+);
+CREATE INDEX IF NOT EXISTS fund_event_order_idx ON fund_event (stack, block, log_index);
+CREATE TABLE IF NOT EXISTS fund_cursor (
+  stack text PRIMARY KEY,
+  block bigint NOT NULL
+);
 `;
 
 export class PgStore implements Store {
@@ -437,6 +498,25 @@ export class PgStore implements Store {
     return r.rows.map((x) => ({ accountId: x.account_id, address: x.address, name: x.name, failed: x.failed, ok: x.ok }));
   }
   async settlementsAll(limit: number) { const r = await this.pool.query('SELECT * FROM settlement ORDER BY created_at DESC LIMIT $1', [limit]); return r.rows.map((x) => this.sett(x)); }
+  async fundEvents(stack: string) {
+    const r = await this.pool.query('SELECT * FROM fund_event WHERE stack = $1 ORDER BY block, log_index', [stack]);
+    return r.rows.map((x) => ({ block: Number(x.block), logIndex: x.log_index, tx: x.tx, at: Number(x.at), name: x.name, roomId: x.room_id, player: x.player, amount: x.amount, data: x.data }));
+  }
+  async addFundEvents(stack: string, rows: FundEvent[]) {
+    for (const e of rows) {
+      await this.pool.query('INSERT INTO fund_event (stack, block, log_index, tx, at, name, room_id, player, amount, data) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING',
+        [stack, e.block, e.logIndex, e.tx, e.at, e.name, e.roomId, e.player, e.amount, e.data]);
+    }
+  }
+  async fundCursor(stack: string) { const r = await this.pool.query('SELECT block FROM fund_cursor WHERE stack = $1', [stack]); return r.rows[0] ? Number(r.rows[0].block) : null; }
+  async setFundCursor(stack: string, block: number) { await this.pool.query('INSERT INTO fund_cursor (stack, block) VALUES ($1,$2) ON CONFLICT (stack) DO UPDATE SET block = EXCLUDED.block', [stack, block]); }
+  async topups(limit: number) {
+    const [t, r] = await Promise.all([
+      this.pool.query("SELECT count(*)::int AS n, coalesce(sum(delta),0)::bigint AS cash FROM ledger WHERE reason = 'topup'"),
+      this.pool.query("SELECT l.account_id, a.address, a.name, l.delta, l.ref, l.created_at FROM ledger l JOIN account a ON a.id = l.account_id WHERE l.reason = 'topup' ORDER BY l.created_at DESC LIMIT $1", [limit]),
+    ]);
+    return { count: t.rows[0].n, cash: Number(t.rows[0].cash), recent: r.rows.map((x) => ({ accountId: x.account_id, address: x.address, name: x.name, cash: Number(x.delta), tx: x.ref, at: x.created_at })) };
+  }
   async addRoundSeats(rows: RoundSeat[]) {
     for (const x of rows) await this.pool.query('INSERT INTO round_seat (account_id, code, status, kills, escaped) VALUES ($1,$2,$3,$4,$5)', [x.accountId, x.code, x.status, x.kills, x.escaped]);
   }
