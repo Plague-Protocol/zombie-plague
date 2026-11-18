@@ -23,6 +23,12 @@ export const WAVE_SPAWN_MAX_DIST = 45; // waves arrive from just out of sight
 export const ZOMBIE_ACTIVE_RADIUS = 60; // zombies further away are dormant (not simulated)
 export const CORPSE_SECONDS = 2.5; // falling; then the body stays where it fell
 export const CORPSES_KEPT = 80; // bodies kept per district (the oldest go first)
+/** A body on the ground, for stepping over it: a low capsule from just past its feet to past its head (it falls
+ * backward, so the head lies behind where it faced), this thick. Half bodies are too small to matter. */
+export const BODY = { feet: 0.25, head: 1.6, radius: 0.38 } as const;
+/** Crossing a body you go at this share of your speed, stepping high over it (not solid: a crowd you cut down must
+ * never wall you in). */
+export const BODY_SLOW = 0.5;
 export const RISE_SECONDS = 1.5; // zombies that appear mid-run climb up off the ground first
 export const ATTACK_RANGE = 1.35; // starts a lunge
 export const ATTACK_REACH = 1.75; // the lunge lands if the player is still this close when it ends

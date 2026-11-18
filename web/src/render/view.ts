@@ -8,7 +8,7 @@ import { Crowd, MUT, type CrowdClip } from './crowd';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
 import { ArmyGate, bandageMesh, bandolierMesh, satchelMesh, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
-import { currentTask, escortGroup, finalChapter, gunStats, infection, isGun, isRevealed, lightOn, playerSpeed, playerVehicle, requiredDone, type GameState } from '../../../core/state';
+import { currentTask, escortGroup, finalChapter, gunStats, infection, isGun, isRevealed, lightOn, onBody, playerSpeed, playerVehicle, requiredDone, type GameState } from '../../../core/state';
 import { ATTACK_WINDUP, COUGH_NOISE, LASH_REACH, MELEE, PLAYER_HEALTH, SAFEHOUSE_RADIUS, SCREAM_WINDUP, TASK_RADIUS } from '../../../core/config';
 import { plagueDressing, Spores, Tentacles, Waves } from './plague';
 import type { GameEvent, Task, TaskId, Vec2, WeaponKind, Zombie } from '../../../core/types';
@@ -143,6 +143,11 @@ export class GameView {
   private carryKey = '';
   /** A short move the body makes for something done in passing: down to scoop up a pickup, an arm out to hand something over. */
   private gesture: { clip: ClipName; at: number; rate: number; until: number; fresh: boolean } | null = null;
+  /** When each zombie's last bite landed (for its snap). */
+  private bites = new Map<number, number>();
+  /** The ones that come to feed when you are caught (nearest first), and which way you faced as you fell. */
+  private feeders: number[] = [];
+  private deathFacing = 0;
   private effects: Effects;
   private rings: InstancedMesh;
   private beams: InstancedMesh;
@@ -374,6 +379,7 @@ export class GameView {
       g.rotation.y = (s.seed % 4) * (Math.PI / 2);
     }
     this.wasCaught = false;
+    this.bites.clear();
     this.endTurn();
     this.player.play('Idle', { fade: 0 });
     this.player.setUpper(null);
@@ -669,6 +675,14 @@ export class GameView {
         case 'pickup': case 'part-taken': case 'crate-opened':
           if (!playerVehicle(s)) this.gestureFor('Kneel', 0.02, 2.6, playerSpeed(s) > 2.5 ? 0.36 : 0.55);
           break;
+        // a bite lands: you flinch, blood at the shoulder, and its head snaps in
+        case 'player-hit':
+          if (e.by >= 0 && (e.seat === undefined || e.seat === s.cur?.id)) {
+            this.bites.set(e.by, this.time);
+            this.effects.burst(new Vector3(s.player.pos.x, 2.0, s.player.pos.y), 0x8a0a0a, 10, 3.5);
+            if (!playerVehicle(s) && s.phase === 'playing') this.gestureFor('Hit', 0, 1.3, 0.28);
+          }
+          break;
         // handing over what they asked for: an arm held out
         case 'survivor-done': this.gestureFor('Interact', 0.55, 1.1, 0.9); break;
         case 'alarm-start': {
@@ -719,7 +733,13 @@ export class GameView {
     if (!this.outro && (s.phase === 'cleared' || s.phase === 'won')) this.outro = { kind: s.phase === 'won' ? 'heli' : 'stairs', t: 0, from: new Vector3(p.x, 0, p.y) };
     if (this.outro && s.phase === 'playing') this.outro = null; // a retry
     const turning = GameView.turns(s);
-    if (turning && !this.turn) this.turn = { t: 0, risen: false };
+    if (turning && !this.turn) {
+      this.turn = { t: 0, risen: false };
+      this.deathFacing = s.player.heading;
+      this.feeders = s.lossReason !== 'caught' ? [] : s.zombies
+        .filter((z) => z.action !== 'dead' && z.action !== 'dormant' && z.kind !== 'crawler' && Math.hypot(z.pos.x - p.x, z.pos.y - p.y) < 7)
+        .sort((a, b) => Math.hypot(a.pos.x - p.x, a.pos.y - p.y) - Math.hypot(b.pos.x - p.x, b.pos.y - p.y)).slice(0, 4).map((z) => z.id);
+    }
     else if (!turning && this.turn) this.endTurn();
     if (this.outro || this.turn) this.target.set(this.player.root.position.x, 0, this.player.root.position.z);
     else this.target.set(p.x + s.player.vel.x * lead, 0, p.y + s.player.vel.y * lead);
@@ -773,6 +793,8 @@ export class GameView {
       else this.player.setUpper(null);
     }
     this.player.update(p.x, p.y, s.player.heading, dt, true);
+    // stepping over a body: high steps, lifted over it
+    if (!car && playerSpeed(s) > 0.3 && onBody(s, p)) this.player.root.position.y = 0.16 * Math.abs(Math.sin(this.time * 9));
     // hurt or far gone, he limps; a cough doubles him over
     const inf = infection(s);
     const limp = caught || car ? 0 : Math.max(s.player.health < PLAYER_HEALTH * 0.45 ? 1 : 0, inf > 0.7 ? (inf - 0.7) / 0.3 : 0) * Math.min(1, playerSpeed(s) / 2);
@@ -959,10 +981,14 @@ export class GameView {
                 : shape ? { mut: shape.mut } : null;
         // close to you and behind a building: its silhouette shows through, as yours does (not the street beyond)
         const close = z.action !== 'dead' && Math.hypot(z.pos.x - s.player.pos.x, z.pos.y - s.player.pos.y) < XRAY_NEAR;
-        const hunch = z.kind === 'crawler' || z.action === 'dead' || z.action === 'dormant' || z.action === 'rise' ? 0 : z.kind === 'runner' ? 0.32 : 0.22;
-        this.crowd.draw(z.id, z.pos.x, z.pos.y, z.heading, clip, dt, { hunch, ...o, ...look, near: close });
-        if (z.kind === 'lasher' && z.action !== 'dead') this.lash(z);
-        else if (shape?.grow && z.action !== 'dead' && z.action !== 'dormant' && z.action !== 'rise') this.growths(z, shape.grow, hunch);
+        let hunch = z.kind === 'crawler' || z.action === 'dead' || z.action === 'dormant' || z.action === 'rise' ? 0 : z.kind === 'runner' ? 0.32 : 0.22;
+        // where it is drawn can differ from where it is: the lunge of an attack, a bite's snap, the ones that come to feed when you go down
+        const pose = this.posed(s, z, clip, o, hunch);
+        hunch = pose.hunch;
+        const zz = pose.moved ? { ...z, pos: pose.pos, heading: pose.heading } : z;
+        this.crowd.draw(z.id, zz.pos.x, zz.pos.y, zz.heading, pose.clip, dt, { ...pose.o, hunch, ...look, near: close });
+        if (z.kind === 'lasher' && z.action !== 'dead') this.lash(zz);
+        else if (shape?.grow && z.action !== 'dead' && z.action !== 'dormant' && z.action !== 'rise') this.growths(zz, shape.grow, hunch);
       }
       if (z.action !== 'dead' && z.action !== 'dormant') shadowAt(z.pos.x, z.pos.y);
     }
@@ -1144,6 +1170,45 @@ export class GameView {
     }
     p.wear('chest', belt ? bandolierMesh() : null, undefined, 'bandolier');
     p.wear('hips', a.bottles > 0 ? satchelMesh() : null, new Vector3(0.38, -0.02, 0.02), 'satchel');
+  }
+
+  /**
+   * How one of them is drawn this frame, if not just where it stands:
+   * - an attack draws back as it winds up, then lunges the last stretch at you, bent over its reach;
+   * - the one whose bite just landed snaps its head in;
+   * - when they catch you, the few nearest crowd in over the body and feed; as you get up one of them, they step back.
+   */
+  private posed(s: GameState, z: Zombie, clip: CrowdClip, o: ReturnType<GameView['zombieClip']>[1], hunch: number) {
+    const out = { pos: z.pos, heading: z.heading, clip, o, hunch, moved: false };
+    const p = s.player.pos;
+    if (this.turn && s.lossReason === 'caught' && z.action !== 'dead' && z.action !== 'dormant' && z.kind !== 'crawler') {
+      const k = this.feeders.indexOf(z.id);
+      if (k < 0) return out;
+      const T = GameView.TURN, t = this.turn.t, down = T.fall + T.fit;
+      // in over the body (it lies back from where you faced), then back off as you rise
+      const e = t < down ? Math.min(1, t / 0.7) : Math.max(0, 1 - (t - down) / 0.9);
+      const f = this.deathFacing;
+      const cx = p.x - Math.cos(f) * 0.8, cy = p.y - Math.sin(f) * 0.8;
+      const a = Math.atan2(z.pos.y - cy, z.pos.x - cx);
+      const tx = cx + Math.cos(a) * 1.05, ty = cy + Math.sin(a) * 1.05;
+      out.pos = { x: z.pos.x + (tx - z.pos.x) * e, y: z.pos.y + (ty - z.pos.y) * e };
+      out.heading = Math.atan2(cy - out.pos.y, cx - out.pos.x);
+      out.moved = true;
+      if (t < down && e > 0.6) { out.clip = 'ZAttack'; out.o = { rate: 0.9 + (k % 2) * 0.25 }; out.hunch = 0.85; } // bent over, tearing
+      else { out.clip = e > 0.05 ? 'ZWalk' : 'ZIdle'; out.o = { rate: 0.6 }; }
+      return out;
+    }
+    if (z.action === 'attack' && z.kind !== 'crawler' && z.kind !== 'lasher') {
+      const w = ATTACK_WINDUP[z.kind], k = 1 - Math.max(0, z.actionT) / w; // 0 at the start of the wind-up, 1 as it lands
+      const lunge = k < 0.65 ? -0.18 * (k / 0.65) : -0.18 + 1.18 * ((k - 0.65) / 0.35);
+      const d = Math.hypot(p.x - z.pos.x, p.y - z.pos.y), reach = Math.max(0, Math.min(0.6, d - 0.9)) * Math.max(0, lunge);
+      out.pos = { x: z.pos.x + Math.cos(z.heading) * (reach + Math.min(0, lunge) * 0.4), y: z.pos.y + Math.sin(z.heading) * (reach + Math.min(0, lunge) * 0.4) };
+      out.hunch = hunch + Math.max(0, lunge) * 0.45 - Math.min(0, lunge) * 0.6; // rears back, then throws itself forward
+      out.moved = true;
+    }
+    const bit = this.bites.get(z.id);
+    if (bit !== undefined && this.time - bit < 0.3) out.hunch += 0.4 * Math.sin(((this.time - bit) / 0.3) * Math.PI); // the snap of the bite
+    return out;
   }
 
   /** Start a gesture: `clip` from `at` (0..1 of it) at `rate`, for `dur` seconds, then back to what the legs are doing. */

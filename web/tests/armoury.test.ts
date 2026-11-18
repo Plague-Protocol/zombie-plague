@@ -127,3 +127,27 @@ describe('the site’s item names and loan prices', () => {
     expect(lenderCut(100)).toBe(90);
   });
 });
+
+describe('bodies on the ground', () => {
+  it('you step over a body, slowly: never through it at a run, never walled in by it', async () => {
+    const { createGame, movePlayer, onBody } = await import('../../core/state');
+    const walk = (withBody: boolean) => {
+      const g = createGame(11);
+      g.zombies.length = 0;
+      const p = g.player.pos, start = { ...p };
+      // a body across your path, 2 ahead, lying along y with its middle on your line
+      if (withBody) g.corpses.push({ id: 9999, pos: { x: start.x + 2, y: start.y + 0.7 }, heading: Math.PI / 2 });
+      let over = 0;
+      for (let i = 0; i < 90; i++) {
+        movePlayer(g, { dx: 1, dy: 0, fire: false, action: false, reload: false, swap: false, throw: false, light: false } as never, 1 / 60);
+        if (onBody(g, p)) over++;
+      }
+      return { x: p.x - start.x, over };
+    };
+    const free = walk(false), body = walk(true);
+    expect(free.x).toBeGreaterThan(4); // the street is open
+    expect(body.over).toBeGreaterThan(0); // you crossed it
+    expect(body.x).toBeGreaterThan(2.5); // and got past it
+    expect(body.x).toBeLessThan(free.x - 0.2); // but it cost you
+  });
+});

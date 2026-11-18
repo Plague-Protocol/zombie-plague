@@ -6,7 +6,7 @@ import {
   RUN_OVER_SPEED, RUNNER_SIGHT, RUNNER_SPEED, SAFEHOUSE_RADIUS, SPAWNS_BY_TIER, SPEED_BOOST, TASK_HOLD_SECONDS,
   TASK_RADIUS, TIER_THRESHOLDS, USE_RADIUS, VEHICLES, WALKER_SIGHT_BY_TIER, WALKER_SPEED_BY_TIER, WAVE_SPAWN_MAX_DIST,
   ZOMBIE_ACTIVE_RADIUS, ZOMBIE_CAP, ZOMBIE_RADIUS, ZOMBIE_SPAWN_MIN_DIST, ZOMBIES_PER_BLOCK,
-  AIM_CONE, ALERT_SECONDS, BITE_SECONDS, CORPSES_KEPT, SEATS, SWARM, SWARM_EVERY, SWARM_SPEED, BREACH_AT, CHASE, CHASE_ALERT, GUARD_CHANCE, GUARDS, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
+  AIM_CONE, ALERT_SECONDS, BITE_SECONDS, BODY, BODY_SLOW, CORPSES_KEPT, SEATS, SWARM, SWARM_EVERY, SWARM_SPEED, BREACH_AT, CHASE, CHASE_ALERT, GUARD_CHANCE, GUARDS, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
   LATCH_MAX, LATCH_SHAKE_SPEED, AMMO_PRICES, GUNS, KILL_REWARD, MEDKIT_PRICE, MELEE, MELEE_KNOCKBACK, PICKUP_RADIUS,
   SAFE_AFTER, STAGGER_SECONDS, START_AMMO, START_FUNDS, STORE_DOOR_RADIUS, UPGRADE_BASE, UPGRADE_EFFECT, UPGRADE_FACTOR,
   UPGRADE_LEVELS, WEAPON_PRICES, ZOMBIE_HEALTH,
@@ -1813,12 +1813,28 @@ function exitVehicle(s: GameState): void {
 
 // ---------------------------------------------------------------- movement
 
+/** Whether a point is over one of the bodies on the ground (you are stepping over it). */
+export function onBody(s: GameState, p: Vec2): boolean {
+  for (const c of s.corpses) {
+    if (c.half) continue;
+    const ox = p.x - c.pos.x, oy = p.y - c.pos.y;
+    if (ox * ox + oy * oy > 9) continue; // nowhere near
+    const fx = dcos(c.heading), fy = dsin(c.heading);
+    // the body runs from a (past the feet) back to b (past the head): the nearest point of it to you
+    const ax = c.pos.x + fx * BODY.feet, ay = c.pos.y + fy * BODY.feet;
+    const along = Math.max(0, Math.min(BODY.feet + BODY.head, (ax - p.x) * fx + (ay - p.y) * fy));
+    if (dhypot(p.x - (ax - fx * along), p.y - (ay - fy * along)) < BODY.radius) return true;
+  }
+  return false;
+}
+
 /** One step of a body walking (also what a browser re-runs to predict its own movement in a room). */
 export function movePlayer(s: GameState, input: Input, dt: number): void {
   let dx = input.dx, dy = input.dy;
   const len = dhypot(dx, dy);
   if (len > 1) { dx /= len; dy /= len; }
-  const top = PLAYER_SPEED * s.speedMul * (1 + (s.arsenal.perks?.speed ?? 0)) * (s.player.slowT > 0 ? GRAB_SLOW : 1); // a crawler on your leg
+  const top = PLAYER_SPEED * s.speedMul * (1 + (s.arsenal.perks?.speed ?? 0)) * (s.player.slowT > 0 ? GRAB_SLOW : 1) // a crawler on your leg
+    * (onBody(s, s.player.pos) ? BODY_SLOW : 1); // stepping over the dead
   const tx = dx * top, ty = dy * top; // analog: a light push walks, a full push runs
   const v = s.player.vel;
   const ex = tx - v.x, ey = ty - v.y;
