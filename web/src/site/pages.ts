@@ -136,6 +136,8 @@ export const home: Page = {
 // ---------------------------------------------------------------- play
 
 const stakingOn = !!(import.meta as unknown as { env: Record<string, string | undefined> }).env.VITE_STAKE_STACKS;
+/** The tag on rooms that need an account: gone once you are signed in. */
+const needsSignIn = () => (account() ? '' : '<span class="tag m">Sign in</span>');
 export const play: Page = {
   title: 'Play',
   html: () => `
@@ -145,8 +147,8 @@ export const play: Page = {
     ${account() ? '<p class="muted" style="margin:-6px 0 14px;font-size:15px">What you carry is set in the <a href="/armoury">Armoury</a>.</p>' : ''}
     <div class="modes">
       <button class="mode hot" type="button" data-play="solo" disabled><span class="ico">${ICON.bio}</span><span class="body"><h3>Today's city <span class="tag g">Counts for ranks</span></h3><p>Solo &middot; three districts &middot; the same streets for everyone today &middot; your ranked loadout</p>${carrying('ranked')}</span>${ICON.chev}</button>
-      <button class="mode" type="button" data-play="quick" disabled><span class="ico a">${ICON.users}</span><span class="body"><h3>Quick play <span class="tag m">Sign in</span></h3><p>Drop into the next open room with whoever is around &middot; 2 to 8 players</p></span>${ICON.chev}</button>
-      <button class="mode" type="button" data-play="create" disabled><span class="ico p">${ICON.door}</span><span class="body"><h3>Private room <span class="tag m">Sign in</span></h3><p>Make a room, then share its five-letter code or an invite link</p></span>${ICON.chev}</button>
+      <button class="mode" type="button" data-play="quick" disabled><span class="ico a">${ICON.users}</span><span class="body"><h3>Quick play ${needsSignIn()}</h3><p>Drop into the next open room with whoever is around &middot; 2 to 8 players</p></span>${ICON.chev}</button>
+      <button class="mode" type="button" data-play="create" disabled><span class="ico p">${ICON.door}</span><span class="body"><h3>Private room ${needsSignIn()}</h3><p>Make a room, then share its five-letter code or an invite link</p></span>${ICON.chev}</button>
       <div class="mode" style="cursor:default"><span class="ico b">${ICON.key}</span><span class="body"><h3>Join with a code</h3><p>A friend read out their room's code? Type it here.</p>
         <form data-join><input name="code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" aria-label="Room code" /><button class="btn sm" type="submit" disabled data-play="join">Join</button></form></span></div>
       <button class="mode" type="button" data-play="practice" disabled><span class="ico g">${ICON.dice}</span><span class="body"><h3>Practice night <span class="tag m">Not ranked</span></h3><p>A city nobody else has, with your open loadout. Learn the streets without it counting.</p>${carrying('open')}</span>${ICON.chev}</button>
