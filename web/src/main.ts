@@ -126,6 +126,8 @@ const warned = new Set<string>();
 let swarmTold = false;
 /** Things explained already this night (each once: the first cough, the first red X, the light...). */
 const told = new Set<string>();
+/** True the first time a key is asked about this night (for saying something in full only once). */
+function tell(key: string): boolean { if (told.has(key)) return false; told.add(key); return true; }
 /** Say a first-time line, as a subtitle over play, or (blocking) in the panel you read. */
 function once(key: string, blocking = false): void {
   if (told.has(key)) return;
@@ -398,6 +400,11 @@ function narrate(events: readonly GameEvent[]): void {
       case 'player-hit': hud.hurt(); view.shake(0.4); break;
       case 'bitten': if (e.seconds > 0.5) { hud.surge(); hud.toast(`Bitten. The infection jumps ${Math.round(e.seconds)} seconds.`); } break;
       case 'light': hud.toast(e.on ? 'Light on' : 'Light off: they see less of you'); if (!e.on) once('light'); break;
+      // the new moves: said plainly the first time each night, briefly after that
+      case 'crouch': hud.toast(e.on ? (tell('crouch') ? 'Crouched: slow and quiet, and they have to be much closer to spot you' : 'Crouched') : 'Standing', 3200); break;
+      case 'hide': hud.toast(e.on ? (tell('hide') ? 'Hidden. Only the ones that saw you go in will come. Push the stick or press Use to come out' : 'Hidden') : 'Out of hiding', 3200); break;
+      case 'climbed': hud.toast(e.up ? (tell('roof') ? 'On the roof. Most of them cannot follow you up, but runners and stalkers climb' : 'On the roof') : 'Back on the street', 3600); break;
+      case 'zombie-climbed': if (e.up) { hud.toast('One is coming over the edge!'); view.shake(0.3); } break;
       case 'omen': once('omen'); break;
       case 'halved': once('halved'); break;
       case 'grabbed': hud.toast('It has your leg! Kill it or drag it with you.'); view.shake(0.3); break;

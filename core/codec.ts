@@ -24,8 +24,8 @@ export interface WireSnap {
   /** tick */ k: number;
   /** seat */ s: number;
   /** you: x, y, vx, vy, heading, health, status */ y: number[];
-  /** others: id, x, y, heading, status, light|exposed bits, weapon, vehicle+1 */ o: number[][];
-  /** zombies: id, kind, x, y, heading, speed, action, flags (1 staggered, 2 frozen) */ z: number[][];
+  /** others: id, x, y, heading, status, bits (1 light, 2 exposed, 4 crouched, 8 hidden), weapon, vehicle+1, roof+1 */ o: number[][];
+  /** zombies: id, kind, x, y, heading, speed, action, flags (1 staggered, 2 frozen), roof+1 */ z: number[][];
   /** events, if any */ e?: GameEvent[];
   /** the parts that changed since the last snapshot, by key ("y.arsenal" for something of yours) */ c?: Record<string, unknown>;
 }
@@ -63,8 +63,8 @@ export function makeEncoder(): (v: PlayerView) => WireSnap {
     const w: WireSnap = {
       k: v.tick, s: v.seat,
       y: [q(v.you.pos.x, P), q(v.you.pos.y, P), q(v.you.vel.x, P), q(v.you.vel.y, P), q(v.you.heading, A), Math.round(v.you.health), STATUS.indexOf(v.you.status)],
-      o: v.others.map((o) => [o.id, q(o.pos.x, P), q(o.pos.y, P), q(o.heading, A), STATUS.indexOf(o.status), (o.light ? 1 : 0) | (o.exposed ? 2 : 0), WEAPON.indexOf(o.weapon), (o.vehicleId ?? -1) + 1]),
-      z: v.zombies.map((z) => [z.id, KIND.indexOf(z.kind), q(z.pos.x, P), q(z.pos.y, P), q(z.heading, A), q(z.speed, S), ACTION.indexOf(z.action), (z.staggerT > 0 ? 1 : 0) | (z.frozen ? 2 : 0)]),
+      o: v.others.map((o) => [o.id, q(o.pos.x, P), q(o.pos.y, P), q(o.heading, A), STATUS.indexOf(o.status), (o.light ? 1 : 0) | (o.exposed ? 2 : 0) | (o.crouched ? 4 : 0) | (o.hidden ? 8 : 0), WEAPON.indexOf(o.weapon), (o.vehicleId ?? -1) + 1, (o.roof ?? -1) + 1]),
+      z: v.zombies.map((z) => [z.id, KIND.indexOf(z.kind), q(z.pos.x, P), q(z.pos.y, P), q(z.heading, A), q(z.speed, S), ACTION.indexOf(z.action), (z.staggerT > 0 ? 1 : 0) | (z.frozen ? 2 : 0), (z.roof ?? -1) + 1]),
     };
     if (v.events.length) w.e = round2(v.events);
     if (Object.keys(c).length) w.c = c;
@@ -87,10 +87,11 @@ export function makeDecoder(): (w: WireSnap) => PlayerView {
     const others: OtherView[] = w.o.map((o) => ({
       id: o[0]!, pos: { x: o[1]! / P, y: o[2]! / P }, heading: o[3]! / A, status: STATUS[o[4]!]!, light: (o[5]! & 1) !== 0, exposed: (o[5]! & 2) !== 0,
       weapon: WEAPON[o[6]!] ?? null, vehicleId: o[7]! - 1 || null,
+      crouched: (o[5]! & 4) !== 0, hidden: (o[5]! & 8) !== 0, roof: (o[8] ?? 0) > 0 ? o[8]! - 1 : null,
     }));
     const zombies: ZombieView[] = w.z.map((z) => ({
       id: z[0]!, kind: KIND[z[1]!]!, pos: { x: z[2]! / P, y: z[3]! / P }, heading: z[4]! / A, speed: z[5]! / S, action: ACTION[z[6]!]!,
-      actionT: 0, staggerT: (z[7]! & 1) !== 0 ? 0.3 : 0, frozen: (z[7]! & 2) !== 0,
+      actionT: 0, staggerT: (z[7]! & 1) !== 0 ? 0.3 : 0, frozen: (z[7]! & 2) !== 0, roof: (z[8] ?? 0) > 0 ? z[8]! - 1 : null,
     }));
     const get = <T>(k: string, d: T) => (cold.has(k) ? (cold.get(k) as T) : d);
     return {

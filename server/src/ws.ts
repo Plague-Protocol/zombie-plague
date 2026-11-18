@@ -27,7 +27,7 @@ const frame = z.discriminatedUnion('t', [
   z.object({ t: z.literal('join'), code: z.string().length(5).regex(/^[A-Za-z]+$/) }),
   z.object({ t: z.literal('staked'), stack: z.string().regex(/^[A-Za-z0-9]{1,8}$/), roomId: z.string().regex(/^\d{1,18}$/) }),
   z.object({ t: z.literal('start') }),
-  z.object({ t: z.literal('in'), seq: int(0, 2 ** 31), i: z.tuple([int(-96, 96), int(-96, 96), int(0, 63)]) }),
+  z.object({ t: z.literal('in'), seq: int(0, 2 ** 31), i: z.tuple([int(-96, 96), int(-96, 96), int(0, 127)]) }),
   z.object({ t: z.literal('cmd'), c: cmd }),
   z.object({ t: z.literal('leave') }),
 ]);

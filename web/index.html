@@ -106,7 +106,7 @@
   #card h2 { margin: 0; font-size: 44px; letter-spacing: .35em; font-weight: 300; text-indent: .35em; }
   #card p { margin: 10px 0 0; font-size: 13px; letter-spacing: .25em; text-transform: uppercase; opacity: .7; }
 
-  #toast { position: fixed; top: 120px; left: 0; right: 0; text-align: center; font-weight: 600; pointer-events: none; font-size: 14px;
+  #toast { position: fixed; top: 120px; left: 8%; right: 8%; text-align: center; line-height: 1.3; font-weight: 600; pointer-events: none; font-size: 14px;
     text-shadow: 0 1px 3px #000; opacity: 0; transition: opacity .3s; z-index: 4; }
   #toast.on { opacity: 1; }
   #stick { position: fixed; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%; z-index: 4;
@@ -223,6 +223,10 @@
     border-color: rgba(255,233,196,.75); }
   #btn-light b { font-size: 12px; }
   #btn-light.off { border-color: rgba(255,255,255,.25); color: #99a; }
+  #btn-crouch { right: 232px; bottom: calc(env(safe-area-inset-bottom, 0px) + 112px); width: 50px; height: 50px; font-size: 8px; flex-direction: column;
+    border-color: rgba(160,190,255,.5); }
+  #btn-crouch b { font-size: 12px; }
+  #btn-crouch.on { background: rgba(120,150,230,.35); border-color: #a8c0ff; }
   @media (hover: hover) and (pointer: fine) { .pad { opacity: .75; } }
   /* the weapon store: a full page */
   #store { z-index: 9; background: radial-gradient(ellipse at top, #2a1714 0%, #0d0b0b 70%); justify-content: flex-start;
@@ -346,6 +350,7 @@
     #btn-throw b { font-size: 12px; }
     #btn-light { width: 46px; height: 46px; right: calc(var(--r) + 154px); bottom: calc(var(--b) + 88px); font-size: 8px; }
     #btn-light b { font-size: 11px; }
+    #btn-crouch { width: 46px; height: 46px; right: calc(var(--r) + 210px); bottom: calc(var(--b) + 78px); font-size: 7px; }
     #infection { width: 96px; }
     #subs { bottom: calc(var(--b) + 6px); left: 42%; width: min(36vw, 400px); }
     #talk { padding: 0 var(--r) calc(var(--b) + 8px) var(--l); }
@@ -413,6 +418,7 @@
 <div id="btn-reload" class="pad">&#8635;</div>
 <div id="btn-throw" class="pad"><b id="bottles">2</b>THROW</div>
 <div id="btn-light" class="pad"><b id="light-state">ON</b>LIGHT</div>
+<div id="btn-crouch" class="pad"><b id="crouch-state">&#9660;</b>CROUCH</div>
 <div id="btn-swap" class="pad"><b id="ammo">12/24</b><span id="weapon-name">Pistol</span></div>
 <div id="store" class="screen">
   <header><div><small>Weapon store</small><h1 id="store-name">HALDEN ARMS</h1></div><div class="cash" id="store-cash"></div></header>

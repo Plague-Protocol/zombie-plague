@@ -278,3 +278,26 @@ export const LUNGE_COOLDOWN = 1.0;
 export const LUNGE_ARC = 1.0; // radians either side of where a turned player faces
 export const SPAWN_APART = 40; // seats start at least this far from each other
 export const SPAWN_FROM_EXIT = 80; // and at least this many cells (walking) from the exit
+
+// ---- crouching, hiding and the roofs
+/** Crouched you move at this share of your speed, and they see you at this share of their usual distance. */
+export const CROUCH_SPEED = 0.5;
+export const CROUCH_SIGHT = 0.55;
+/** A hiding place within this reach can be got into. */
+export const HIDE_REACH = 1.5;
+/** Hidden, you are found only by one this close (or a stalker this close); and the ones already on you, within
+ * `HIDE_SEEN` when you went in, saw where you went. */
+export const HIDE_FOUND = 1.6;
+export const STALKER_FINDS = 5;
+export const HIDE_SEEN = 5;
+/** How far the stick must be pushed to step out of hiding. */
+export const HIDE_LEAVE = 0.5;
+/** A ladder within this reach can be climbed; climbing takes this long. */
+export const LADDER_REACH = 1.4;
+export const CLIMB_SECONDS = 1.1;
+/** Of them, only runners and stalkers climb, and slowly. */
+export const ZOMBIE_CLIMB_SECONDS = 2.6;
+/** From a roof your guns carry this much further. */
+export const ROOF_RANGE = 1.25;
+/** Ladders per district (on flat-roofed buildings, one each). */
+export const LADDERS = 10;

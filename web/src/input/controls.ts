@@ -5,7 +5,8 @@ const SQRT1_2 = Math.SQRT1_2;
 
 /**
  * Keyboard and touch. Movement: WASD/arrows or a floating stick (drag anywhere that is not a
- * button). Buttons: Fire (hold), Use, Reload, Swap, Throw, Light. Keys: Space fire, E use, R reload, Q swap, G throw, F light.
+ * button). Buttons: Fire (hold), Use, Reload, Swap, Throw, Light, Crouch. Keys: Space fire, E use, R reload, Q swap, G throw,
+ * F light, C crouch.
  * The stick's screen direction is rotated 45 degrees into world space (fixed camera yaw).
  */
 export class Controls {
@@ -14,7 +15,7 @@ export class Controls {
   private origin = { x: 0, y: 0 };
   private stickVec = { x: 0, y: 0 }; // screen space, y down
   private fireHeld = false;
-  private queued = { action: false, reload: false, swap: false, throw: false, light: false };
+  private queued = { action: false, reload: false, swap: false, throw: false, light: false, crouch: false };
   enabled = true;
 
   constructor(surface: HTMLElement, private stick: HTMLElement, private knob: HTMLElement) {
@@ -25,6 +26,7 @@ export class Controls {
       if (e.code === 'KeyR') this.queued.reload = true;
       if (e.code === 'KeyG') this.queued.throw = true;
       if (e.code === 'KeyF') this.queued.light = true;
+      if (e.code === 'KeyC' || e.code === 'ControlLeft') this.queued.crouch = true;
       if (e.code === 'KeyQ' || e.code === 'Tab') { this.queued.swap = true; e.preventDefault(); }
       if (e.code === 'Space') e.preventDefault();
     });
@@ -75,11 +77,12 @@ export class Controls {
     button('btn-swap', () => { this.queued.swap = true; });
     button('btn-throw', () => { this.queued.throw = true; });
     button('btn-light', () => { this.queued.light = true; });
+    button('btn-crouch', () => { this.queued.crouch = true; });
   }
 
   /** Forget presses made while the game was waiting (closing a message must not also press Use). */
   reset(): void {
-    this.queued = { action: false, reload: false, swap: false, throw: false, light: false };
+    this.queued = { action: false, reload: false, swap: false, throw: false, light: false, crouch: false };
     this.fireHeld = false;
     this.pointerId = null;
     this.stickVec = { x: 0, y: 0 };
@@ -105,8 +108,9 @@ export class Controls {
       swap: this.queued.swap,
       throw: this.queued.throw,
       light: this.queued.light,
+      crouch: this.queued.crouch,
     };
-    this.queued = { action: false, reload: false, swap: false, throw: false, light: false };
+    this.queued = { action: false, reload: false, swap: false, throw: false, light: false, crouch: false };
     return input;
   }
 }

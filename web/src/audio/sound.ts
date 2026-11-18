@@ -879,6 +879,10 @@ export class Sound {
         if (z) this.tear(panOf(z.pos.x, z.pos.y), 0.3);
       } else if (e.type === 'grabbed') this.thud(0.4);
       else if (e.type === 'task-done') this.chime();
+      else if (e.type === 'hide') this.thud(e.on ? 0.18 : 0.1);
+      else if (e.type === 'climbed') this.click(true);
+      else if (e.type === 'zombie-climbed' && e.up) this.thud(0.3);
+      else if (e.type === 'work-started' && e.kind === 'climb') this.click();
       else if (e.type === 'zombie-attack' || e.type === 'zombie-alert') {
         const z = s.zombies.find((q) => q.id === e.id);
         if (!z) continue;
@@ -903,8 +907,9 @@ export class Sound {
 
     const sp = playerSpeed(s);
     if (!car && sp > 0.3 && this.t > this.nextStep) {
-      this.footstep(Math.min(0.12, 0.04 + sp * 0.015));
-      this.nextStep = this.t + Math.max(0.24, 0.62 - sp * 0.07);
+      const low = s.player.crouched ? 0.3 : 1; // crouched: soft, slow steps
+      this.footstep(Math.min(0.12, 0.04 + sp * 0.015) * low);
+      this.nextStep = this.t + Math.max(0.24, 0.62 - sp * 0.07) * (s.player.crouched ? 1.4 : 1);
     }
 
     let nearest = Infinity;

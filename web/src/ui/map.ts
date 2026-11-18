@@ -55,7 +55,7 @@ export function drawBase(map: MapData, fallen: number[] = []): HTMLCanvasElement
   return c;
 }
 
-interface Marker { pos: Vec2; color: string; size: number; label?: string; shape?: 'dot' | 'square' | 'ring' | 'cash' | 'cross'; rim?: boolean }
+interface Marker { pos: Vec2; color: string; size: number; label?: string; shape?: 'dot' | 'square' | 'ring' | 'cash' | 'cross' | 'ladder'; rim?: boolean }
 
 export function markers(s: GameState): Marker[] {
   const out: Marker[] = [];
@@ -85,6 +85,7 @@ export function markers(s: GameState): Marker[] {
   for (const p of s.pickups) if (!p.taken && p.kind === 'jerrycan') out.push({ pos: p.pos, color: '#e05030', size: 3, shape: 'square' });
   for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan' && p.kind !== 'antiviral') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : p.kind === 'vest' || p.kind === 'helmet' ? '#8cc4ff' : '#f2d060', size: 3.5, shape: 'dot' });
   for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
+  for (const l of s.map.ladders) out.push({ pos: l.foot, color: '#d8b030', size: 3.4, shape: 'ladder', label: 'Ladder' }); // a way up
   return out;
 }
 
@@ -100,6 +101,14 @@ export function drawMarker(g: CanvasRenderingContext2D, m: Marker, x: number, y:
       const t = r * 0.42;
       g.fillStyle = '#06140b'; g.fillRect(x - r - 1, y - t - 1, r * 2 + 2, t * 2 + 2); g.fillRect(x - t - 1, y - r - 1, t * 2 + 2, r * 2 + 2);
       g.fillStyle = m.color; g.fillRect(x - r, y - t, r * 2, t * 2); g.fillRect(x - t, y - r, t * 2, r * 2);
+      break;
+    }
+    case 'ladder': {
+      g.lineWidth = Math.max(1, 1.2 * scale);
+      g.beginPath();
+      g.moveTo(x - r * 0.5, y - r); g.lineTo(x - r * 0.5, y + r); g.moveTo(x + r * 0.5, y - r); g.lineTo(x + r * 0.5, y + r);
+      for (const k of [-0.5, 0, 0.5]) { g.moveTo(x - r * 0.5, y + k * r); g.lineTo(x + r * 0.5, y + k * r); }
+      g.stroke();
       break;
     }
     case 'cash': g.fillRect(x - r, y - r, r * 2, r * 2); g.fillStyle = '#000'; g.font = `bold ${Math.round(r * 1.6)}px system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('$', x, y + 0.5); break;

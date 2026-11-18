@@ -9,6 +9,12 @@ export type ObstacleKind =
   | 'water' | 'store'
   | 'bus' | 'truck' | 'sandbag' | 'ambulance' | 'hospital';
 
+/** A ladder up a building's side: you stand at `foot` in the street to climb, and arrive at `top` on the roof, which
+ * runs over `roof` (the building's top, a little in from its edges) at `height`. `out` is the wall's outward normal. */
+export interface Ladder { id: number; building: number; foot: Vec2; top: Vec2; out: Vec2; roof: { x0: number; y0: number; x1: number; y1: number }; height: number }
+/** Somewhere to hide, beside something solid: `pos` is where you crouch. */
+export interface HideSpot { id: number; pos: Vec2; kind: 'dumpster' | 'wreck'; building: number }
+
 export type District = 'downtown' | 'residential' | 'park' | 'industrial' | 'outskirts' | 'water';
 /** What part of the city a chapter is in: the centre, the docks and rail yard, or the edge of town. */
 export type Theme = 'downtown' | 'docks' | 'edge';
@@ -75,6 +81,10 @@ export interface MapData {
   storefronts: Storefront[];
   /** Named places on the street (the checkpoint), for the map. Block landmarks live on blocks. */
   labels: Array<{ name: string; x: number; y: number }>;
+  /** Ladders up onto flat roofs (shops, warehouses, containers, the buses on their sides). */
+  ladders: Ladder[];
+  /** Places to hide: beside a dumpster, under a wreck. */
+  hides: HideSpot[];
   /** Spatial hash of obstacle indices, `gridCell` units per cell, `gridN` x `gridN` cells. */
   grid: number[][];
   gridCell: number;
@@ -196,6 +206,9 @@ export interface Zombie {
   frozen?: boolean;
   /** Your last self in this district. */
   husk?: boolean;
+  /** Up on a roof (the ladder it climbed), and how far up a ladder it has got (seconds). */
+  roof?: number | null;
+  climbT?: number;
 }
 
 export type VehicleKind = 'sedan' | 'pickup' | 'van' | 'bike';
@@ -313,6 +326,11 @@ export type Interaction =
   | { kind: 'alarm'; car: number }
   /** Look someone you are bringing in over for a bite (`who`: their place in the group). */
   | { kind: 'check'; who: number }
+  /** Up or down a ladder. */
+  | { kind: 'climb'; ladder: number; up: boolean }
+  /** Into a hiding place, or out of it. */
+  | { kind: 'hide'; spot: number }
+  | { kind: 'unhide' }
   /** Leave someone you found bitten. */
   | { kind: 'leave'; who: number };
 
@@ -370,7 +388,7 @@ export type GameEvent =
   | { type: 'bottle-smash'; pos: Vec2 }
   | { type: 'alarm-start'; car: number; pos: Vec2 }
   | { type: 'alarm-stop'; car: number }
-  | { type: 'work-started'; kind: 'search' | 'talk' | 'refuel' | 'check' }
+  | { type: 'work-started'; kind: Work['kind'] }
   | { type: 'gear-hit'; gear: GearKind; absorbed: number }
   | { type: 'gear-broken'; gear: GearKind }
   | { type: 'chapter-cleared'; chapter: number }
@@ -395,6 +413,10 @@ export type GameEvent =
   | { type: 'bitten'; seconds: number }
   /** A dose: the infection is held back by this many seconds. */
   | { type: 'antiviral'; seconds: number }
+  | { type: 'crouch'; on: boolean }
+  | { type: 'hide'; on: boolean; spot: number }
+  | { type: 'climbed'; ladder: number; up: boolean }
+  | { type: 'zombie-climbed'; id: number; up: boolean }
   /** The flashlight went on or off. */
   | { type: 'light'; on: boolean }
   /** The quiet breaks: one sound, somewhere close. Something is about to happen there. */
@@ -452,7 +474,7 @@ export interface Arsenal {
 
 /** A short job you stand still for: searching a house, talking to a survivor, refuelling a car, looking someone over. */
 export interface Work {
-  kind: 'search' | 'talk' | 'refuel' | 'check';
+  kind: 'search' | 'talk' | 'refuel' | 'check' | 'climb';
   id: number;
   progress: number; // 0..1
   seconds: number;
@@ -486,6 +508,12 @@ export interface Player {
   remaining: number;
   /** The flashlight. On, you see and are seen; off, they have to be much closer to notice you. */
   light: boolean;
+  /** Crouched: slow and quiet, and much harder to spot. */
+  crouched: boolean;
+  /** Hidden in a hiding place (its id), or not. */
+  hide: number | null;
+  /** On a roof (the ladder you came up), or on the ground. */
+  roof: number | null;
   /** Seconds to your next cough, once the infection is far enough along. */
   coughT: number;
   hold: { taskId: TaskId | null; progress: number };
@@ -542,4 +570,6 @@ export interface Input {
   throw?: boolean;
   /** Flashlight on/off was pressed this step (edge). */
   light?: boolean;
+  /** Crouch / stand was pressed this step (edge). */
+  crouch?: boolean;
 }

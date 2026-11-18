@@ -227,7 +227,7 @@ describe('what each seat is told', () => {
     g.players[1]!.health = 61;
     const v = viewFor(g, 0);
     expect(v.others.length).toBe(1);
-    expect(Object.keys(v.others[0]!).sort()).toEqual(['exposed', 'heading', 'id', 'light', 'pos', 'status', 'vehicleId', 'weapon']);
+    expect(Object.keys(v.others[0]!).sort()).toEqual(['crouched', 'exposed', 'heading', 'hidden', 'id', 'light', 'pos', 'roof', 'status', 'vehicleId', 'weapon']);
     expect(JSON.stringify(v.others)).not.toContain('123.456');
     expect(v.you.health).toBe(PLAYER_HEALTH);
     expect('flow' in v.you).toBe(false);

@@ -25,6 +25,9 @@ function useLabel(s: GameState, it: Interaction | null): string | null {
     case 'check': return `CHECK ${escortGroup(s)[it.who]?.name ?? ''}`.trim().toUpperCase();
     case 'leave': return `LEAVE ${escortGroup(s)[it.who]?.name ?? ''}`.trim().toUpperCase();
     case 'task': { const t = s.tasks.find((x) => x.id === it.taskId); return t ? verbFor(t) : 'USE'; }
+    case 'climb': return it.up ? 'CLIMB' : 'CLIMB DOWN';
+    case 'hide': return 'HIDE';
+    case 'unhide': return 'COME OUT';
   }
 }
 
@@ -80,6 +83,7 @@ export class Hud {
   private infBar = $('infection-bar');
   private lightBtn = $('btn-light');
   private lightState = $('light-state');
+  private crouchBtn = $('btn-crouch');
   private lastInf = -1;
   private lastClock = '';
   private toastTimer = 0;
@@ -181,6 +185,8 @@ export class Hud {
       this.carHealth.style.color = fuel < 15 || on > 0 || hp < 40 ? '#ff8a6a' : '';
     }
     this.lightBtn.style.display = car ? 'none' : 'flex';
+    this.crouchBtn.style.display = car || s.player.hide !== null ? 'none' : 'flex';
+    if (this.crouchBtn.classList.contains('on') !== s.player.crouched) this.crouchBtn.classList.toggle('on', s.player.crouched);
     if (this.lightBtn.classList.contains('off') === s.light) {
       this.lightBtn.classList.toggle('off', !s.light);
       this.lightState.textContent = s.light ? 'ON' : 'OFF';

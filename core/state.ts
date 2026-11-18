@@ -6,7 +6,8 @@ import {
   RUN_OVER_SPEED, RUNNER_SIGHT, RUNNER_SPEED, SAFEHOUSE_RADIUS, SPAWNS_BY_TIER, SPEED_BOOST, TASK_HOLD_SECONDS,
   TASK_RADIUS, TIER_THRESHOLDS, USE_RADIUS, VEHICLES, WALKER_SIGHT_BY_TIER, WALKER_SPEED_BY_TIER, WAVE_SPAWN_MAX_DIST,
   ZOMBIE_ACTIVE_RADIUS, ZOMBIE_CAP, ZOMBIE_RADIUS, ZOMBIE_SPAWN_MIN_DIST, ZOMBIES_PER_BLOCK,
-  AIM_CONE, ALERT_SECONDS, BITE_SECONDS, BODY, BODY_SLOW, CORPSES_KEPT, SEATS, SWARM, SWARM_EVERY, SWARM_SPEED, BREACH_AT, CHASE, CHASE_ALERT, GUARD_CHANCE, GUARDS, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
+  AIM_CONE, ALERT_SECONDS, BITE_SECONDS, BODY, BODY_SLOW, CLIMB_SECONDS, CORPSES_KEPT, CROUCH_SIGHT, CROUCH_SPEED, HIDE_FOUND, HIDE_LEAVE, HIDE_REACH, HIDE_SEEN,
+  LADDER_REACH, ROOF_RANGE, STALKER_FINDS, ZOMBIE_CLIMB_SECONDS, SEATS, SWARM, SWARM_EVERY, SWARM_SPEED, BREACH_AT, CHASE, CHASE_ALERT, GUARD_CHANCE, GUARDS, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
   LATCH_MAX, LATCH_SHAKE_SPEED, AMMO_PRICES, GUNS, KILL_REWARD, MEDKIT_PRICE, MELEE, MELEE_KNOCKBACK, PICKUP_RADIUS,
   SAFE_AFTER, STAGGER_SECONDS, START_AMMO, START_FUNDS, STORE_DOOR_RADIUS, UPGRADE_BASE, UPGRADE_EFFECT, UPGRADE_FACTOR,
   UPGRADE_LEVELS, WEAPON_PRICES, ZOMBIE_HEALTH,
@@ -31,6 +32,7 @@ import { generateLevel, type Level } from './level';
 import { cellOf, distanceField, onStreets, STREET, UNREACHABLE } from './map';
 import { createRng, fork, next, pick, range, shuffle, type Rng } from './rng';
 import type {
+  Ladder,
   Abandoned, Alarm, Arsenal, Player, Work, House, Husk, Loot, PickupKind, Survivor, Thrown,
   Crate, Escort, GameEvent, Placement, GearKind, GunKind, Input, Interaction, LossReason, MapData, MeleeKind, Phase, Pickup, Store, StoreItem, Task,
   TaskId, Vec2, Vehicle, WeaponKind, Zombie, ZombieKind,
@@ -102,7 +104,7 @@ export function meleeStats(a: Arsenal, w: MeleeKind) {
  * turn (and at each zombie's chosen target). In a solo run there is one player and `cur` never moves.
  */
 const FORWARDED = [
-  'arsenal', 'funds', 'kills', 'remaining', 'light', 'coughT', 'hold', 'work', 'safeT', 'speedMul', 'inFallen', 'storeLatch',
+  'arsenal', 'funds', 'kills', 'remaining', 'light', 'crouched', 'hide', 'roof', 'coughT', 'hold', 'work', 'safeT', 'speedMul', 'inFallen', 'storeLatch',
   'lockedNotice', 'killerId', 'flow', 'flowCell', 'escort', 'escortLost', 'pumping', 'dangerT', 'engineT', 'swarmT',
 ] as const;
 type Forwarded = Pick<Player, (typeof FORWARDED)[number]>;
@@ -183,7 +185,7 @@ function bindPlayer(s: GameState): void {
 function newPlayer(id: number, at: Vec2, carry: Carry, cells: number, limit: number): Player {
   return {
     id, status: 'alive', pos: { ...at }, vel: { x: 0, y: 0 }, heading: 0, health: carry.health, invuln: 0, vehicleId: null, slowT: 0,
-    arsenal: cloneArsenal(carry.arsenal), funds: carry.funds, kills: carry.kills, remaining: limit, light: true, coughT: 3,
+    arsenal: cloneArsenal(carry.arsenal), funds: carry.funds, kills: carry.kills, remaining: limit, light: true, crouched: false, hide: null, roof: null, coughT: 3,
     hold: { taskId: null, progress: 0 }, work: null, safeT: 0, speedMul: 1, inFallen: false, storeLatch: null, lockedNotice: null,
     killerId: null, flow: new Int16Array(cells), flowCell: -1, escort: null, escortLost: false, pumping: false, dangerT: 0, engineT: 0,
     swarmT: 0, downT: 0, lungeCd: 0, bitten: false, checks: {}, exposed: false, escapedAt: null,
@@ -360,7 +362,7 @@ function depsMet(s: GameState, t: Task): boolean {
 /** Working an objective or talking to someone (or just finished): zombies hold back. */
 export function isBusy(s: GameState): boolean {
   if (s.mode === 'room') return false; // in a room nobody works under cover: the zombies do not wait
-  return s.hold.taskId !== null || s.work !== null || s.safeT > 0;
+  return s.hold.taskId !== null || (s.work !== null && s.work.kind !== 'climb') || s.safeT > 0; // climbing is not cover
 }
 
 export function playerVehicle(s: GameState): Vehicle | null {
@@ -373,10 +375,119 @@ export function playerSpeed(s: GameState): number {
 }
 
 function refreshFlow(s: GameState): void {
-  const c = cellOf(s.map, s.player.pos);
+  const at = s.player.roof !== null ? s.map.ladders[s.player.roof]!.foot : s.player.pos; // up on a roof: the foot of your ladder
+  const c = cellOf(s.map, at);
   if (c === s.flowCell) return;
   s.flowCell = c;
-  withVehiclesBlocked(s, () => distanceField(s.map, s.player.pos, s.flow));
+  withVehiclesBlocked(s, () => distanceField(s.map, at, s.flow));
+}
+
+// ---------------------------------------------------------------- crouching, hiding, the roofs
+
+/** How high a player stands: on a roof, its height; on the ground, 0. */
+export function heightOf(s: GameState, pl: Player = s.player): number {
+  return pl.roof === null ? 0 : s.map.ladders[pl.roof]?.height ?? 0;
+}
+
+/** Keep a point on a ladder's roof. */
+function onRoof(l: Ladder, p: Vec2): void {
+  p.x = Math.max(l.roof.x0, Math.min(l.roof.x1, p.x));
+  p.y = Math.max(l.roof.y0, Math.min(l.roof.y1, p.y));
+}
+
+/** The zombies that climb (the rest gather at the foot of the ladder). */
+const climbs = (z: Zombie) => z.kind === 'runner' || z.kind === 'stalker';
+
+function toggleCrouch(s: GameState): void {
+  if (s.player.vehicleId !== null || s.player.hide !== null) return;
+  s.player.crouched = !s.player.crouched;
+  s.events.push({ type: 'crouch', on: s.player.crouched });
+}
+
+/** Into a hiding place: the ones already on you, close by, saw where you went; the rest lose you. */
+function hideIn(s: GameState, spot: number): void {
+  const h = s.map.hides[spot];
+  if (!h) return;
+  const pl = s.player;
+  pl.hide = spot;
+  pl.pos = { ...h.pos };
+  pl.vel = { x: 0, y: 0 };
+  pl.crouched = false;
+  s.hold.taskId = null;
+  s.hold.progress = 0;
+  s.work = null;
+  for (const z of s.zombies) {
+    if (z.action === 'dead' || z.action === 'dormant') continue;
+    const d = dist(z.pos, pl.pos), after = z.action === 'chase' || z.action === 'attack' || z.alertT > 0;
+    if (after && d < HIDE_SEEN) { z.alertT = Math.max(z.alertT, 4); continue; }
+    if (after) { z.alertT = 0; z.action = 'idle'; z.lureT = 0; }
+  }
+  s.events.push({ type: 'hide', on: true, spot });
+}
+
+function leaveHide(s: GameState): void {
+  const spot = s.player.hide;
+  if (spot === null) return;
+  s.player.hide = null;
+  s.events.push({ type: 'hide', on: false, spot });
+}
+
+/**
+ * The roof rules for one zombie, when it or the player it is after is up on one. Returns true when it has had its
+ * turn. One on the ground after a player up top: the climbers go up the ladder (it takes them a while at its foot);
+ * the rest only crowd round below. One on a roof: after a player on the same roof it comes straight on and attacks as
+ * on the ground; otherwise it goes back down.
+ */
+function roofTurn(s: GameState, z: Zombie, dt: number, d: number, aRange: number): { done: boolean; reach: boolean } {
+  const up = s.player.roof, zr = z.roof ?? null;
+  if (zr === null) {
+    if (up === null) return { done: false, reach: true };
+    const l = s.map.ladders[up]!;
+    if (climbs(z) && dist(z.pos, l.foot) < 1.3) {
+      z.climbT = (z.climbT ?? 0) + dt;
+      z.speed = 0;
+      z.heading = datan2(-l.out.y, -l.out.x);
+      z.action = 'chase';
+      if (z.climbT >= ZOMBIE_CLIMB_SECONDS) {
+        z.climbT = 0;
+        z.roof = up;
+        z.pos = { ...l.top };
+        s.events.push({ type: 'zombie-climbed', id: z.id, up: true });
+      }
+      return { done: true, reach: false };
+    }
+    z.climbT = 0;
+    return { done: false, reach: false }; // it can come for you, but it cannot reach you
+  }
+  const l = s.map.ladders[zr]!;
+  const before = { x: z.pos.x, y: z.pos.y };
+  if (up === zr) { // on your roof: straight at you
+    if (d < aRange && z.cooldown <= 0) {
+      z.action = 'attack';
+      z.actionT = ATTACK_WINDUP[z.kind];
+      z.speed = 0;
+      s.events.push({ type: 'zombie-attack', id: z.id });
+      return { done: true, reach: true };
+    }
+    const own = (z.kind === 'runner' ? RUNNER_SPEED : STALKER_SPEED) * s.zombieMul;
+    const dx = s.player.pos.x - z.pos.x, dy = s.player.pos.y - z.pos.y;
+    if (d > 1e-6) { z.pos.x += (dx / d) * own * dt; z.pos.y += (dy / d) * own * dt; z.heading = datan2(dy, dx); }
+    z.action = 'chase';
+  } else { // you went down (or were never up here): back to the ladder, and down it
+    const dx = l.top.x - z.pos.x, dy = l.top.y - z.pos.y, dl = dhypot(dx, dy);
+    if (dl < 0.8) {
+      z.roof = null;
+      z.pos = { ...l.foot };
+      s.events.push({ type: 'zombie-climbed', id: z.id, up: false });
+      return { done: true, reach: false };
+    }
+    z.pos.x += (dx / dl) * WALKER_SPEED_BY_TIER[0] * dt; z.pos.y += (dy / dl) * WALKER_SPEED_BY_TIER[0] * dt;
+    z.heading = datan2(dy, dx);
+    z.action = 'wander';
+  }
+  onRoof(l, z.pos);
+  z.speed = dt > 0 ? dhypot(z.pos.x - before.x, z.pos.y - before.y) / dt : 0;
+  return { done: true, reach: up === zr };
 }
 
 /** Run a path search with the cells under vehicles treated as blocked, so paths go around cars. */
@@ -440,13 +551,13 @@ export function inLight(s: GameState, pos: Vec2): boolean {
   const p = s.player.pos, dx = pos.x - p.x, dy = pos.y - p.y, d = dhypot(dx, dy);
   if (d > LIGHT_RANGE[k]) return false;
   if (d > 1.2 && Math.abs(wrap(datan2(dy, dx) - s.player.heading)) > LIGHT_HALF_ANGLE[k]) return false;
-  return lineClear(s.map, p, pos, 0.2);
+  return s.player.roof !== null || lineClear(s.map, p, pos, 0.2); // from a roof the beam goes over the walls
 }
 
 /** How well they see you right now: worse with your light off and as you become one of them, better where the
  * district has fallen. */
 export function sightScale(s: GameState): number {
-  let k = lightOn(s) ? 1 : LIGHT_OFF_SIGHT;
+  let k = (lightOn(s) ? 1 : LIGHT_OFF_SIGHT) * (s.player.crouched ? CROUCH_SIGHT : 1);
   const inf = infection(s);
   if (inf > 0.5) k *= 1 - INFECTED_CAMO * (inf - 0.5) * 2;
   if (s.inFallen) k *= FALLEN_SIGHT;
@@ -845,7 +956,7 @@ function pickTarget(s: GameState, z: Zombie, dt: number): Player | null {
     let best = ZOMBIE_ACTIVE_RADIUS;
     for (const q of s.players) {
       if (q.status !== 'alive') continue;
-      const d = dist(z.pos, q.pos);
+      const d = dist(z.pos, q.pos) + (q.roof !== null && !climbs(z) ? 15 : 0) + (q.hide !== null ? 10 : 0); // out of reach, or out of sight
       if (d < best) { best = d; t = q; }
     }
     if (t) { z.targetId = t.id; z.targetT = TARGET_HOLD; }
@@ -1018,15 +1129,17 @@ function stepRoom(s: GameState, inputs: readonly Input[], dt: number): GameState
 /** What a living player does in one step of a room (the single-player step, for one body, without vehicles or company). */
 function playerTurn(s: GameState, pl: Player, input: Input, dt: number): void {
   if (input.light) { pl.light = !pl.light; s.events.push({ type: 'light', on: pl.light }); }
+  if (input.crouch) toggleCrouch(s);
   if (input.action) interact(s);
   pl.slowT = Math.max(0, pl.slowT - dt);
-  updateWeapons(s, input, dt);
-  if (input.throw) throwBottle(s);
-  takePickups(s);
-  takeParts(s);
+  if (pl.hide === null) { // hidden: you keep still and keep quiet
+    updateWeapons(s, input, dt);
+    if (input.throw) throwBottle(s);
+  }
+  if (pl.roof === null && pl.hide === null) { takePickups(s); takeParts(s); }
   guardCurrent(s);
   movePlayer(s, input, dt);
-  enterStores(s);
+  if (pl.roof === null) enterStores(s);
   updateWork(s, dt);
   updateSurvivors(s);
   updateClear(s);
@@ -1063,16 +1176,17 @@ export function step(s: GameState, inputs: Input | readonly Input[], dt: number)
   }
   spread(s);
   if (input.light && s.player.vehicleId === null) { s.light = !s.light; s.events.push({ type: 'light', on: s.light }); }
+  if (input.crouch) toggleCrouch(s);
 
   if (input.action) interact(s);
   s.player.invuln = Math.max(0, s.player.invuln - dt);
   s.player.slowT = Math.max(0, s.player.slowT - dt);
-  if (s.player.vehicleId === null) {
+  if (s.player.vehicleId === null && s.player.hide === null) { // hidden: you keep still and keep quiet
     updateWeapons(s, input, dt);
     if (input.throw) throwBottle(s);
-    takePickups(s);
+    if (s.player.roof === null) takePickups(s);
   }
-  takeParts(s);
+  if (s.player.roof === null && s.player.hide === null) takeParts(s);
   guardCurrent(s);
 
   const driving = playerVehicle(s);
@@ -1095,7 +1209,7 @@ export function step(s: GameState, inputs: Input | readonly Input[], dt: number)
     s.player.heading = still.heading;
   }
 
-  enterStores(s);
+  if (s.player.roof === null) enterStores(s);
   updateWork(s, dt);
   updateThrown(s, dt);
   updateAlarms(s, dt);
@@ -1133,6 +1247,12 @@ export function interactionFor(s: GameState): Interaction | null {
   const v = playerVehicle(s);
   if (v) return { kind: 'exit', vehicleId: v.id };
   const p = s.player.pos;
+  if (s.player.hide !== null) return { kind: 'unhide' };
+  if (s.work?.kind === 'climb') return null;
+  if (s.player.roof !== null) { // up top there is only the way down
+    const l = s.map.ladders[s.player.roof]!;
+    return dist(l.top, p) < LADDER_REACH ? { kind: 'climb', ladder: l.id, up: false } : null;
+  }
   const task = s.tasks.find((t) => !t.done && isRevealed(s, t) && s.hold.taskId !== t.id && dist(t.pos, p) < TASK_RADIUS
     && (!t.got || t.got.every(Boolean)) && t.kind !== 'clear');
   if (task) return { kind: 'task', taskId: task.id };
@@ -1145,6 +1265,8 @@ export function interactionFor(s: GameState): Interaction | null {
   if (house) return { kind: 'house', houseId: house.id };
   const crate = s.crates.find((c) => !c.opened && dist(c.pos, p) < USE_RADIUS * 0.75);
   if (crate) return { kind: 'crate', crateId: crate.id };
+  const ladder = s.map.ladders.find((l) => dist(l.foot, p) < LADDER_REACH);
+  if (ladder && s.player.slowT <= 0 && !s.escort) return { kind: 'climb', ladder: ladder.id, up: true }; // not with one on your leg, nor with people who cannot follow
   let best: Vehicle | null = null, bestD = 1.6;
   for (const c of s.vehicles) {
     if (c.wrecked) continue;
@@ -1167,6 +1289,10 @@ export function interactionFor(s: GameState): Interaction | null {
       if (seat >= 0) return { kind: 'check', who: seat };
     }
   }
+  // last of all: somewhere to hide
+  let hide = -1, hd = HIDE_REACH;
+  for (const h of s.map.hides) { const d = dist(h.pos, p); if (d < hd) { hd = d; hide = h.id; } }
+  if (hide >= 0 && !s.escort) return { kind: 'hide', spot: hide }; // not with people to look after
   return null;
 }
 
@@ -1234,6 +1360,9 @@ function interact(s: GameState): void {
     case 'alarm': startAlarm(s, it.car); break;
     case 'check': startWork(s, 'check', it.who, CHECK_SECONDS); break;
     case 'leave': { const m = escortGroup(s)[it.who]; if (m) leaveBehind(s, m); break; }
+    case 'climb': s.player.crouched = false; startWork(s, 'climb', it.ladder, CLIMB_SECONDS); break;
+    case 'hide': hideIn(s, it.spot); break;
+    case 'unhide': leaveHide(s); break;
   }
 }
 
@@ -1266,6 +1395,7 @@ function startWork(s: GameState, kind: Work['kind'], id: number, seconds: number
 }
 
 function workTarget(s: GameState, w: Work): Vec2 | null {
+  if (w.kind === 'climb') { const l = s.map.ladders[w.id]; return l ? (s.player.roof === null ? l.foot : l.top) : null; }
   if (w.kind === 'search') return s.houses.find((h) => h.id === w.id)?.pos ?? null;
   if (w.kind === 'talk') return s.survivors.find((v) => v.id === w.id)?.pos ?? null;
   if (w.kind === 'check') return s.mode === 'room' ? (s.players[w.id]?.status === 'alive' ? s.players[w.id]!.pos : null) : escortGroup(s)[w.id]?.pos ?? null;
@@ -1281,6 +1411,15 @@ function updateWork(s: GameState, dt: number): void {
   w.progress += dt / w.seconds;
   if (w.progress < 1) return;
   s.work = null;
+  if (w.kind === 'climb') { // at the top (or the bottom)
+    const l = s.map.ladders[w.id]!, up = s.player.roof === null;
+    s.player.roof = up ? l.id : null;
+    s.player.pos = { ...(up ? l.top : l.foot) };
+    s.player.vel = { x: 0, y: 0 };
+    s.flowCell = -1;
+    s.events.push({ type: 'climbed', ladder: l.id, up });
+    return;
+  }
   s.safeT = SAFE_AFTER;
   if (w.kind === 'search') {
     const h = s.houses.find((x) => x.id === w.id)!;
@@ -1505,6 +1644,7 @@ export function hurtPlayer(s: GameState, amount: number): number {
     if (s.arsenal.gear[g] <= 1e-6) { s.arsenal.gear[g] = 0; s.events.push({ type: 'gear-broken', gear: g }); }
   }
   s.player.health -= through;
+  if (s.player.hide !== null) leaveHide(s); // found, and dragged out
   return through;
 }
 
@@ -1609,14 +1749,14 @@ export function equip(s: GameState, w: WeaponKind): boolean {
 }
 
 /** Where the first obstacle blocks a ray, as a distance (Infinity if none within range). */
-function rayToWall(s: GameState, from: Vec2, dx: number, dy: number, range: number): number {
+function rayToWall(s: GameState, from: Vec2, dx: number, dy: number, range: number, over = heightOf(s)): number {
   const near: number[] = [];
   for (let t = 0.5; t <= range; t += 0.5) {
     const x = from.x + dx * t, y = from.y + dy * t;
     if (x < 0 || y < 0 || x > s.map.size || y > s.map.size) return t;
     for (const idx of nearbyObstacles(s.map, { x, y }, 0.1, near)) {
       const b = s.map.buildings[idx]!;
-      if (b.kind === 'water' || b.height < 1.2) continue; // shoot over water, fences, barrels
+      if (b.kind === 'water' || b.height < 1.2 || b.height <= over + 0.5) continue; // shoot over water, fences, barrels (and from a roof, anything lower)
       if (x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h) return t;
     }
   }
@@ -1625,11 +1765,13 @@ function rayToWall(s: GameState, from: Vec2, dx: number, dy: number, range: numb
 
 /** Aim assist: the best zombie in front of you within range and in the open, if any. */
 export function aimTarget(s: GameState, w: WeaponKind): Zombie | null {
-  const range = isGun(w) ? GUNS[w].range : MELEE[w].range + 1.5; // melee turns you to face one in reach
+  const range = isGun(w) ? GUNS[w].range * (s.player.roof !== null ? ROOF_RANGE : 1) : MELEE[w].range + 1.5; // melee turns you to face one in reach
+  const level = s.player.roof;
   const p = s.player.pos;
   let best: Zombie | null = null, bestScore = Infinity;
   for (const z of s.zombies) {
     if (z.action === 'dead' || z.action === 'dormant') continue; // it never picks out a body: you find out the hard way
+    if (!isGun(w) && (z.roof ?? null) !== level) continue; // a swing only reaches the ones on your level
     const dx = z.pos.x - p.x, dy = z.pos.y - p.y, d = dhypot(dx, dy);
     if (d > range || d < 1e-3) continue;
     const off = Math.abs(wrap(datan2(dy, dx) - s.player.heading));
@@ -1723,8 +1865,9 @@ function updateWeapons(s: GameState, input: Input, dt: number): void {
   for (let k = 0; k < spec.pellets; k++) {
     const ang = aim + (next(s.rng) - 0.5) * spec.spread;
     const dx = dcos(ang), dy = dsin(ang);
-    const wall = rayToWall(s, p, dx, dy, spec.range);
-    const reach = Math.min(spec.range, wall);
+    const far = spec.range * (s.player.roof !== null ? ROOF_RANGE : 1);
+    const wall = rayToWall(s, p, dx, dy, far);
+    const reach = Math.min(far, wall);
     // first zombie the ray passes through
     let hit: Zombie | null = null, hitT = reach;
     for (const z of s.zombies) {
@@ -1737,7 +1880,7 @@ function updateWeapons(s: GameState, input: Input, dt: number): void {
     }
     const vic = s.mode === 'room' ? playerOnRay(s, p, dx, dy, hitT) : null; // in a room the first thing on the line may be a person
     if (vic) { hit = null; hitT = vic.t; }
-    const dmg = spec.damage * (hitT > spec.range * 0.6 ? 0.7 : 1);
+    const dmg = spec.damage * (hitT > far * 0.6 ? 0.7 : 1);
     if (vic) hurtOther(s, s.cur, vic.who, dmg);
     else if (hit) hurtZombie(s, hit, dmg, dx, dy, STAGGER_SECONDS, 0.25, true);
     if (k === 0) s.events.push({ type: 'shot', weapon: w, from: { ...p }, to: { x: p.x + dx * hitT, y: p.y + dy * hitT }, hit: hit?.id ?? null });
@@ -1769,7 +1912,7 @@ function swingMelee(s: GameState, w: MeleeKind, input: Input): void {
   a.fireCd = spec.interval;
   a.swing++;
   const inArc = s.zombies
-    .filter((z) => z.action !== 'dead')
+    .filter((z) => z.action !== 'dead' && (z.roof ?? null) === s.player.roof) // only the ones on your level
     .map((z) => ({ z, d: dist(z.pos, p) }))
     .filter(({ z, d }) => d < spec.range + ZOMBIE_RADIUS && (d < 0.8 || Math.abs(wrap(datan2(z.pos.y - p.y, z.pos.x - p.x) - s.player.heading)) < spec.arc / 2))
     .sort((x, y) => x.d - y.d)
@@ -1833,8 +1976,14 @@ export function movePlayer(s: GameState, input: Input, dt: number): void {
   let dx = input.dx, dy = input.dy;
   const len = dhypot(dx, dy);
   if (len > 1) { dx /= len; dy /= len; }
+  if (s.player.hide !== null) { // hidden: a firm push on the stick steps you out
+    if (len < HIDE_LEAVE) { s.player.vel = { x: 0, y: 0 }; return; }
+    leaveHide(s);
+  }
+  if (s.work?.kind === 'climb') { s.player.vel = { x: 0, y: 0 }; return; } // on the ladder
   const top = PLAYER_SPEED * s.speedMul * (1 + (s.arsenal.perks?.speed ?? 0)) * (s.player.slowT > 0 ? GRAB_SLOW : 1) // a crawler on your leg
-    * (onBody(s, s.player.pos) ? BODY_SLOW : 1); // stepping over the dead
+    * (s.player.roof === null && onBody(s, s.player.pos) ? BODY_SLOW : 1) // stepping over the dead
+    * (s.player.crouched ? CROUCH_SPEED : 1);
   const tx = dx * top, ty = dy * top; // analog: a light push walks, a full push runs
   const v = s.player.vel;
   const ex = tx - v.x, ey = ty - v.y;
@@ -1846,8 +1995,11 @@ export function movePlayer(s: GameState, input: Input, dt: number): void {
   const before = { x: s.player.pos.x, y: s.player.pos.y };
   s.player.pos.x += v.x * dt;
   s.player.pos.y += v.y * dt;
-  resolve(s.map, s.player.pos, PLAYER_RADIUS);
-  for (const c of s.vehicles) pushOutOfVehicle(c, s.player.pos, PLAYER_RADIUS);
+  if (s.player.roof !== null) onRoof(s.map.ladders[s.player.roof]!, s.player.pos); // the roof's edge is your wall
+  else {
+    resolve(s.map, s.player.pos, PLAYER_RADIUS);
+    for (const c of s.vehicles) pushOutOfVehicle(c, s.player.pos, PLAYER_RADIUS);
+  }
   // sliding along a wall: keep only the velocity that actually happened
   if (dt > 0) { v.x = (s.player.pos.x - before.x) / dt; v.y = (s.player.pos.y - before.y) / dt; }
   if (len > 0.05) s.player.heading = datan2(dy, dx);
@@ -2371,7 +2523,7 @@ function updateZombies(s: GameState, dt: number): void {
       if (z.actionT > 0) continue;
       z.action = 'chase';
       z.cooldown = ATTACK_COOLDOWN;
-      if (d >= aReach) continue; // missed
+      if (d >= aReach || (z.roof ?? null) !== s.player.roof) continue; // missed (or you went up out of reach)
       if (car) {
         if (Math.abs(car.speed) < 8.5 && !latchOn(s, z, car)) { // no room left on it: it beats on the body
           s.events.push({ type: 'vehicle-crash', id: car.id, force: 2 });
@@ -2407,6 +2559,10 @@ function updateZombies(s: GameState, dt: number): void {
       continue;
     }
 
+    // the roofs: up after you, crowding the ladder's foot, or back down
+    const rt = roofTurn(s, z, dt, d, aRange);
+    if (rt.done) continue;
+
     // drawn to a noise: walk to it and mill about, unless you are right there
     if ((z.lureT ?? 0) > 0 && z.lure && d > 4.5) {
       z.lureT = (z.lureT ?? 0) - dt;
@@ -2426,13 +2582,15 @@ function updateZombies(s: GameState, dt: number): void {
     }
 
     // a stalker knows where you are whatever you do; the rest see less of you in the dark, or once you are nearly one of them
+    const hidden = s.player.hide !== null; // hidden: only the ones that saw you go in, or come right up to you, know
     const sight = z.alertT > 0 ? Infinity
+      : hidden ? (d < HIDE_FOUND || (z.kind === 'stalker' && d < STALKER_FINDS) ? Infinity : 0)
       : z.kind === 'stalker' ? STALKER_SENSE
         : (z.kind === 'runner' ? RUNNER_SIGHT : z.kind === 'screamer' ? SCREAMER_SIGHT : z.kind === 'crawler' ? CRAWLER_SIGHT : WALKER_SIGHT_BY_TIER[s.tier]!) * seen;
     const own = z.kind === 'runner' ? RUNNER_SPEED : z.kind === 'stalker' ? STALKER_SPEED : z.kind === 'crawler' ? CRAWLER_SPEED : walk;
     const chaseSpeed = (ride && z.alertT > 0 && z.kind !== 'crawler' ? (z.kind === 'runner' ? SWARM_SPEED : Math.max(own, walk * 1.5)) : own) * s.zombieMul;
 
-    if (d < aRange && z.cooldown <= 0 && !(ride && Math.abs(ride.speed) > (car ? 8 : 3))) {
+    if (rt.reach && d < aRange && z.cooldown <= 0 && !(ride && Math.abs(ride.speed) > (car ? 8 : 3))) {
       z.action = 'attack';
       z.actionT = ATTACK_WINDUP[z.kind];
       z.speed = 0;
@@ -2512,9 +2670,11 @@ function updateZombies(s: GameState, dt: number): void {
 /** Push overlapping zombies apart so a crowd spreads out instead of stacking. */
 function separate(s: GameState): void {
   const zs = s.zombies.filter((z) => z.action !== 'dead' && z.action !== 'dormant' && z.latch == null && nearestPlayerDist(s, z.pos) < ZOMBIE_ACTIVE_RADIUS);
+  const level = (z: Zombie) => z.roof ?? -1;
   const min = ZOMBIE_RADIUS * 2;
   for (let i = 0; i < zs.length; i++) {
     for (let j = i + 1; j < zs.length; j++) {
+      if (level(zs[i]!) !== level(zs[j]!)) continue; // one up a roof, one below: no shoving
       const a = zs[i]!.pos, b = zs[j]!.pos;
       const dx = b.x - a.x, dy = b.y - a.y;
       const d = dhypot(dx, dy);
@@ -2524,5 +2684,5 @@ function separate(s: GameState): void {
       b.x += (dx / d) * push; b.y += (dy / d) * push;
     }
   }
-  for (const z of zs) resolve(s.map, z.pos, ZOMBIE_RADIUS);
+  for (const z of zs) { if (z.roof != null) onRoof(s.map.ladders[z.roof]!, z.pos); else resolve(s.map, z.pos, ZOMBIE_RADIUS); }
 }

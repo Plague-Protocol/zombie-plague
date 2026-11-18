@@ -15,8 +15,8 @@ export const AUTO_START_AT = 4; // seats filled before the countdown starts
 export const AUTO_START_SECONDS = 20;
 export const RESULTS_KEPT_SECONDS = 60;
 const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-const BUTTON_BITS = { action: 1, fire: 2, reload: 4, swap: 8, throw: 16, light: 32 } as const;
-const EDGES = BUTTON_BITS.action | BUTTON_BITS.reload | BUTTON_BITS.swap | BUTTON_BITS.throw | BUTTON_BITS.light;
+const BUTTON_BITS = { action: 1, fire: 2, reload: 4, swap: 8, throw: 16, light: 32, crouch: 64 } as const;
+const EDGES = BUTTON_BITS.action | BUTTON_BITS.reload | BUTTON_BITS.swap | BUTTON_BITS.throw | BUTTON_BITS.light | BUTTON_BITS.crouch;
 
 /** A connection as the rooms see it: somewhere to send, and who it is. */
 export interface Conn {
@@ -215,6 +215,7 @@ export class Room {
       if (bits & BUTTON_BITS.swap) i.swap = true;
       if (bits & BUTTON_BITS.throw) i.throw = true;
       if (bits & BUTTON_BITS.light) i.light = true;
+      if (bits & BUTTON_BITS.crouch) i.crouch = true;
       return quantize(i);
     });
     // a seat that dropped too long ago is given up on

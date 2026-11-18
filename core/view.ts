@@ -16,6 +16,8 @@ export const VIEW_RANGE = 34;
 export const NEAR = 6;
 /** Someone with their light on can be seen this far, across open ground. */
 export const LIT_RANGE = 50;
+/** Someone hidden is only shown to a player this close. */
+export const HIDDEN_SEEN = 2.5;
 /** A stalker you are not lighting is only sent this close. */
 export const STALKER_NEAR = 10;
 
@@ -31,6 +33,10 @@ export interface OtherView {
   light: boolean;
   exposed: boolean;
   vehicleId: number | null;
+  crouched: boolean;
+  /** Hidden in a hiding place: only shown to those right next to it. */
+  hidden: boolean;
+  roof: number | null;
 }
 
 export interface ZombieView {
@@ -43,6 +49,7 @@ export interface ZombieView {
   actionT: number;
   staggerT: number;
   frozen: boolean;
+  roof: number | null;
 }
 
 export interface PlayerView {
@@ -127,8 +134,8 @@ export function viewFor(s: GameState, seat: number): PlayerView {
     const seen = sees(s, me, o.pos)
       || (o.light && d <= LIT_RANGE && lineClear(s.map, me.pos, o.pos, 0.3)) // a torch shows across a street
       || (turned && o.status !== 'turned' && d <= TURNED_SIGHT); // the turned see the living by something that is not sight
-    if (!seen) continue;
-    others.push({ id: o.id, pos: o.pos, heading: o.heading, weapon: o.arsenal.weapon, status: o.status, light: o.light, exposed: me.checks[o.id] === true && o.status === 'alive', vehicleId: o.vehicleId });
+    if (!seen || (o.hide !== null && d > HIDDEN_SEEN)) continue; // hidden: only someone right there knows
+    others.push({ id: o.id, pos: o.pos, heading: o.heading, weapon: o.arsenal.weapon, status: o.status, light: o.light, exposed: me.checks[o.id] === true && o.status === 'alive', vehicleId: o.vehicleId, crouched: o.crouched, hidden: o.hide !== null, roof: o.roof });
   }
 
   const zombies: ZombieView[] = [];
@@ -140,7 +147,7 @@ export function viewFor(s: GameState, seat: number): PlayerView {
       if (d > STALKER_NEAR && !lit(s, me, z.pos)) continue;
     }
     shown.add(z.id);
-    zombies.push({ id: z.id, kind: z.kind, pos: z.pos, heading: z.heading, speed: z.speed, action: z.action, actionT: z.actionT, staggerT: z.staggerT, frozen: !!z.frozen });
+    zombies.push({ id: z.id, kind: z.kind, pos: z.pos, heading: z.heading, speed: z.speed, action: z.action, actionT: z.actionT, staggerT: z.staggerT, frozen: !!z.frozen, roof: z.roof ?? null });
   }
 
   const events: GameEvent[] = [];

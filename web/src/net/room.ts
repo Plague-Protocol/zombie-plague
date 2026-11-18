@@ -426,7 +426,7 @@ class Session implements Driver {
       this.acc -= ROOM_DT;
       const input = quantize(this.host.controls.read());
       const seq = ++this.seq;
-      const b = (input.action ? 1 : 0) | (input.fire ? 2 : 0) | (input.reload ? 4 : 0) | (input.swap ? 8 : 0) | (input.throw ? 16 : 0) | (input.light ? 32 : 0);
+      const b = (input.action ? 1 : 0) | (input.fire ? 2 : 0) | (input.reload ? 4 : 0) | (input.swap ? 8 : 0) | (input.throw ? 16 : 0) | (input.light ? 32 : 0) | (input.crouch ? 64 : 0);
       this.send({ t: 'in', seq, i: [Math.round(input.dx * 64), Math.round(input.dy * 64), b] });
       this.pending.push({ seq, input });
       if (this.pending.length > 90) this.pending.shift();
@@ -479,6 +479,7 @@ class Session implements Driver {
       zz.action = z.action;
       zz.staggerT = z.staggerT;
       zz.frozen = z.frozen;
+      zz.roof = z.roof;
       live.push(zz);
     }
     for (const id of this.zombies.keys()) if (!b.v.zombies.some((z) => z.id === id)) this.zombies.delete(id);
@@ -495,6 +496,9 @@ class Session implements Driver {
       p.status = o.status;
       p.light = o.light;
       p.exposed = o.exposed;
+      p.crouched = o.crouched;
+      p.hide = o.hidden ? 0 : null;
+      p.roof = o.roof;
       p.arsenal.weapon = o.weapon;
       let act = this.actors.get(o.id);
       const own = this.sv[o.id] ? SURVIVORS[this.sv[o.id] as SurvivorId]?.skin as SkinName | undefined : undefined;
@@ -510,8 +514,11 @@ class Session implements Driver {
       const sp = Math.hypot(p.pos.x - (act.root.position.x), p.pos.y - act.root.position.z) / Math.max(dt, 1e-3);
       if (o.status === 'down' || o.status === 'dead') act.play('Death', { once: true, fade: 0.15 });
       else if (o.status === 'turned') { act.play(sp > 0.5 ? 'Sprint' : 'ZIdle', { fade: 0.15 }); }
+      else if (o.hidden || (o.crouched && sp < 0.3)) act.play('Kneel', { startAt: 0.12, timeScale: 0.0001, fade: 0.25 }); // down low
       else act.locomote(Math.min(5.5, sp));
       act.update(p.pos.x, p.pos.y, p.heading, dt, true);
+      act.root.position.y = o.roof !== null ? s.map.ladders[o.roof]?.height ?? 0 : 0; // up on a roof
+      act.root.rotation.x = o.crouched && sp >= 0.3 ? 0.32 : 0;
     }
     for (const [id, act] of this.actors) if (!seen.has(id)) act.root.visible = false; // out of sight: not drawn
   }

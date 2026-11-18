@@ -72,7 +72,7 @@ export interface NightLog {
 }
 
 const Q = 64; // the stick is recorded in 64ths: what is simulated is exactly what is written down
-const BUTTONS = ['action', 'fire', 'reload', 'swap', 'throw', 'light'] as const;
+const BUTTONS = ['action', 'fire', 'reload', 'swap', 'throw', 'light', 'crouch'] as const; // new ones go on the end: old logs keep their meaning
 
 /** Round an input to what the log can hold. Simulate with the result, not the original. */
 export function quantize(i: Input): Input {

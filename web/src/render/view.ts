@@ -8,8 +8,8 @@ import { Crowd, MUT, type CrowdClip } from './crowd';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
 import { ArmyGate, bandageMesh, bandolierMesh, satchelMesh, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
-import { currentTask, escortGroup, finalChapter, gunStats, infection, isGun, isRevealed, lightOn, onBody, playerSpeed, playerVehicle, requiredDone, type GameState } from '../../../core/state';
-import { ATTACK_WINDUP, COUGH_NOISE, LASH_REACH, MELEE, PLAYER_HEALTH, SAFEHOUSE_RADIUS, SCREAM_WINDUP, TASK_RADIUS } from '../../../core/config';
+import { currentTask, escortGroup, finalChapter, gunStats, heightOf, infection, isGun, isRevealed, lightOn, onBody, playerSpeed, playerVehicle, requiredDone, type GameState } from '../../../core/state';
+import { ATTACK_WINDUP, ZOMBIE_CLIMB_SECONDS, COUGH_NOISE, LASH_REACH, MELEE, PLAYER_HEALTH, SAFEHOUSE_RADIUS, SCREAM_WINDUP, TASK_RADIUS } from '../../../core/config';
 import { plagueDressing, Spores, Tentacles, Waves } from './plague';
 import type { GameEvent, Task, TaskId, Vec2, WeaponKind, Zombie } from '../../../core/types';
 import { chapterInfo, stepDef } from '../../../core/content';
@@ -140,6 +140,8 @@ export class GameView {
   private wornGear = { vest: false, helmet: false };
   /** What the night's loadout brought that shows on the body all night (the ammo belt). Set when a night starts. */
   private kit: readonly string[] = [];
+  /** How far up the camera has followed you (a roof, a ladder). */
+  private lift = 0;
   private carryKey = '';
   /** A short move the body makes for something done in passing: down to scoop up a pickup, an arm out to hand something over. */
   private gesture: { clip: ClipName; at: number; rate: number; until: number; fresh: boolean } | null = null;
@@ -351,6 +353,7 @@ export class GameView {
     this.crates.frustumCulled = false;
     this.level.add(this.crates);
     this.level.add(this.buildTaskProps(s));
+    if (s.map.ladders.length) this.level.add(this.ladderMesh(s));
     for (const h of s.houses) {
       const g = glint(1.1, 0xdde8ff);
       g.position.set(h.pos.x, this.groundAt(s, h.pos) + 1.1, h.pos.y - 0.6);
@@ -752,9 +755,10 @@ export class GameView {
     const fog = this.scene.fog as Fog;
     fog.near = dist * 0.95;
     fog.far = dist * 2.1 * this.haze;
+    this.lift += (this.liftOf(s) - this.lift) * (1 - Math.exp(-4 * dt)); // up a ladder and onto a roof, the camera comes too
     this.camera.position.set(
       this.focus.x + Math.cos(elev) * Math.cos(yaw) * dist,
-      Math.sin(elev) * dist,
+      Math.sin(elev) * dist + this.lift,
       this.focus.z + Math.cos(elev) * Math.sin(yaw) * dist,
     );
     if (this.shakeAmt > 0.001) {
@@ -763,7 +767,7 @@ export class GameView {
       this.camera.position.y += (Math.random() - 0.5) * k;
       this.shakeAmt *= Math.exp(-6 * dt);
     }
-    this.camera.lookAt(this.focus.x, 1, this.focus.z);
+    this.camera.lookAt(this.focus.x, 1 + this.lift, this.focus.z);
 
     // --- player (hidden inside a car; astride a bike)
     const caught = s.phase === 'lost' && s.lossReason === 'caught';
@@ -779,7 +783,9 @@ export class GameView {
       const work = s.work;
       const g = this.gesture && this.time < this.gesture.until ? this.gesture : null;
       if (!g) this.gesture = null;
-      if (hold && playerSpeed(s) < 0.6) this.player.play(KNEEL_SCENES.includes(stepDef(hold).scene) ? 'Kneel' : 'Interact', { fade: 0.25 });
+      if (work?.kind === 'climb') this.player.play('Walk', { timeScale: 0.75, fade: 0.15 }); // hand over hand up the rungs
+      else if (s.player.hide !== null || (s.player.crouched && playerSpeed(s) < 0.3)) this.player.play('Kneel', { startAt: 0.12, timeScale: 0.0001, fade: 0.25 }); // down low
+      else if (hold && playerSpeed(s) < 0.6) this.player.play(KNEEL_SCENES.includes(stepDef(hold).scene) ? 'Kneel' : 'Interact', { fade: 0.25 });
       else if (work && playerSpeed(s) < 0.6) this.player.play(work.kind === 'refuel' ? 'Kneel' : work.kind === 'talk' ? 'Talk' : 'Interact', { fade: 0.25 });
       else if (g) { this.player.play(g.clip, { once: true, startAt: g.at, timeScale: g.rate, fade: 0.1, restart: g.fresh }); g.fresh = false; }
       else if (s.phase === 'won') this.player.play('Idle', { fade: 0.3 });
@@ -792,9 +798,13 @@ export class GameView {
       else if (this.time - this.lastShot < 1.2) { if (this.time - this.lastShot > 0.35) this.player.setUpper('AimUpper'); }
       else this.player.setUpper(null);
     }
-    this.player.update(p.x, p.y, s.player.heading, dt, true);
+    // on a ladder: against the wall, facing it, as far up as the climb has got
+    const cl = s.work?.kind === 'climb' ? s.map.ladders[s.work.id] : undefined;
+    if (cl) this.player.update(cl.foot.x - cl.out.x * 0.55, cl.foot.y - cl.out.y * 0.55, Math.atan2(-cl.out.y, -cl.out.x), dt, true);
+    else this.player.update(p.x, p.y, s.player.heading, dt, true);
+    this.player.root.position.y = this.liftOf(s);
     // stepping over a body: high steps, lifted over it
-    if (!car && playerSpeed(s) > 0.3 && onBody(s, p)) this.player.root.position.y = 0.16 * Math.abs(Math.sin(this.time * 9));
+    if (!car && !cl && s.player.roof === null && playerSpeed(s) > 0.3 && onBody(s, p)) this.player.root.position.y = 0.16 * Math.abs(Math.sin(this.time * 9));
     // hurt or far gone, he limps; a cough doubles him over
     const inf = infection(s);
     const limp = caught || car ? 0 : Math.max(s.player.health < PLAYER_HEALTH * 0.45 ? 1 : 0, inf > 0.7 ? (inf - 0.7) / 0.3 : 0) * Math.min(1, playerSpeed(s) / 2);
@@ -802,6 +812,8 @@ export class GameView {
     this.player.root.rotation.z = Math.sin(this.time * 7.5) * 0.085 * limp;
     this.player.root.rotation.x = caught ? 0 : Math.sin((this.coughT / 0.55) * Math.PI * 2) ** 2 * 0.3 * (this.coughT > 0 ? 1 : 0) + limp * 0.06;
     this.playerMat?.color.setRGB(1 - inf * 0.36, 1 - inf * 0.22, 1 - inf * 0.4);
+    if (s.player.hide !== null) this.playerMat?.color.multiplyScalar(0.35); // in the shadow of it
+    if (s.player.crouched && playerSpeed(s) >= 0.3) { this.player.root.rotation.x += 0.32; this.player.root.position.y -= 0.12; } // a low creep
     if (bike) { // on the seat, behind the tank
       this.player.root.position.x -= Math.cos(bike.heading) * 0.45;
       this.player.root.position.z -= Math.sin(bike.heading) * 0.45;
@@ -817,8 +829,9 @@ export class GameView {
       this.flashlight.target.position.set(p.x + fx * 16, 0, p.y + fz * 16);
       this.flashlight.angle = 0.6;
     } else {
-      this.flashlight.position.set(p.x + fx * 0.4, 1.9, p.y + fz * 0.4);
-      this.flashlight.target.position.set(p.x + fx * 9, 0, p.y + fz * 9);
+      const up = this.liftOf(s);
+      this.flashlight.position.set(p.x + fx * 0.4, 1.9 + up, p.y + fz * 0.4);
+      this.flashlight.target.position.set(p.x + fx * 9, up * 0.25, p.y + fz * 9);
       this.flashlight.angle = 0.5;
     }
     // off, it is off: your eyes open to the dark a little. As the quiet breaks, it gutters.
@@ -985,10 +998,18 @@ export class GameView {
         // where it is drawn can differ from where it is: the lunge of an attack, a bite's snap, the ones that come to feed when you go down
         const pose = this.posed(s, z, clip, o, hunch);
         hunch = pose.hunch;
-        const zz = pose.moved ? { ...z, pos: pose.pos, heading: pose.heading } : z;
-        this.crowd.draw(z.id, zz.pos.x, zz.pos.y, zz.heading, pose.clip, dt, { ...pose.o, hunch, ...look, near: close });
-        if (z.kind === 'lasher' && z.action !== 'dead') this.lash(zz);
-        else if (shape?.grow && z.action !== 'dead' && z.action !== 'dormant' && z.action !== 'rise') this.growths(zz, shape.grow, hunch);
+        let zz = pose.moved ? { ...z, pos: pose.pos, heading: pose.heading } : z;
+        // up on a roof, or on its way up a ladder after you
+        let zy = z.roof != null ? s.map.ladders[z.roof]?.height ?? 0 : 0;
+        const goingUp = z.roof == null && (z.climbT ?? 0) > 0 && s.player.roof !== null ? s.map.ladders[s.player.roof] : undefined;
+        if (goingUp) {
+          zy = Math.min(1, (z.climbT ?? 0) / ZOMBIE_CLIMB_SECONDS) * goingUp.height;
+          zz = { ...z, pos: { x: goingUp.foot.x - goingUp.out.x * 0.55, y: goingUp.foot.y - goingUp.out.y * 0.55 }, heading: Math.atan2(-goingUp.out.y, -goingUp.out.x) };
+          pose.clip = 'ZWalk'; pose.o = { rate: 0.8 };
+        }
+        this.crowd.draw(z.id, zz.pos.x, zz.pos.y, zz.heading, pose.clip, dt, { ...pose.o, hunch, ...look, near: close, y: zy });
+        if (z.kind === 'lasher' && z.action !== 'dead') this.lash(zz, zy);
+        else if (shape?.grow && z.action !== 'dead' && z.action !== 'dormant' && z.action !== 'rise') this.growths(zz, shape.grow, hunch, zy);
       }
       if (z.action !== 'dead' && z.action !== 'dormant') shadowAt(z.pos.x, z.pos.y);
     }
@@ -1076,10 +1097,10 @@ export class GameView {
    * What grew out of one of the plain ones: from the stump of its neck, out of its back, or where an arm was. Rooted
    * where that part sits on a body leaning forward by `hunch`; they writhe on their own.
    */
-  private growths(z: Zombie, where: Growth, hunch: number): void {
+  private growths(z: Zombie, where: Growth, hunch: number, lift = 0): void {
     const h = z.heading, fx = Math.cos(h), fy = Math.sin(h), rx = -Math.sin(h), ry = Math.cos(h); // forward, and its right
     const at = (up: number, fwd: number, right: number) => ({
-      x: z.pos.x + fx * (fwd + up * Math.sin(hunch)) + rx * right, y: up * Math.cos(hunch), z: z.pos.y + fy * (fwd + up * Math.sin(hunch)) + ry * right,
+      x: z.pos.x + fx * (fwd + up * Math.sin(hunch)) + rx * right, y: up * Math.cos(hunch) + lift, z: z.pos.y + fy * (fwd + up * Math.sin(hunch)) + ry * right,
     });
     const ph = z.id * 1.3;
     if (where === 'neck') { // three short ones feeling about where the head was
@@ -1096,12 +1117,12 @@ export class GameView {
   }
 
   /** A lasher's tentacles: a knot of them writhing out of the neck and the back; when it strikes they all go for you. */
-  private lash(z: Zombie): void {
+  private lash(z: Zombie, lift = 0): void {
     const strike = z.action === 'attack' ? 1 - Math.max(0, z.actionT) / ATTACK_WINDUP.lasher : 0;
     const spread = [0, 2.2, -2.2, 3.1, 1.1, -1.0], lean = [0.3, 0.95, 0.95, 0.8, 1.25, 1.2], long = [1.5, 1.9, 1.8, 1.6, 1.3, 1.4];
     for (let k = 0; k < 6; k++) {
       const back = k >= 4, s = strike * (back ? 0.6 : 1);
-      this.tentacles.add(z.pos.x, back ? 1.75 : 2.3, z.pos.y, z.heading + spread[k]! * (1 - s) + (k - 2.5) * 0.09 * s,
+      this.tentacles.add(z.pos.x, (back ? 1.75 : 2.3) + lift, z.pos.y, z.heading + spread[k]! * (1 - s) + (k - 2.5) * 0.09 * s,
         lean[k]! + (1.35 - lean[k]!) * s, long[k]! + (LASH_REACH + 0.3 - long[k]!) * s * s, z.id * 1.7 + k * 2.3);
     }
   }
@@ -1134,6 +1155,34 @@ export class GameView {
     const step = Math.min(d, 2.6 * dt);
     a.locomote(2.6);
     a.update(p.x + (dx / d) * step, p.z + (dz / d) * step, Math.atan2(dz, dx), dt, true);
+  }
+
+  /** How high the player is drawn: a roof's height, or part way up a ladder while climbing. */
+  private liftOf(s: GameState): number {
+    const w = s.work;
+    if (w?.kind === 'climb') {
+      const l = s.map.ladders[w.id];
+      if (l) return (s.player.roof === null ? w.progress : 1 - w.progress) * l.height;
+    }
+    return heightOf(s);
+  }
+
+  /** The ladders: two rails and the rungs between them, up the wall from the street to the roof's edge. */
+  private ladderMesh(s: GameState): Mesh {
+    const b = new MeshBuilder();
+    for (const l of s.map.ladders) {
+      const wx = l.foot.x - l.out.x * 0.86, wz = l.foot.y - l.out.y * 0.86; // just off the wall
+      const along = l.out.x !== 0; // the wall runs along z when its normal is along x
+      const top = l.height + 0.7; // the rails stand a little above the roof, to climb over
+      for (const side of [-0.32, 0.32]) {
+        const x = wx + (along ? 0 : side), z = wz + (along ? side : 0);
+        b.box(x, top / 2, z, 0.07, top, 0.07, 0x8a8f96, 0xa6abb2);
+      }
+      for (let y = 0.35; y < l.height + 0.4; y += 0.45) b.box(wx, y, wz, along ? 0.05 : 0.64, 0.05, along ? 0.64 : 0.05, 0x9aa0a8);
+      // a hint of hazard yellow at the bottom, so it is found in the dark
+      b.box(wx, 0.5, wz, along ? 0.08 : 0.72, 0.12, along ? 0.72 : 0.08, 0xd8b030);
+    }
+    return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x15161a }));
   }
 
   /** What the night's loadout brought (the site's item ids): an ammo belt is worn as a bandolier. */

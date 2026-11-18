@@ -1,6 +1,6 @@
 import { createRng, chance, int, next, pick, range, shuffle, type Rng } from './rng';
-import type { Block, Building, Decor, District, MapData, ObstacleKind, ParkingSpot, Storefront, Theme, Vec2 } from './types';
-import { PILEUPS, STORE_COUNT } from './config';
+import type { Block, Building, Decor, District, HideSpot, Ladder, MapData, ObstacleKind, ParkingSpot, Storefront, Theme, Vec2 } from './types';
+import { LADDERS, PILEUPS, STORE_COUNT } from './config';
 import { dhypot } from './dmath';
 
 // World scale: a character is 2.8 units tall (about 1.75 m), so 1 unit is about 0.63 m.
@@ -142,6 +142,50 @@ export function onStreets(map: MapData, p: Vec2, maxR = 12): Vec2 {
     if (best >= 0) return { x: (best % cols) + 0.5, y: Math.floor(best / cols) + 0.5 };
   }
   return p;
+}
+
+/** The four sides of a box: the middle of each, and its outward normal. */
+const SIDES = [[0, 1], [0, -1], [1, 0], [-1, 0]] as const;
+
+/**
+ * Where you can climb and where you can hide, from their own random stream (so nothing else in the district moves):
+ * a ladder up the side of some flat-roofed buildings, from a spot in the street you can walk to; and a hiding place
+ * beside every dumpster and wreck that has open, reachable ground next to it.
+ */
+function climbAndHide(seed: number, obstacles: Building[], reach: Uint8Array, cols: number): { ladders: Ladder[]; hides: HideSpot[] } {
+  const rng = createRng(seed ^ 0x1add3e);
+  const open = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < cols && reach[Math.floor(y) * cols + Math.floor(x)] === 1;
+  const ladders: Ladder[] = [];
+  const flat = obstacles.map((b, i) => [b, i] as const)
+    .filter(([b]) => (b.kind === 'shop' || b.kind === 'warehouse' || b.kind === 'container' || b.kind === 'bus') && b.w >= 2.2 && b.h >= 2.2 && b.height >= 2.4 && b.height <= 10);
+  for (const [b, i] of shuffle(rng, flat)) {
+    if (ladders.length >= LADDERS) break;
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    for (const [nx, ny] of shuffle(rng, [...SIDES])) {
+      const ex = cx + (nx * b.w) / 2, ey = cy + (ny * b.h) / 2; // the middle of this side
+      const foot = { x: ex + nx * 0.9, y: ey + ny * 0.9 };
+      if (!open(foot.x, foot.y) || !open(foot.x + nx * 0.8, foot.y + ny * 0.8)) continue;
+      if (ladders.some((l) => dhypot(l.foot.x - foot.x, l.foot.y - foot.y) < 25)) continue; // spread out
+      const inset = Math.min(0.45, b.w / 4, b.h / 4);
+      ladders.push({
+        id: ladders.length, building: i, foot, top: { x: ex - nx * 0.9, y: ey - ny * 0.9 }, out: { x: nx, y: ny },
+        roof: { x0: b.x + inset, y0: b.y + inset, x1: b.x + b.w - inset, y1: b.y + b.h - inset }, height: b.height,
+      });
+      break;
+    }
+  }
+  const hides: HideSpot[] = [];
+  obstacles.forEach((b, i) => {
+    if (b.kind !== 'dumpster' && b.kind !== 'wreck') return;
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    for (const [nx, ny] of SIDES) {
+      const pos = { x: cx + nx * (b.w / 2 + 0.75), y: cy + ny * (b.h / 2 + 0.75) };
+      if (!open(pos.x, pos.y)) continue;
+      hides.push({ id: hides.length, pos, kind: b.kind, building: i });
+      break;
+    }
+  });
+  return { ladders, hides };
 }
 
 /** Plain 4-neighbour BFS over a blocked grid (for the connectivity check). */
@@ -482,7 +526,8 @@ export function generateMap(seed: number, theme: Theme = 'downtown'): MapData {
     for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) grid[gy * gridN + gx]!.push(idx);
   });
 
-  return { size: MAP_SIZE, cols, buildings: obstacles, blocked, reach, points, blocks, decor, parking: parkingFree, storefronts, labels, grid, gridCell: GRID_CELL, gridN };
+  const { ladders, hides } = climbAndHide(seed, obstacles, reach, cols);
+  return { size: MAP_SIZE, cols, buildings: obstacles, blocked, reach, ladders, hides, points, blocks, decor, parking: parkingFree, storefronts, labels, grid, gridCell: GRID_CELL, gridN };
 }
 
 export function districtAt(map: MapData, p: Vec2): Block | null {
