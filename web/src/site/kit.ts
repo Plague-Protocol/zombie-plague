@@ -40,7 +40,7 @@ export interface Board {
   kind: Kind; unit: 'points' | 'nights' | 'escapes'; of: number; rows: Row[]; rules: string[];
   me: { rank: number; value: number; title: string; toNext: { gap: number; name: string } | null; detail: Record<string, number | string> } | null;
 }
-export const BOARD_NAMES: Record<Kind, string> = { night: 'Tonight', week: 'This week', streak: 'Streak', rooms: 'Rooms' };
+export const BOARD_NAMES: Record<Kind, string> = { night: 'Today', week: 'This week', streak: 'Streak', rooms: 'Rooms' };
 export const unitOf = (b: Pick<Board, 'unit'>, n: number): string => (b.unit === 'points' ? 'pts' : b.unit === 'nights' ? (n === 1 ? 'night' : 'nights') : n === 1 ? 'escape' : 'escapes');
 /** One line of what a run or a record was made of. */
 export function detail(kind: Kind, d: Record<string, number | string>): string {

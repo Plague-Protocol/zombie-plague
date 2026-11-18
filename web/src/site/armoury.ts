@@ -63,7 +63,7 @@ export function mountArmoury(root: HTMLElement): void {
           <button type="button" data-a="slot:open" class="${slot === 'open' ? 'on' : ''}">Practice &middot; no limit</button>
         </div>
         <p class="slotnote">${slot === 'ranked'
-          ? `<b>Used for tonight's city and multiplayer rooms</b>, the nights that count on the leaderboard. To keep it fair, everyone gets the same ${RANKED_POINTS} points to spend on what they own: owning more gives you choice, not more power.`
+          ? `<b>Used for today's city and multiplayer rooms</b>, the nights that count on the leaderboard. To keep it fair, everyone gets the same ${RANKED_POINTS} points to spend on what they own: owning more gives you choice, not more power.`
           : '<b>Used for practice nights</b>: a random city that is not on the leaderboard. Bring anything you own, with no points limit, to try kit out or learn the streets. Practice nights bank half the cash.'}</p>
         <div class="ph">Survivor</div>
         <div class="who">${mine.map((id) => `<button type="button" class="face${who === id ? ' on' : ''}" data-a="sv:${id}" title="${esc(ROSTER[id].perk)}"><img src="/survivors/${id}.webp" alt="" width="60" height="72" /><span>${SURVIVORS[id].name}</span></button>`).join('')}</div>

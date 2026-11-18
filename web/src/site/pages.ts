@@ -53,24 +53,24 @@ export const home: Page = {
     <h1><span>BITTEN.</span><span class="red">GET OUT.</span></h1>
     <p class="lede">You were bitten in Port Halden, and the infection is your clock. Cross three districts, find the doses that hold it back, and reach the last evacuation helicopter before you turn.</p>
     <div class="ctas">
-      <button class="btn" type="button" data-play="solo" disabled>Play tonight</button>
+      <button class="btn" type="button" data-play="solo" disabled>Play now</button>
       <a class="btn red" href="/play">Play with friends</a>
       <a class="btn ghost" href="/how-to-play">How to play</a>
     </div>
-    <p class="note">${me ? `Signed in as ${esc(shown(me))}. Tonight's best run goes on the board.` : 'Free in your browser. Sign in after a few minutes to keep playing and save your nights.'}</p>
+    <p class="note">${me ? `Signed in as ${esc(shown(me))}. Today's best run goes on the board.` : 'Free in your browser. Sign in after a few minutes to keep playing and save your nights.'}</p>
     <div class="ios-tip">For full screen on iPhone: tap Share, then <b>Add to Home Screen</b>, and play from the new icon.</div>
     <div class="stats">
       <div class="stat"><b>3</b><span>Districts</span></div>
-      <div class="stat"><b data-k="players">&mdash;</b><span>On tonight's board</span></div>
-      <div class="stat"><b data-k="best">&mdash;</b><span>Best score tonight</span></div>
+      <div class="stat"><b data-k="players">&mdash;</b><span>On today's board</span></div>
+      <div class="stat"><b data-k="best">&mdash;</b><span>Best today</span></div>
     </div>
   </div></section>
   <div class="ticker" aria-hidden="true"><div>THE CLOCK IS YOUR INFECTION  |  FIND THE DOSES  |  CHECK WHO IS COUGHING  |  KILL THE LIGHT  |  MIND THE RED X  |  REACH THE HELICOPTER  |  THE CLOCK IS YOUR INFECTION  |  FIND THE DOSES  |  CHECK WHO IS COUGHING  |  KILL THE LIGHT  |  MIND THE RED X  |  REACH THE HELICOPTER  |  </div></div>
   <div class="wrap page">
     ${me ? `<div class="status" data-k="status"><span class="k">Your night</span><span class="muted">Loading your standing&hellip;</span></div>` : ''}
     <div class="tiles" style="margin-top:${me ? 18 : 0}px">
-      <a class="tile" href="/play"><span class="ico">${ICON.play}</span><h3>Play</h3><p>Tonight's city &middot; Quick play &middot; Private rooms &middot; Practice</p><span class="go">${ICON.chev}</span></a>
-      <a class="tile" href="/ranks"><span class="ico a">${ICON.trophy}</span><h3>Ranks</h3><p>Tonight &middot; This week &middot; Streaks &middot; Rooms</p><span class="go">${ICON.chev}</span></a>
+      <a class="tile" href="/play"><span class="ico">${ICON.play}</span><h3>Play</h3><p>Today's city &middot; Quick play &middot; Private rooms &middot; Practice</p><span class="go">${ICON.chev}</span></a>
+      <a class="tile" href="/ranks"><span class="ico a">${ICON.trophy}</span><h3>Ranks</h3><p>Today &middot; This week &middot; Streaks &middot; Rooms</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/profile"><span class="ico b">${ICON.user}</span><h3>Profile</h3><p>${me ? 'Your name, your standing, your last nights' : 'Sign in to keep a record'}</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/how-to-play"><span class="ico g">${ICON.book}</span><h3>How to play</h3><p>The night &middot; The controls &middot; Scoring &middot; Questions</p><span class="go">${ICON.chev}</span></a>
     </div>
@@ -91,7 +91,7 @@ export const home: Page = {
         <img src="/intro/bg-zombie-portrait.webp" alt="" loading="lazy" style="width:100%;border-radius:12px;aspect-ratio:4/3;object-fit:cover;filter:saturate(.8) brightness(.8)" />
       </div>
       <div class="panel">
-        <h3>Top of tonight</h3>
+        <h3>Top of today</h3>
         <ol id="top5"><li class="msg">Loading the board&hellip;</li></ol>
         <a class="btn ghost sm" href="/ranks">All rankings</a>
       </div>
@@ -117,14 +117,14 @@ export const home: Page = {
       root.querySelector('[data-k=best]')!.textContent = b.rows[0] ? fmt(b.rows[0].value) : '—';
       list.innerHTML = b.rows.length
         ? b.rows.slice(0, 5).map((r) => `<li><span><i>#${r.rank}</i>${esc(r.name)}</span><span>${fmt(r.value)} pts</span></li>`).join('')
-        : '<li class="msg">Nobody has a score in tonight\'s city yet. Be the first.</li>';
+        : '<li class="msg">Nobody has a score in today\'s city yet. Be the first.</li>';
       const st = root.querySelector('[data-k=status]');
       if (st) {
         void board('streak').then((s) => {
           const n = b.me, k = s?.me;
           st.innerHTML = `<span class="k">Your night</span>`
             + (n ? `<span><b>#${n.rank}</b> <span class="muted">of ${fmt(b.of)}</span></span><span><b>${fmt(n.value)}</b> <span class="muted">pts</span></span><span class="tag">${esc(n.title)}</span>`
-              : '<span class="muted">No run in tonight\'s city yet.</span>')
+              : '<span class="muted">No run in today\'s city yet.</span>')
             + `<span><b>${k ? k.value : 0}</b> <span class="muted">${k?.value === 1 ? 'night' : 'nights'} streak</span></span>`
             + (n?.toNext ? `<span class="muted">${fmt(n.toNext.gap)} pts to pass ${esc(n.toNext.name)}</span>` : '');
         });
@@ -140,11 +140,11 @@ export const play: Page = {
   title: 'Play',
   html: () => `
   <div class="wrap page">
-    ${head('Choose your night', 'Play', 'Tonight\'s city is the same for everyone and counts for the board. Rooms put you on the streets with others. On a phone, the game turns sideways when it starts.')}
+    ${head('Choose your night', 'Play', 'Today\'s city is the same for everyone and counts for the board. Rooms put you on the streets with others. On a phone, the game turns sideways when it starts.')}
     ${loading}
     ${account() ? '<p class="muted" style="margin:-6px 0 14px;font-size:15px">What you carry is set in the <a href="/armoury">Armoury</a>.</p>' : ''}
     <div class="modes">
-      <button class="mode hot" type="button" data-play="solo" disabled><span class="ico">${ICON.bio}</span><span class="body"><h3>Tonight's city <span class="tag g">Counts for ranks</span></h3><p>Solo &middot; three districts &middot; the same streets for everyone today &middot; your ranked loadout</p>${carrying('ranked')}</span>${ICON.chev}</button>
+      <button class="mode hot" type="button" data-play="solo" disabled><span class="ico">${ICON.bio}</span><span class="body"><h3>Today's city <span class="tag g">Counts for ranks</span></h3><p>Solo &middot; three districts &middot; the same streets for everyone today &middot; your ranked loadout</p>${carrying('ranked')}</span>${ICON.chev}</button>
       <button class="mode" type="button" data-play="quick" disabled><span class="ico a">${ICON.users}</span><span class="body"><h3>Quick play <span class="tag m">Sign in</span></h3><p>Drop into the next open room with whoever is around &middot; 2 to 8 players</p></span>${ICON.chev}</button>
       <button class="mode" type="button" data-play="create" disabled><span class="ico p">${ICON.door}</span><span class="body"><h3>Private room <span class="tag m">Sign in</span></h3><p>Make a room, then share its five-letter code or an invite link</p></span>${ICON.chev}</button>
       <div class="mode" style="cursor:default"><span class="ico b">${ICON.key}</span><span class="body"><h3>Join with a code</h3><p>A friend read out their room's code? Type it here.</p>
@@ -163,7 +163,7 @@ export const play: Page = {
 // ---------------------------------------------------------------- ranks
 
 const EMPTY: Record<Kind, string> = {
-  night: 'Nobody has a score in tonight\'s city yet. Be the first: everyone plays the same streets today.',
+  night: 'Nobody has a score in today\'s city yet. Be the first: everyone plays the same streets today.',
   week: 'No scores this week yet.',
   streak: 'No one has got out of the city two nights running. Yet.',
   rooms: 'Play three rounds of multiplayer signed in to be listed.',
@@ -237,7 +237,7 @@ export const profile: Page = {
           <div class="err" data-k="nameerr" style="font-size:14px;min-height:1.2em;margin-top:4px"></div>
         </div>
         <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
-          <button class="btn sm" type="button" data-play="solo" disabled>Play tonight</button>
+          <button class="btn sm" type="button" data-play="solo" disabled>Play now</button>
           <button class="btn ghost sm" type="button" data-k="out">Sign out</button>
         </div>
       </div>
@@ -302,7 +302,7 @@ export const profile: Page = {
         const what = won ? `Got out with ${Math.round(r.secondsLeft)}s left` : `${r.lossReason === 'caught' ? 'Caught' : 'Turned'} in district ${r.chapter + 1}`;
         return `<li class="${won ? 'won' : ''}"><span class="body"><b>${what}</b> <span class="tag ${won ? 'g' : 'r'}">${won ? 'Escaped' : 'Lost'}</span><small>${r.kills} kills &middot; ${ago(r.createdAt)}</small></span>`
           + `<span class="v">${r.replayOk ? `${fmt(r.score)} pts<small>&#10003; verified</small>` : '<small style="color:#ff7a6b">not verified</small>'}</span></li>`;
-      }).join('') : '<li><span class="body muted">No nights yet. Play tonight\'s city and it shows up here.</span></li>';
+      }).join('') : '<li><span class="body muted">No nights yet. Play now\'s city and it shows up here.</span></li>';
     });
   },
 };
@@ -317,7 +317,7 @@ export const how: Page = {
     <div class="split">
       <div class="card"><div class="ph">The goal</div><h3>Get out before you turn</h3>
         <ol class="steps"><li><b>Do the district's jobs.</b> The yellow arrow and the ring on your map show the next one.</li><li><b>Find the way out.</b> It opens once the required jobs are done: the subway, the barricade gate, the landing zone.</li><li><b>Watch the clock.</b> It is your infection. Bites take time off; antiviral doses put it back.</li></ol></div>
-      <div class="card"><div class="ph">Every day</div><h3>A new city, the same for everyone</h3><p>Tonight's streets, houses and stores are laid out the same for every player, so the board is a fair fight. Practice nights are random and do not count.</p></div>
+      <div class="card"><div class="ph">Every day</div><h3>A new city, the same for everyone</h3><p>Today's streets, houses and stores are laid out the same for every player, so the board is a fair fight. Practice nights are random and do not count.</p></div>
     </div>
     <div class="sec"><div class="kicker">The night</div><h2 class="ph2">Three districts</h2><div class="grid three">${DISTRICTS}</div></div>
     <div class="sec"><div class="kicker">What is out there</div><h2 class="ph2">The city plays back</h2><div class="grid three">${THREATS}</div></div>

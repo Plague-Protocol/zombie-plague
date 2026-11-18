@@ -90,7 +90,7 @@ export async function buildBoard(store: Store, kind: BoardKind, today: Date, me:
       while (k < nights.length && m.has(nights[k]!)) { const r = m.get(nights[k]!)!; any = r; total += r.score; n++; k++; }
       if (n > 0) list.push({ accountId: id, name: shown(any!), value: n, tie: total, detail: { total } });
     }
-    return finish('streak', 'nights', tonight, list, me, ['Nights in a row you got out of the city. Tonight does not break it until it is over.']);
+    return finish('streak', 'nights', tonight, list, me, ["Nights in a row you got out of the city, one a day. Today's does not break it until the day is over."]);
   }
   const rows: RoomRow[] = (await store.roomTotals(30)).filter((r) => r.rounds >= ROOMS_MIN_ROUNDS);
   return finish('rooms', 'escapes', tonight, rows.map((r) => ({
