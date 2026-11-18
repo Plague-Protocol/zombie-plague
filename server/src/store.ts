@@ -67,7 +67,8 @@ export interface Store {
   settlement(roomId: string): Promise<Settlement | null>;
   upsertAccount(address: string): Promise<Account>;
   accountById(id: string): Promise<Account | null>;
-  setName(id: string, name: string): Promise<void>;
+  /** Set the name others see. False: someone else already has it (names are unique, ignoring case). */
+  setName(id: string, name: string): Promise<boolean>;
   addRun(r: Omit<RunRecord, 'id' | 'createdAt'>): Promise<RunRecord>;
   recentRuns(accountId: string, limit: number): Promise<Omit<RunRecord, 'log'>[]>;
   /** How many replay-checked free runs this account has, and when its first was. */
@@ -123,7 +124,12 @@ export class MemoryStore implements Store {
   async updateSettlement(roomId: string, patch: Partial<Pick<Settlement, 'status' | 'tx' | 'error'>>) { const x = this.settlements.get(roomId); if (x) Object.assign(x, patch); }
   async settlementsOpen() { return [...this.settlements.values()].filter((x) => x.status === 'pending' || x.status === 'sent').map((x) => ({ ...x })); }
   async settlement(roomId: string) { const x = this.settlements.get(roomId); return x ? { ...x } : null; }
-  async setName(id: string, name: string) { const a = this.accounts.get(id); if (a) a.name = name; }
+  async setName(id: string, name: string) {
+    const k = name.toLowerCase();
+    if ([...this.accounts.values()].some((x) => x.id !== id && x.name?.toLowerCase() === k)) return false;
+    const a = this.accounts.get(id); if (a) a.name = name;
+    return true;
+  }
   async addRun(r: Omit<RunRecord, 'id' | 'createdAt'>) { const rec = { ...r, id: newId(), createdAt: this.now() }; this.runs.push(rec); return rec; }
   async recentRuns(accountId: string, limit: number) {
     return this.runs.filter((r) => r.accountId === accountId).slice(-limit).reverse().map(({ log: _log, ...rest }) => { void _log; return rest; });
@@ -279,6 +285,7 @@ CREATE TABLE IF NOT EXISTS last_self (
 );
 ALTER TABLE account ADD COLUMN IF NOT EXISTS cash bigint NOT NULL DEFAULT 0;
 ALTER TABLE account ADD COLUMN IF NOT EXISTS loadouts text;
+CREATE INDEX IF NOT EXISTS account_name_idx ON account (lower(name));
 CREATE TABLE IF NOT EXISTS owned (
   account_id text NOT NULL REFERENCES account(id),
   item       text NOT NULL,
@@ -336,7 +343,10 @@ export class PgStore implements Store {
   async settlementsOpen() { const r = await this.pool.query("SELECT * FROM settlement WHERE status IN ('pending','sent') ORDER BY created_at"); return r.rows.map((x) => this.sett(x)); }
   async settlement(roomId: string) { const r = await this.pool.query('SELECT * FROM settlement WHERE room_id = $1', [roomId]); return r.rows[0] ? this.sett(r.rows[0]) : null; }
   async accountById(id: string) { const r = await this.pool.query('SELECT id, address, name, created_at FROM account WHERE id = $1', [id]); return r.rows[0] ? this.acc(r.rows[0]) : null; }
-  async setName(id: string, name: string) { await this.pool.query('UPDATE account SET name = $2 WHERE id = $1', [id, name]); }
+  async setName(id: string, name: string) {
+    const r = await this.pool.query('UPDATE account SET name = $2 WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM account WHERE lower(name) = lower($2) AND id <> $1)', [id, name]);
+    return (r.rowCount ?? 0) > 0;
+  }
   async addRun(x: Omit<RunRecord, 'id' | 'createdAt'>): Promise<RunRecord> {
     const id = newId();
     const r = await this.pool.query(

@@ -29,6 +29,8 @@ export const ICON = {
   coin: svg('<ellipse cx="12" cy="7" rx="7" ry="3"/><path d="M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7"/><path d="M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5"/>'),
   shieldGun: svg('<path d="M4 7h11l2 2h3v3h-3l-1 1h-3l-1 5H8l1-5H4z"/><path d="M8 10h4"/>'),
   bio: svg('<circle cx="12" cy="12" r="2"/><path d="M12 10a5 5 0 1 1 4-8M12 10a5 5 0 1 0-4-8M14 13a5 5 0 1 1 1 8.5M10 13a5 5 0 1 0-1 8.5"/>'),
+  edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
+  copy: svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/>'),
   chev: '<span class="chev" aria-hidden="true">&rsaquo;</span>',
 };
 
@@ -79,8 +81,9 @@ export interface Me {
 /** Set the name others see; the copy kept on this device follows. */
 export async function setName(name: string): Promise<string | null> {
   const r = await fetch(`${apiBase()}/me`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth() }, body: JSON.stringify({ name }) }).catch(() => null);
-  if (!r?.ok) return r?.status === 400 ? 'Letters, numbers, spaces and _ . \' - only, up to 20.' : 'The server did not take it. Try again.';
-  try { const a = account(); if (a) localStorage.setItem('zp.account', JSON.stringify({ ...a, name })); } catch { /* the server has it */ }
+  if (!r?.ok) return r?.status === 409 ? 'That name is taken. Try another.' : r?.status === 400 ? 'Letters, numbers, spaces and _ . \' - only, up to 20.' : 'The server did not take it. Try again.';
+  const set = ((await r.json().catch(() => ({}))) as { name?: string }).name ?? name;
+  try { const a = account(); if (a) localStorage.setItem('zp.account', JSON.stringify({ ...a, name: set })); } catch { /* the server has it */ }
   forgetBoards();
   return null;
 }

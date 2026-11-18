@@ -1,7 +1,7 @@
 // The site's pages. Each is markup (filled from the server where it needs to be) plus what happens once it is on screen.
 // Buttons that start the game carry data-play (app.ts wires them, and keeps them disabled until the city has loaded).
 import {
-  account, api, board, BOARD_NAMES, detail, esc, fmt, ICON, ago, setName, shown, signInThen, unitOf,
+  account, api, board, BOARD_NAMES, detail, esc, fmt, ICON, ago, setName, short, shown, signInThen, unitOf,
   type Board, type Kind, type Me,
 } from './kit';
 
@@ -188,7 +188,7 @@ function drawBoard(b: Board): string {
   const me = b.me
     ? `<div class="mine">You: <b>#${b.me.rank}</b> of ${fmt(b.of)} &middot; <b>${esc(b.me.title)}</b> &middot; ${v(b.me.value)}${b.me.toNext ? ` &middot; ${fmt(b.me.toNext.gap)} to pass ${esc(b.me.toNext.name)}` : ''}</div>`
     : account() ? '' : '<div class="mine">Sign in and play to see where you stand. <button class="linkish" type="button" data-signin>Sign in</button></div>';
-  if (!b.rows.length) return `${me}<p class="muted">${EMPTY[b.kind]}</p>${rules(b)}`;
+  if (!b.rows.length) return `${me}<div class="empty"><span class="ico">${ICON.trophy}</span><p><b>The board is empty</b>${EMPTY[b.kind]}</p></div>${rules(b)}`;
   const top = b.rows.slice(0, 3), order = top.length === 3 ? [top[1]!, top[0]!, top[2]!] : top;
   const pod = `<div class="podium">${order.map((r) => `<div class="pod${r === top[0] ? ' p1' : ''}"><div class="medal">#${r.rank}</div><span class="n">${esc(r.name)}</span><span class="tag r">${esc(r.title)}</span><div class="v">${v(r.value)}</div></div>`).join('')}</div>`;
   const myName = account() ? shown(account()!) : null;
@@ -218,10 +218,10 @@ export const profile: Page = {
     <div class="prof">
       <div>
         <div class="pcard">
-          <h2>${esc(shown(me))}</h2>
-          <div class="addr">${esc(me.address)}</div>
+          <div class="pname" data-k="pname"><h2>${esc(shown(me))}</h2>${me.name ? `<button class="iconbtn" type="button" data-k="rename" aria-label="Change your name" title="Change your name">${ICON.edit}</button>` : ''}</div>
+          <div class="addr"><span>${esc(short(me.address))}</span><button class="iconbtn sm" type="button" data-k="copy" aria-label="Copy address" title="Copy address">${ICON.copy}</button></div>
           <div class="muted" data-k="since" style="font-size:13px;margin-top:4px">&nbsp;</div>
-          <form data-k="name"><input name="name" maxlength="20" placeholder="Set a name others see" value="${esc(me.name ?? '')}" aria-label="Name" /><button class="btn sm" type="submit">Save</button></form>
+          <form data-k="name"${me.name ? ' hidden' : ''}><input name="name" maxlength="20" placeholder="Pick a name others see" value="${esc(me.name ?? '')}" aria-label="Name" autocomplete="off" /><button class="btn sm" type="submit">Save</button>${me.name ? '<button class="btn ghost sm" type="button" data-k="cancel">Cancel</button>' : ''}</form>
           <div class="err" data-k="nameerr" style="font-size:14px;min-height:1.2em;margin-top:4px"></div>
         </div>
         <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
@@ -247,11 +247,24 @@ export const profile: Page = {
       void import('../net/account').then((m) => { m.signOut(); ctx.refresh(); });
     });
     const form = root.querySelector<HTMLFormElement>('[data-k=name]')!;
+    const nameBox = root.querySelector<HTMLElement>('[data-k=pname]')!;
+    const input = form.elements.namedItem('name') as HTMLInputElement;
+    const errBox = root.querySelector('[data-k=nameerr]')!;
+    const editing = (on: boolean) => { form.hidden = !on; nameBox.hidden = on; errBox.textContent = ''; if (on) { input.value = me.name ?? ''; input.focus(); input.select(); } };
+    root.querySelector('[data-k=rename]')?.addEventListener('click', () => editing(true));
+    root.querySelector('[data-k=cancel]')?.addEventListener('click', () => editing(false));
+    root.querySelector('[data-k=copy]')?.addEventListener('click', (e) => {
+      const b = e.currentTarget as HTMLElement;
+      void navigator.clipboard?.writeText(me.address).then(() => { b.classList.add('done'); setTimeout(() => b.classList.remove('done'), 1200); });
+    });
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      const v = (form.elements.namedItem('name') as HTMLInputElement).value.trim();
+      const v = input.value.trim();
       if (!v) return;
-      void setName(v).then((err) => { if (err) root.querySelector('[data-k=nameerr]')!.textContent = err; else ctx.refresh(); });
+      if (v === me.name) { editing(false); return; }
+      const btn = form.querySelector<HTMLButtonElement>('button[type=submit]')!;
+      btn.disabled = true;
+      void setName(v).then((err) => { btn.disabled = false; if (err) errBox.textContent = err; else ctx.refresh(); });
     });
     for (const k of Object.keys(BOARD_NAMES) as Kind[]) {
       void board(k).then((b) => {

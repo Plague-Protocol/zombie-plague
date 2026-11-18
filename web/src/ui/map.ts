@@ -148,7 +148,8 @@ export class CityMap {
   /** The full-screen map: pan, pinch and draw. Loaded the first time it is opened. */
   private view: { opened(): void; closed(): void; draw(s: GameState, base: HTMLCanvasElement): void } | null = null;
 
-  constructor(onToggle: (open: boolean) => void) {
+  /** `live`: whether a night is on screen (the site and the title cover the game: no map over them). */
+  constructor(onToggle: (open: boolean) => void, live: () => boolean = () => true) {
     this.mini = document.getElementById('minimap') as HTMLCanvasElement;
     this.full = document.getElementById('fullmap') as HTMLCanvasElement;
     this.overlay = document.getElementById('map-screen')!;
@@ -162,7 +163,13 @@ export class CityMap {
       onToggle(this.open);
     };
     this.mini.addEventListener('pointerdown', (e) => { e.stopPropagation(); toggle(); });
-    window.addEventListener('keydown', (e) => { if (e.code === 'KeyM') toggle(); });
+    window.addEventListener('keydown', (e) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return; // typing, not asking for the map
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.code === 'KeyM' && (this.open || live())) toggle();
+      else if (e.code === 'Escape' && this.open) toggle();
+    });
     this.toggle = toggle;
   }
 

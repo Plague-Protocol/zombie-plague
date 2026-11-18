@@ -157,7 +157,7 @@ function guestTick(dt: number): void {
 /** The weapon store's page, loaded the first time you walk into one (it is not in the main bundle). */
 let storePage: StorePage | null = null;
 const storeOpen = () => storePage?.open ?? false;
-const cityMap = new CityMap((open) => { paused = open || storeOpen(); controls.enabled = !paused; });
+const cityMap = new CityMap((open) => { paused = open || storeOpen(); controls.enabled = !paused; }, () => document.documentElement.classList.contains('playing') && (mode === 'play' || mode === 'room') && !gated && !storeOpen() && !document.getElementById('gate'));
 
 $('mute').addEventListener('click', () => {
   soundMuted = !soundMuted;

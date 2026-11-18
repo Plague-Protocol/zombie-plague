@@ -66,6 +66,11 @@ describe('sign-in', () => {
     const t = (await wallet().signIn(s.app)).body.token;
     expect((await s.app.inject({ method: 'POST', url: '/me', headers: bearer(t), payload: { name: 'Sam <script>' } })).statusCode).toBe(400);
     expect((await s.app.inject({ method: 'POST', url: '/me', headers: bearer(t), payload: { name: 'Sam' } })).statusCode).toBe(200);
+    // names are one each: another account cannot take it, in any case; its owner can set it again
+    const t2 = (await wallet().signIn(s.app)).body.token;
+    expect((await s.app.inject({ method: 'POST', url: '/me', headers: bearer(t2), payload: { name: 'sAM' } })).statusCode).toBe(409);
+    expect((await s.app.inject({ method: 'POST', url: '/me', headers: bearer(t2), payload: { name: 'Sam2' } })).statusCode).toBe(200);
+    expect((await s.app.inject({ method: 'POST', url: '/me', headers: bearer(t), payload: { name: 'SAM' } })).statusCode).toBe(200);
   });
 });
 

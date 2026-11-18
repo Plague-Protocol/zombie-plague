@@ -61,9 +61,10 @@ html.playing #app { display: none; }
 /* ── page furniture ── */
 .page { padding-top: 34px; padding-bottom: 72px; min-height: calc(100vh - 230px); box-sizing: border-box; }
 .kicker { font: 17px 'VT323', monospace; letter-spacing: .25em; text-transform: uppercase; color: #ff6b5e; }
-.ph1 { margin: 2px 0 6px; font: 400 clamp(32px, 6vw, 52px)/1.05 'Eater', system-ui, sans-serif; letter-spacing: .03em; }
+.ph1 { margin: 2px 0 24px; font: 400 clamp(32px, 6vw, 52px)/1.05 'Eater', system-ui, sans-serif; letter-spacing: .03em; }
 .ph2 { margin: 4px 0 8px; font: 400 clamp(26px, 4.4vw, 40px)/1.08 'Eater', system-ui, sans-serif; letter-spacing: .03em; }
-.sub { margin: 0 0 24px; max-width: 46em; color: #a0bb94; }
+.ph1 + .sub { margin-top: -16px; }
+.sub { margin: 0 0 28px; max-width: 46em; color: #a0bb94; }
 .back { display: inline-flex; gap: 6px; align-items: center; color: #8fa785; text-decoration: none; font-size: 15px; margin-bottom: 14px; }
 .sec { margin-top: 56px; }
 .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); }
@@ -192,6 +193,16 @@ html.ios-browser .ios-tip { display: block; }
 .pcard h2 { margin: 0; font: 400 30px 'Eater', system-ui, sans-serif; color: #e8e0cc; word-break: break-word; }
 .pcard .addr { font: 17px 'VT323', monospace; color: #8fa785; letter-spacing: .06em; word-break: break-all; }
 .pcard form { display: flex; gap: 6px; margin-top: 10px; }
+.pcard form[hidden], .pname[hidden] { display: none; }
+.pname { display: flex; align-items: center; gap: 8px; }
+.pcard .addr { display: flex; align-items: center; gap: 6px; }
+.iconbtn { display: inline-grid; place-items: center; flex: none; width: 34px; height: 34px; padding: 0; border-radius: 8px; cursor: pointer;
+  background: rgba(107,142,35,.08); border: 1px solid rgba(107,142,35,.35); color: #a8c46a; transition: background .15s, color .15s, border-color .15s; }
+.iconbtn:hover, .iconbtn:focus-visible { background: rgba(107,142,35,.2); color: #d9f99d; border-color: #84cc16; outline: none; }
+.iconbtn svg { width: 17px; height: 17px; }
+.iconbtn.sm { width: 26px; height: 26px; border-radius: 6px; }
+.iconbtn.sm svg { width: 14px; height: 14px; }
+.iconbtn.done { color: #060b06; background: #84cc16; border-color: #84cc16; }
 .pcard input { flex: 1; min-width: 0; font: 16px system-ui, sans-serif; background: #060b06; color: #e8e0cc; border: 1px solid rgba(107,142,35,.45); border-radius: 6px; padding: 6px 10px; }
 .boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .box { border: 1px solid rgba(107,142,35,.2); background: #0a100a; border-radius: 12px; padding: 12px 14px; }
@@ -279,6 +290,12 @@ ol.steps { margin: 0; padding-left: 1.3em; color: #a0bb94; } ol.steps li { margi
 .roster .sv .buy .btn { width: 100%; }
 .slotnote { margin: 0 0 14px; font-size: 14px; color: #a0bb94; border-left: 3px solid #6b8e23; padding: 6px 10px; background: rgba(107,142,35,.06); border-radius: 0 6px 6px 0; }
 .slotnote b { color: #e8e0cc; }
+.slotnote + .ph { margin-top: 18px; }
+.empty { display: flex; align-items: center; gap: 16px; border: 1px dashed rgba(107,142,35,.3); border-radius: 14px; padding: 22px; margin: 18px 0; background: rgba(10,16,10,.6); }
+.empty .ico { flex: none; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; color: #84cc16; background: rgba(132,204,22,.08); border: 1px solid rgba(132,204,22,.25); }
+.empty .ico svg { width: 24px; height: 24px; }
+.empty p { margin: 0; color: #a0bb94; }
+.empty b { display: block; color: #e8e0cc; font-size: 17px; margin-bottom: 2px; }
 /* the other game: a pitch for Deduce */
 .deduce { display: grid; grid-template-columns: 1.2fr .8fr; gap: 22px; align-items: center; border: 1px solid rgba(204,20,20,.35);
   background: radial-gradient(ellipse at 85% 50%, rgba(204,20,20,.18), transparent 60%), linear-gradient(135deg, #140808, #0a0606 60%); }

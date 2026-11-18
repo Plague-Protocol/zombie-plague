@@ -88,8 +88,9 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     if (!id) return reply.code(401).send({ error: 'sign in' });
     const body = z.object({ name: z.string().trim().min(1).max(20).regex(/^[\p{L}\p{N} _.'-]+$/u) }).safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: 'bad name' });
-    await d.store.setName(id, body.data.name);
-    return { ok: true };
+    const name = body.data.name.replace(/\s+/g, ' ');
+    if (!(await d.store.setName(id, name))) return reply.code(409).send({ error: 'taken' });
+    return { ok: true, name };
   });
 
   app.get('/last-self', async (req, reply) => {
