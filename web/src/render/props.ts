@@ -120,7 +120,8 @@ function jerrycanMesh(): Mesh {
  * +y up. Plates front and back, pouches, shoulder straps.
  */
 export function vestMesh(): Mesh {
-  const body = 0x2f3a2c, plate = 0x39462f, strap = 0x22291f, pouch = 0x434f36;
+  // olive, like the armoury's picture of it, so it reads at night against dark clothes
+  const body = 0x46552c, plate = 0x55663a, strap = 0x2c3619, pouch = 0x617444;
   const b = new MeshBuilder()
     .box(0, 0, 0, 0.66, 0.62, 0.44, body, plate) // the shell
     .box(0, 0.02, 0.235, 0.5, 0.5, 0.04, plate) // front plate
@@ -128,6 +129,8 @@ export function vestMesh(): Mesh {
     .box(-0.2, 0.33, 0, 0.12, 0.06, 0.46, strap) // shoulder straps
     .box(0.2, 0.33, 0, 0.12, 0.06, 0.46, strap);
   for (const x of [-0.17, 0, 0.17]) b.box(x, -0.16, 0.27, 0.13, 0.16, 0.06, pouch); // magazine pouches
+  for (const y of [0.06, 0.12, 0.18]) b.box(-0.05, y, 0.258, 0.34, 0.018, 0.012, 0x2a3318); // webbing rows
+  for (const x of [-0.31, 0.31]) b.box(x, -0.08, 0, 0.06, 0.24, 0.4, 0x37441f); // side panels
   b.box(0.15, 0.16, 0.265, 0.14, 0.1, 0.03, 0x1c201a); // radio pouch
   b.box(0, -0.06, 0.258, 0.22, 0.05, 0.005, 0xc8c8b8); // a name tape
   return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true }));
@@ -149,6 +152,35 @@ export function helmetMesh(): Group {
   unit.scale.set(0.47, 0.5, 0.42);
   g.add(unit);
   return g;
+}
+
+/**
+ * The ammo belt, worn: a leather bandolier from the right shoulder to the left hip, front and back, with brass
+ * rounds in its loops. Built around the chest like the vest (+z forward, +x to the character's left).
+ */
+export function bandolierMesh(): Group {
+  const g = new Group();
+  for (const side of [1, -1]) {
+    const b = new MeshBuilder().box(0, 0, 0, 0.1, 0.92, 0.03, 0x5a3c20, 0x6b4a2a);
+    if (side > 0) for (let k = 0; k < 7; k++) {
+      const y = -0.33 + k * 0.11;
+      b.box(0, y, 0.022, 0.12, 0.04, 0.03, 0xd9a23c, 0xf2c35a).box(0.075, y, 0.022, 0.03, 0.03, 0.026, 0xb8652c); // a round and its tip
+    }
+    const m = new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x140c04 }));
+    m.position.set(0.02, -0.08, 0.3 * side);
+    m.rotation.z = 0.52 * side; // across the body, shoulder to opposite hip
+    g.add(m);
+  }
+  return g;
+}
+
+/** The bottle bag, worn: a canvas satchel on the left hip with bottle necks showing. Built around the hips. */
+export function satchelMesh(): Mesh {
+  const b = new MeshBuilder()
+    .box(0, 0, 0, 0.12, 0.28, 0.34, 0x9c8256, 0xb59a6a) // the bag
+    .box(0.01, 0.1, 0, 0.13, 0.09, 0.35, 0x7d6842); // its flap
+  for (const [z, col] of [[-0.09, 0x2f8a3a], [0.02, 0x8a5a22], [0.11, 0x2f8a3a]] as const) b.prism(0, 0.2, z, 0.035, 0.16, 5, col, new Color(col).offsetHSL(0, 0, 0.1).getHex());
+  return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x0c0a06 }));
 }
 
 export function gearMesh(kind: GearKind): Object3D {

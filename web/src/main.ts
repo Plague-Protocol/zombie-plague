@@ -50,6 +50,7 @@ const nightSeed = () => tonight ?? newSeed();
 function wear(l: Loadout | undefined): void {
   const sv = SURVIVORS[l?.survivor ?? 'sam'];
   setHero(sv.name);
+  view.setKit(l?.kit ?? []); // what shows on the body all night (the ammo belt)
   void view.setHeroSkin(sv.skin as SkinName);
 }
 /** What the player chose in the armoury for this night (signed in only): the ranked loadout for tonight's city, the open one

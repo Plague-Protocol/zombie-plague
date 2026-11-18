@@ -19,6 +19,7 @@ export type UpperClip = 'AimUpper' | 'ShootUpper' | 'ReloadUpper' | 'SwingUpper'
 
 const UPPER_BONES = /^(Spine|Chest|UpperChest|Neck|Head|Left(Shoulder|Arm|ForeArm|Hand)|Right(Shoulder|Arm|ForeArm|Hand))\./;
 
+export type Mount = 'chest' | 'head' | 'hips';
 export const HEIGHT = 2.8; // world units; must match the core's scale (about 1.75 m)
 const TURN_RATE = 10; // rad/s: characters turn, they do not snap
 
@@ -91,7 +92,7 @@ export class Actor {
   private hand: Object3D | null = null;
   private held: Object3D | null = null;
   /** Where worn gear hangs: a frame on the bone, lined up with the body at rest, in world units. */
-  private mounts = new Map<'chest' | 'head', Object3D>();
+  private mounts = new Map<Mount, Object3D>();
   private body: SkinnedMesh | null = null;
 
   constructor(private assets: CharacterAssets, skin: SkinName, withXray = false) {
@@ -115,7 +116,7 @@ export class Actor {
     // mounts for worn gear, measured in the rest pose (before any animation): a child of the bone
     // whose axes are the character's own (+z forward, +y up), unscaled, at the bone's position
     this.root.updateMatrixWorld(true);
-    for (const [slot, names] of [['chest', ['UpperChest', 'Chest', 'Spine']], ['head', ['Head']]] as const) {
+    for (const [slot, names] of [['chest', ['UpperChest', 'Chest', 'Spine']], ['head', ['Head']], ['hips', ['Hips']]] as const) {
       const bone = names.map((n) => this.root.getObjectByName(n)).find((b) => b);
       if (!bone) continue;
       const at = new Vector3().setFromMatrixPosition(bone.matrixWorld);
@@ -129,13 +130,15 @@ export class Actor {
     }
   }
 
-  /** Wear something on the chest or head (null takes it off). Built in world units around the
-   * middle of the chest or head, +z forward. */
-  wear(slot: 'chest' | 'head', obj: Object3D | null, offset = new Vector3()): void {
+  /** Wear something on the chest, head or hips (null takes it off). Built in world units around the
+   * middle of that part, +z forward, +x to the character's left. `tag` names it, so a part can carry several things. */
+  wear(slot: Mount, obj: Object3D | null, offset = new Vector3(), tag: string = slot): void {
     const mount = this.mounts.get(slot);
     if (!mount) return;
-    mount.clear();
+    const old = mount.getObjectByName(tag);
+    if (old) old.removeFromParent();
     if (!obj) return;
+    obj.name = tag;
     obj.position.add(offset);
     mount.add(obj);
   }

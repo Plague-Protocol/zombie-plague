@@ -7,7 +7,7 @@ import { Actor, loadSkin, type CharacterAssets, type ClipName, type SkinName } f
 import { Crowd, MUT, type CrowdClip } from './crowd';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
-import { ArmyGate, bandageMesh, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
+import { ArmyGate, bandageMesh, bandolierMesh, satchelMesh, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
 import { currentTask, escortGroup, finalChapter, gunStats, infection, isGun, isRevealed, lightOn, playerSpeed, playerVehicle, requiredDone, type GameState } from '../../../core/state';
 import { ATTACK_WINDUP, COUGH_NOISE, LASH_REACH, MELEE, PLAYER_HEALTH, SAFEHOUSE_RADIUS, SCREAM_WINDUP, TASK_RADIUS } from '../../../core/config';
 import { plagueDressing, Spores, Tentacles, Waves } from './plague';
@@ -138,6 +138,11 @@ export class GameView {
   /** How this chapter is left: down into the subway, through the army gate, or the helicopter. */
   private exitKind: 'subway' | 'gate' | 'heli' = 'subway';
   private wornGear = { vest: false, helmet: false };
+  /** What the night's loadout brought that shows on the body all night (the ammo belt). Set when a night starts. */
+  private kit: readonly string[] = [];
+  private carryKey = '';
+  /** A short move the body makes for something done in passing: down to scoop up a pickup, an arm out to hand something over. */
+  private gesture: { clip: ClipName; at: number; rate: number; until: number; fresh: boolean } | null = null;
   private effects: Effects;
   private rings: InstancedMesh;
   private beams: InstancedMesh;
@@ -660,6 +665,12 @@ export class GameView {
         }
         case 'burst': this.effects.burst(new Vector3(e.pos.x, 0.3, e.pos.y), 0x2a2620, 16, 4); break;
         case 'antiviral': if (e.seconds > 0) this.waves.ring(s.player.pos.x, s.player.pos.y, 3, 0x4ad27a, 0.6); break;
+        // picking something up off the ground: down and up again, quicker on the run
+        case 'pickup': case 'part-taken': case 'crate-opened':
+          if (!playerVehicle(s)) this.gestureFor('Kneel', 0.02, 2.6, playerSpeed(s) > 2.5 ? 0.36 : 0.55);
+          break;
+        // handing over what they asked for: an arm held out
+        case 'survivor-done': this.gestureFor('Interact', 0.55, 1.1, 0.9); break;
         case 'alarm-start': {
           const b = s.map.buildings[e.car];
           if (!b) break;
@@ -746,13 +757,16 @@ export class GameView {
     else if (!caught && !car) {
       const hold = s.hold.taskId;
       const work = s.work;
+      const g = this.gesture && this.time < this.gesture.until ? this.gesture : null;
+      if (!g) this.gesture = null;
       if (hold && playerSpeed(s) < 0.6) this.player.play(KNEEL_SCENES.includes(stepDef(hold).scene) ? 'Kneel' : 'Interact', { fade: 0.25 });
       else if (work && playerSpeed(s) < 0.6) this.player.play(work.kind === 'refuel' ? 'Kneel' : work.kind === 'talk' ? 'Talk' : 'Interact', { fade: 0.25 });
+      else if (g) { this.player.play(g.clip, { once: true, startAt: g.at, timeScale: g.rate, fade: 0.1, restart: g.fresh }); g.fresh = false; }
       else if (s.phase === 'won') this.player.play('Idle', { fade: 0.3 });
       else this.player.locomote(playerSpeed(s));
       // gun up while shooting or reloading, lowered otherwise
       const a = s.arsenal;
-      if (hold || work) this.player.setUpper(null);
+      if (hold || work || g) this.player.setUpper(null);
       else if (a.weapon && !isGun(a.weapon)) { if (this.time - this.lastSwing > 0.6) this.player.setUpper(null); }
       else if (a.reloadT > 0 && a.weapon) this.player.setUpper('ReloadUpper', { timeScale: 1.667 / gunStats(a, a.weapon).reload });
       else if (this.time - this.lastShot < 1.2) { if (this.time - this.lastShot > 0.35) this.player.setUpper('AimUpper'); }
@@ -894,6 +908,7 @@ export class GameView {
       else this.exitDoor.update(this.time, requiredDone(s));
     }
     this.updateGear(s);
+    this.updateCarry(s);
 
     // --- zombies: the nearest ones get a character; corpses fall and stay a while
     let shadowN = 0;
@@ -1093,6 +1108,47 @@ export class GameView {
     const step = Math.min(d, 2.6 * dt);
     a.locomote(2.6);
     a.update(p.x + (dx / d) * step, p.z + (dz / d) * step, Math.atan2(dz, dx), dt, true);
+  }
+
+  /** What the night's loadout brought (the site's item ids): an ammo belt is worn as a bandolier. */
+  setKit(kit: readonly string[]): void { this.kit = [...kit]; this.carryKey = ''; }
+
+  /**
+   * What you carry shows on you: the guns and the bat you are not holding slung across your back, a machete and the
+   * baton at the hip, the ammo belt across the chest, and the bottle bag on the left hip while there are bottles in it.
+   */
+  private updateCarry(s: GameState): void {
+    const a = s.arsenal, belt = this.kit.includes('ammo');
+    const spare = a.owned.filter((w) => w !== a.weapon && w !== 'pistol');
+    const key = `${spare.join()}|${a.bottles > 0}|${belt}`;
+    if (key === this.carryKey) return;
+    this.carryKey = key;
+    const p = this.player;
+    // the back: up to two long things, crossed; their grips low on the back, barrels up past a shoulder
+    const back = spare.filter((w) => w === 'rifle' || w === 'shotgun' || w === 'bat');
+    for (let k = 0; k < 2; k++) {
+      const w = back[k];
+      if (!w) { p.wear('chest', null, undefined, `back${k}`); continue; }
+      const m = weaponMesh(w);
+      // slung, barrels up past each shoulder (a gun runs along x, a bat along y)
+      if (w === 'bat') m.rotation.set(0, 0, k ? 0.4 : -0.4); else m.rotation.set(0, 0, k ? 1.95 : 1.2);
+      m.scale.setScalar(0.85);
+      p.wear('chest', m, new Vector3(k ? 0.08 : -0.08, -0.12, -0.28), `back${k}`);
+    }
+    // the hip: a machete hangs on the right, the baton behind it
+    for (const [w, z] of [['machete', 0.02], ['baton', -0.14]] as const) {
+      if (!spare.includes(w)) { p.wear('hips', null, undefined, w); continue; }
+      const m = weaponMesh(w);
+      m.rotation.set(0, 0, Math.PI - 0.15); // hanging, blade down (a blade runs along y from its grip)
+      p.wear('hips', m, new Vector3(-0.36, 0.05, z), w);
+    }
+    p.wear('chest', belt ? bandolierMesh() : null, undefined, 'bandolier');
+    p.wear('hips', a.bottles > 0 ? satchelMesh() : null, new Vector3(0.38, -0.02, 0.02), 'satchel');
+  }
+
+  /** Start a gesture: `clip` from `at` (0..1 of it) at `rate`, for `dur` seconds, then back to what the legs are doing. */
+  private gestureFor(clip: ClipName, at: number, rate: number, dur: number): void {
+    this.gesture = { clip, at, rate, until: this.time + dur, fresh: true };
   }
 
   /** Protective gear shows on the player while it lasts. */
