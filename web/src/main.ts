@@ -54,11 +54,15 @@ function wear(l: Loadout | undefined): void {
 }
 /** What the player chose in the armoury for this night (signed in only): the ranked loadout for tonight's city, the open one
  * for any other. The site keeps the server's copy on this device. Nothing chosen is the standard kit. */
+/** What the night just started carries, by name (the site keeps the names with the loadouts), to say so at the start. */
+let carried: string[] | null = null;
 function loadoutFor(night: number): Loadout | undefined {
+  carried = null;
   try {
     const me = JSON.parse(localStorage.getItem('zp.account') ?? 'null') as { address: string } | null;
-    const a = JSON.parse(localStorage.getItem('zp.armoury') ?? 'null') as { address: string; loadouts: { ranked: Loadout; open: Loadout } } | null;
+    const a = JSON.parse(localStorage.getItem('zp.armoury') ?? 'null') as { address: string; loadouts: { ranked: Loadout; open: Loadout }; carry?: { ranked: string[]; open: string[] } } | null;
     if (!me || !a || a.address !== me.address) return undefined;
+    carried = (night === tonight ? a.carry?.ranked : a.carry?.open) ?? null;
     const l = night === tonight ? a.loadouts.ranked : a.loadouts.open;
     return l.kit.length || l.hand || l.survivor || Object.values(l.ups).some(Boolean) ? l : undefined;
   } catch { return undefined; }
@@ -314,6 +318,7 @@ function advance(): void {
 function startPlay(): void {
   mode = 'play';
   hud.cinema(false);
+  if (state.chapter === 0 && carried?.length) hud.toast(`You carry: ${carried.join(', ')}`, 4500); // what the armoury sent you in with
 }
 
 function finish(): void {

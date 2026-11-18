@@ -2,13 +2,13 @@
 // the shop (kit to buy or borrow for a night), weapon upgrades, and loans. Loaded only when the page opens; the
 // catalogue and rules are core/armoury.ts, the same file the server checks against.
 import {
-  ALL_WEAPONS, DAILY_RATION, KIT, kitDef, loanFee, loadoutPoints, RANKED_POINTS, ROUND_PAY, STANDARD, UPGRADE_NAMES, upgradable, upgradePrice, weaponsOf,
-  type KitId, type Loadout, type UpId,
+  ALL_WEAPONS, DAILY_RATION, KIT, kitDef, LATE_DAYS, LEND_RATES, lendFee, lenderCut, loanFee, LOAN_DAYS, loadoutPoints, MAX_LOANS, RANKED_POINTS, ROUND_PAY,
+  STANDARD, UPGRADE_NAMES, upgradable, upgradePrice, weaponsOf, type KitId, type LendRate, type LoanDays, type Loadout, type UpId,
   MAX_GRIT, perkAt, ROSTER, SURVIVORS, svLevel, svPrice, type SurvivorId,
 } from '../../../core/armoury';
 import { UPGRADE_LEVELS, WEAPON_NAMES } from '../../../core/config';
 import type { WeaponKind } from '../../../core/types';
-import { armoury, armouryPost, esc, fmt, type ArmouryView } from './kit';
+import { armoury, armouryPost, esc, fmt, itemArt, type ArmouryView } from './kit';
 
 type Slot = 'ranked' | 'open';
 const GROUPS: Array<[string, string]> = [['weapon', 'Weapons'], ['gear', 'Gear'], ['supply', 'Supplies']];
@@ -19,13 +19,24 @@ export function mountArmoury(root: HTMLElement): void {
   let slot: Slot = 'ranked';
   let draft: Record<Slot, Loadout> = { ranked: { kit: [], ups: {} }, open: { kit: [], ups: {} } };
   let dirty = false, msg = '', err = '', busy = false;
+  let term: LoanDays = 3; // what the shop's borrow prices are for
+  const lendRate: Partial<Record<KitId, LendRate>> = {};
+  /** When something is due, in words: the day and time, and how long from now (by the server's clock). */
+  const due = (iso: string): string => {
+    const d = new Date(iso), left = d.getTime() - new Date(v!.now).getTime();
+    const when = d.toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+    if (left <= 0) return `was due ${when}`;
+    const h = Math.round(left / 36e5);
+    return `due ${when} &middot; in ${h >= 48 ? `${Math.round(h / 24)} days` : h >= 1 ? `${h} h` : `${Math.max(1, Math.round(left / 6e4))} min`}`;
+  };
+  const listed = (id: KitId) => v?.listings.find((x) => x.item === id);
 
   const take = (next: ArmouryView, keepDraft = false) => {
     v = next;
     if (!keepDraft || !dirty) { draft = { ranked: clone(next.loadouts.ranked), open: clone(next.loadouts.open) }; dirty = false; }
   };
   const borrowed = () => (v?.loans ?? []).map((l) => l.item as KitId);
-  const has = (id: KitId) => !!v && (v.owned.kit.includes(id) || borrowed().includes(id));
+  const has = (id: KitId) => !!v && ((v.owned.kit.includes(id) && !listed(id)) || borrowed().includes(id));
 
   function draw(): void {
     if (!v) return;
@@ -58,7 +69,7 @@ export function mountArmoury(root: HTMLElement): void {
         <div class="who">${mine.map((id) => `<button type="button" class="face${who === id ? ' on' : ''}" data-a="sv:${id}" title="${esc(ROSTER[id].perk)}"><img src="/survivors/${id}.webp" alt="" width="60" height="72" /><span>${SURVIVORS[id].name}</span></button>`).join('')}</div>
         <label class="ups" style="margin:8px 0 14px">${SURVIVORS[who].name}'s perk<select data-a="grit">${Array.from({ length: svLevel(v.owned, who) }, (_, k) => `<option value="${k}"${grit === k ? ' selected' : ''}>${k ? `Level ${k}: ${perkAt(who, k)} (${k} pt${k > 1 ? 's' : ''})` : `Base: ${perkAt(who, 0)}`}</option>`).join('')}</select></label>
         <div class="ph">Kit</div>
-        <div class="pick">${[...STANDARD.map((w) => `<span class="chip2 on fixed"><img src="/armoury/${w}.webp" alt="" />${WEAPON_NAMES[w]}</span>`), ...avail.map((k) => `<button type="button" class="chip2${l.kit.includes(k.id) ? ' on' : ''}" data-a="kit:${k.id}"><img src="/armoury/${k.id}.webp" alt="" />${esc(k.name)} <i>${k.points}</i>${v!.owned.kit.includes(k.id) ? '' : ' <span class="tag">Borrowed</span>'}</button>`)].join('')}</div>
+        <div class="pick">${[...STANDARD.map((w) => `<span class="chip2 on fixed"><img src="${itemArt(w)}" alt="" />${WEAPON_NAMES[w]}</span>`), ...avail.map((k) => `<button type="button" class="chip2${l.kit.includes(k.id) ? ' on' : ''}" data-a="kit:${k.id}"><img src="${itemArt(k.id)}" alt="" />${esc(k.name)} <i>${k.points}</i>${v!.owned.kit.includes(k.id) ? '' : ' <span class="tag">Borrowed</span>'}</button>`)].join('')}</div>
         ${avail.length ? '' : '<p class="muted" style="font-size:14px">You start with the pistol and baton. Buy or borrow kit below to bring more.</p>'}
         ${upRows.length ? `<div class="ph" style="margin-top:14px">Upgrades</div><div class="ups">${upRows.map(([w, u, n]) => `<label>${WEAPON_NAMES[w]} &middot; ${UPGRADE_NAMES[u]}<select data-a="up:${w}.${u}">${Array.from({ length: n + 1 }, (_, k) => `<option value="${k}"${(l.ups[`${w}.${u}` as UpId] ?? 0) === k ? ' selected' : ''}>${k ? `Level ${k} (${k} pt${k > 1 ? 's' : ''})` : 'Off'}</option>`).join('')}</select></label>`).join('')}</div>` : ''}
         <label class="ups" style="margin-top:12px">In hand at the start<select data-a="hand">${brings.map((w) => `<option value="${w}"${(l.hand ?? 'pistol') === w ? ' selected' : ''}>${WEAPON_NAMES[w]}</option>`).join('')}</select></label>
@@ -69,10 +80,11 @@ export function mountArmoury(root: HTMLElement): void {
         </p>
       </div>
       <div class="card">
-        <div class="ph">Loans</div>
-        <h3>Borrowed for a night</h3>
-        <p style="margin-bottom:12px">Take kit you cannot afford yet into your next night. The fee comes out of what that night banks; if it banks less, you owe the rest and cannot borrow again until it is paid. Unused loans lapse after a day, free.</p>
-        ${v.loans.length ? `<ul class="runs">${v.loans.map((x) => `<li class="won"><span class="body"><b>${esc(kitDef(x.item as KitId).name)}</b><small>fee ${fmt(x.fee)} when a night carries it</small></span></li>`).join('')}</ul>` : '<p class="muted" style="font-size:14px">Nothing borrowed.</p>'}
+        <div class="ph">Loans &middot; ${v.loans.length} of ${MAX_LOANS}</div>
+        <h3>Borrowed kit</h3>
+        <p style="margin-bottom:12px">Borrow for 1, 3 or 7 days; the fee is paid when you borrow. Give it back any time to free a place. Kept past its due time, it costs a late fee for each day started, and after ${LATE_DAYS} days it goes back by itself.</p>
+        ${v.loans.length ? `<ul class="loans">${v.loans.map((x) => `<li class="${x.overdue ? 'late' : ''}"><img src="${itemArt(x.item)}" alt="" /><span class="body"><b>${esc(kitDef(x.item as KitId).name)}</b><small>${x.lender ? `from ${esc(x.lender)}` : 'from the armoury'} &middot; ${due(x.dueAt)}</small>${x.overdue ? `<small class="err">Overdue: ${fmt(x.lateFee)} a day until it is back</small>` : ''}</span><button class="btn ghost sm" type="button" data-a="return:${x.id}"${busy ? ' disabled' : ''}>Return</button></li>`).join('')}</ul>` : '<p class="muted" style="font-size:14px">Nothing borrowed. Every item in the shop can be borrowed.</p>'}
+        ${v.listings.length ? `<div class="ph" style="margin-top:18px">Lent out</div><ul class="loans">${v.listings.map((x) => `<li><img src="${itemArt(x.item)}" alt="" /><span class="body"><b>${esc(kitDef(x.item as KitId).name)}</b><small>${x.status === 'lent' ? `with ${esc(x.borrower ?? 'someone')} &middot; ${due(x.dueAt!)}` : `on the rack at ${x.rate === 100 ? 'the armoury’s price' : `${x.rate}% of the armoury’s price`}`}</small></span>${x.status === 'open' ? `<button class="btn ghost sm" type="button" data-a="unlist:${x.id}"${busy ? ' disabled' : ''}>Take back</button>` : '<span class="tag">Out</span>'}</li>`).join('')}</ul>` : ''}
         ${topupCard()}
       </div>
     </div>
@@ -90,18 +102,41 @@ export function mountArmoury(root: HTMLElement): void {
       }).join('')}</div>
     </div>
 
-    ${GROUPS.map(([g, title]) => `<div class="sec" style="margin-top:40px"><div class="kicker">Shop</div><h2 class="ph2">${title}</h2><div class="grid">${KIT.filter((k) => k.group === g).map((k) => {
-      const own = v!.owned.kit.includes(k.id), lent = borrowed().includes(k.id);
-      return `<div class="card shop${own ? ' own' : ''}"><div class="itemart"><img src="/armoury/${k.id}.webp" alt="" loading="lazy" width="320" height="200" /></div><div class="ph">${k.points} pt${k.points > 1 ? 's' : ''} in a loadout</div><h3>${esc(k.name)} ${own ? '<span class="tag g">Owned</span>' : lent ? '<span class="tag">Borrowed</span>' : ''}</h3><p>${esc(k.blurb)}</p>
-        ${own ? '' : `<div class="buy"><button class="btn sm" type="button" data-a="buy:${k.id}"${v!.cash < k.price || busy ? ' disabled' : ''}>Buy ${fmt(k.price)}</button>${lent ? '' : `<button class="btn ghost sm" type="button" data-a="borrow:${k.id}"${v!.cash < 0 || busy ? ' disabled' : ''}>Borrow ${fmt(loanFee(k.id))}</button>`}</div>`}</div>`;
-    }).join('')}</div></div>`).join('')}
+    <div class="sec" style="margin-top:40px"><div class="kicker">Shop</div><h2 class="ph2">Buy, borrow or lend</h2>
+      <p class="sub">Buy to keep. Borrow from the armoury, or from another player for less. What you own you can lend out: others pay to borrow it and you bank ${Math.round(lenderCut(100))}% of the fee, but it stays off your loadouts while it is up for loan.</p>
+      <div class="termbar"><span class="k">Borrow for</span><div class="seg">${LOAN_DAYS.map((d) => `<button type="button" data-a="term:${d}" class="${term === d ? 'on' : ''}">${d} day${d > 1 ? 's' : ''}</button>`).join('')}</div></div>
+    </div>
+    ${GROUPS.map(([g, title]) => `<div class="sec" style="margin-top:28px"><h3 class="grouph">${title}</h3><div class="grid">${KIT.filter((k) => k.group === g).map((k) => shopCard(k.id)).join('')}</div></div>`).join('')}
 
     <div class="sec" style="margin-top:40px"><div class="kicker">Workshop</div><h2 class="ph2">Upgrades</h2><p class="sub">Permanent, for weapons you own. A level brought into a night costs a loadout point.</p>
-      <div class="grid">${ALL_WEAPONS.filter((w) => (STANDARD as readonly string[]).includes(w) || v!.owned.kit.includes(w as KitId)).map((w) => `<div class="card"><div class="itemart sm"><img src="/armoury/${w}.webp" alt="" loading="lazy" width="320" height="200" /></div><h3>${WEAPON_NAMES[w]}</h3>${upgradable(w as WeaponKind).map((u) => {
+      <div class="grid">${ALL_WEAPONS.filter((w) => (STANDARD as readonly string[]).includes(w) || v!.owned.kit.includes(w as KitId)).map((w) => `<div class="card"><div class="itemart sm"><img src="${itemArt(w)}" alt="" loading="lazy" width="320" height="200" /></div><h3>${WEAPON_NAMES[w]}</h3>${upgradable(w as WeaponKind).map((u) => {
         const n = v!.owned.ups[`${w}.${u}` as UpId] ?? 0, price = n < UPGRADE_LEVELS ? upgradePrice(w as WeaponKind, u, n + 1) : 0;
         return `<div class="uprow"><span>${UPGRADE_NAMES[u]}</span><span class="pips">${Array.from({ length: UPGRADE_LEVELS }, (_, k) => `<em class="${k < n ? 'on' : ''}"></em>`).join('')}</span>${n < UPGRADE_LEVELS ? `<button class="btn ghost sm" type="button" data-a="buy:${w}.${u}"${v!.cash < price || busy ? ' disabled' : ''}>${fmt(price)}</button>` : '<span class="tag g">Max</span>'}</div>`;
       }).join('')}</div>`).join('')}</div>
     </div>`;
+  }
+
+  /** A shop card: buy it; borrow it (from the armoury, or the cheapest player offer) for the chosen term; or, owned, lend it out. */
+  function shopCard(id: KitId): string {
+    const k = kitDef(id), own = v!.owned.kit.includes(id), loan = v!.loans.find((x) => x.item === id), mineListed = listed(id);
+    const offer = v!.offers[id], full = v!.loans.length >= MAX_LOANS, broke = v!.cash < 0;
+    const tag = own ? (mineListed ? `<span class="tag">${mineListed.status === 'lent' ? 'Lent out' : 'Up for loan'}</span>` : '<span class="tag g">Owned</span>') : loan ? '<span class="tag">Borrowed</span>' : '';
+    let actions: string;
+    if (own && mineListed) actions = mineListed.status === 'open' ? `<button class="btn ghost sm" type="button" data-a="unlist:${mineListed.id}"${busy ? ' disabled' : ''}>Take back</button>` : `<span class="muted" style="font-size:14px">With ${esc(mineListed.borrower ?? 'someone')}, ${due(mineListed.dueAt!)}</span>`;
+    else if (own) {
+      const r = lendRate[id] ?? 100;
+      actions = `<label class="lendrow">Lend at<select data-a="rate:${id}">${LEND_RATES.map((x) => `<option value="${x}"${x === r ? ' selected' : ''}>${x === 100 ? 'armoury price' : `${x}% of it`}</option>`).join('')}</select></label>
+        <button class="btn ghost sm" type="button" data-a="lend:${id}"${busy ? ' disabled' : ''}>Lend out</button>
+        <small class="muted lendnote">You bank ${fmt(lenderCut(lendFee(id, 1, r)))} / ${fmt(lenderCut(lendFee(id, 3, r)))} / ${fmt(lenderCut(lendFee(id, 7, r)))} when it goes for 1 / 3 / 7 days</small>`;
+    } else if (loan) actions = `<button class="btn sm" type="button" data-a="buy:${id}"${v!.cash < k.price || busy ? ' disabled' : ''}>Buy ${fmt(k.price)}</button><span class="muted" style="font-size:14px">Borrowed, ${due(loan.dueAt)}</span>`;
+    else {
+      const off = offer ? lendFee(id, term, offer.rate as LendRate) : 0;
+      actions = `<button class="btn sm" type="button" data-a="buy:${id}"${v!.cash < k.price || busy ? ' disabled' : ''}>Buy ${fmt(k.price)}</button>
+        <button class="btn ghost sm" type="button" data-a="borrow:${id}"${broke || full || busy ? ' disabled' : ''} title="From the armoury, ${term} day${term > 1 ? 's' : ''}">Borrow ${fmt(loanFee(id, term))}</button>
+        ${offer ? `<button class="btn ghost sm offer" type="button" data-a="borrowp:${id}:${offer.listing}"${broke || full || busy || v!.cash < off ? ' disabled' : ''} title="From ${esc(offer.lender)}, ${term} day${term > 1 ? 's' : ''}">From ${esc(offer.lender)} &middot; ${fmt(off)}</button>` : ''}`;
+    }
+    return `<div class="card shop${own ? ' own' : ''}"><div class="itemart"><img src="${itemArt(id)}" alt="" loading="lazy" width="320" height="200" /></div><div class="ph">${k.points} pt${k.points > 1 ? 's' : ''} in a loadout</div><h3>${esc(k.name)} ${tag}</h3><p>${esc(k.blurb)}</p>
+      <div class="buy">${actions}</div></div>`;
   }
 
   /** The stablecoin top-up: packs, paid from the signed-in wallet; a paid transaction is kept until the server has counted it. */
@@ -137,7 +172,7 @@ export function mountArmoury(root: HTMLElement): void {
     busy = false; draw();
   }
 
-  async function act(path: 'buy' | 'borrow' | 'loadout', body: unknown, done: string): Promise<void> {
+  async function act(path: 'buy' | 'borrow' | 'return' | 'lend' | 'unlist' | 'loadout', body: unknown, done: string): Promise<void> {
     busy = true; err = ''; msg = ''; draw();
     const r = await armouryPost(path, body);
     busy = false;
@@ -148,7 +183,7 @@ export function mountArmoury(root: HTMLElement): void {
   root.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>('[data-a]');
     if (!b || b.tagName === 'SELECT' || !v) return;
-    const [k, arg] = b.dataset.a!.split(':') as [string, string];
+    const [k, arg, arg2] = b.dataset.a!.split(':') as [string, string, string | undefined];
     if (k === 'slot') { slot = arg as Slot; draw(); }
     else if (k === 'sv') {
       const l = draft[slot], id = arg as SurvivorId;
@@ -167,11 +202,17 @@ export function mountArmoury(root: HTMLElement): void {
     else if (k === 'topup') void topup(Number(arg));
     else if (k === 'topup-retry') { const tx = pendingTx(); if (tx) { busy = true; draw(); void count(tx).then(() => { busy = false; draw(); }); } }
     else if (k === 'buy') void act('buy', { item: arg }, 'Bought.');
-    else if (k === 'borrow') void act('borrow', { item: arg }, `Borrowed. Add it to a loadout to take it into your next night.`);
+    else if (k === 'term') { term = Number(arg) as LoanDays; draw(); }
+    else if (k === 'borrow') void act('borrow', { item: arg, days: term }, `Borrowed for ${term} day${term > 1 ? 's' : ''}. Add it to a loadout to take it into your next night.`);
+    else if (k === 'borrowp') void act('borrow', { item: arg, days: term, listing: arg2 }, `Borrowed for ${term} day${term > 1 ? 's' : ''}. Add it to a loadout to take it into your next night.`);
+    else if (k === 'return') void act('return', { loan: arg }, 'Returned. That loan place is free again.');
+    else if (k === 'lend') { if (confirm(`Put your ${kitDef(arg as KitId).name} up for loan? It comes off your loadouts until you take it back.`)) void act('lend', { item: arg, rate: lendRate[arg as KitId] ?? 100 }, 'Up for loan. You are paid each time someone borrows it.'); }
+    else if (k === 'unlist') void act('unlist', { listing: arg }, 'Taken back. Add it to a loadout to carry it again.');
   });
   root.addEventListener('change', (e) => {
     const s = e.target as HTMLSelectElement, a = s.dataset.a;
     if (!a) return;
+    if (a.startsWith('rate:')) { lendRate[a.slice(5) as KitId] = Number(s.value) as LendRate; draw(); return; }
     const l = draft[slot];
     if (a === 'hand') { if (s.value === 'pistol') delete l.hand; else l.hand = s.value as WeaponKind; }
     else if (a === 'grit') { const n = Number(s.value); if (n) { l.grit = n; l.survivor = l.survivor ?? 'sam'; } else { delete l.grit; if (l.survivor === 'sam') delete l.survivor; } }

@@ -114,10 +114,20 @@ for (const [name, make] of stores) {
       expect(await s.earnedSince(a.id, new Date(Date.now() + 60_000))).toBe(0);
       await s.setLoadouts(a.id, { ranked: { kit: ['bat'], ups: {} }, open: { kit: [], ups: { 'pistol.damage': 1 }, hand: 'pistol' } });
       expect((await s.bank(a.id)).loadouts?.open.hand).toBe('pistol');
-      const loan = await s.addLoan(a.id, 'rifle', 270);
+      const loan = await s.addLoan({ id: globalThis.crypto.randomUUID(), accountId: a.id, item: 'rifle', fee: 110, dueAt: new Date(Date.now() + 864e5) });
       expect((await s.loansActive(a.id)).map((l) => l.item)).toEqual(['rifle']);
-      await s.closeLoan(loan.id, 'used');
+      expect(await s.closeLoan(loan.id, 'returned')).toBe(true);
+      expect(await s.closeLoan(loan.id, 'returned')).toBe(false); // only once
       expect(await s.loansActive(a.id)).toEqual([]);
+      // a listing: lent once, back on the rack, withdrawn only while nobody has it
+      const x = await s.addListing(a.id, 'shotgun', 75);
+      expect((await s.openListings()).map((y) => y.id)).toEqual([x.id]);
+      expect(await s.takeListing(x.id, 'loan1')).toBe(true);
+      expect(await s.takeListing(x.id, 'loan2')).toBe(false);
+      expect(await s.withdrawListing(x.id)).toBe(false);
+      await s.reopenListing(x.id);
+      expect(await s.withdrawListing(x.id)).toBe(true);
+      expect(await s.listingsOf(a.id)).toEqual([]);
     });
   });
 }

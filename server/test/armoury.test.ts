@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { makeServer, wallet } from './helpers.ts';
 import { createGame, step } from '../../core/state.ts';
 import { quantize, Recorder, STEP, type NightLog } from '../../core/replay.ts';
-import { DAILY_CAP, DAILY_RATION, kitDef, loanFee, svPrice, upgradePrice, type Loadout } from '../../core/armoury.ts';
+import { DAILY_CAP, DAILY_RATION, kitDef, lateFee, lendFee, lenderCut, loanFee, svPrice, upgradePrice, type Loadout } from '../../core/armoury.ts';
 import { nightOf } from '../src/content.ts';
 import { dayStart, payForRound, roomLoadout } from '../src/armoury.ts';
 import type { Claim } from '../src/runs.ts';
@@ -18,8 +18,8 @@ function idleWith(seed: number, loadout: Loadout | undefined): Claim {
   return { seed, chapter: 0, outcome: g.phase === 'won' ? 'won' : 'lost', lossReason: g.lossReason, secondsLeft: g.remaining, replay };
 }
 
-async function setup() {
-  const s = await makeServer();
+async function setup(clock?: { t: number }) {
+  const s = await makeServer(clock ? { now: () => new Date(clock.t) } : {});
   const w = wallet();
   const { body } = await w.signIn(s.app);
   const auth = { authorization: `Bearer ${body.token}` };
@@ -80,24 +80,85 @@ describe('the armoury', () => {
     expect((await send(idleWith(4243, undefined))).json().bank.ration).toBe(0);
   });
 
-  it('borrows for one night: the fee comes out when a run carries it, the item goes back, and debt stops more borrowing', async () => {
+  it('borrows for a term: the fee is paid then (into debt from the armoury), it can be returned early, and it leaves the loadouts', async () => {
     const t = await setup();
-    const b = await t.post('/armoury/borrow', { item: 'rifle' });
+    const b = await t.post('/armoury/borrow', { item: 'rifle', days: 3 });
     expect(b.statusCode).toBe(200);
-    expect(b.json().loans).toHaveLength(1);
-    expect((await t.post('/armoury/borrow', { item: 'rifle' })).statusCode).toBe(409);
-    await t.post('/armoury/loadout', { ranked: { kit: [], ups: {} }, open: { kit: ['rifle'], ups: {}, hand: 'rifle' } });
-    const run = (await t.app.inject({ method: 'POST', url: '/runs', headers: t.auth, payload: { result: idleWith(777, { kit: ['rifle'], ups: {}, hand: 'rifle' }) } })).json();
-    expect(run.replayOk).toBe(true);
-    expect(run.bank.fees).toBe(loanFee('rifle'));
-    const after = await t.get();
-    expect(after.cash).toBe(run.bank.earned + DAILY_RATION - loanFee('rifle'));
-    expect(after.loans).toHaveLength(0);
-    expect(after.loadouts.open.kit).toEqual([]); // it went back
-    expect(after.loadouts.open.hand).toBeUndefined();
-    // the fee was more than the night paid: the bank is below zero, and nothing more is lent until it is paid
-    expect(after.cash).toBeLessThan(0);
+    const v = b.json();
+    expect(v.loans).toHaveLength(1);
+    expect(v.loans[0].fee).toBe(loanFee('rifle', 3));
+    expect(new Date(v.loans[0].dueAt).getTime() - Date.now()).toBeGreaterThan(3 * 864e5 - 60_000);
+    expect(v.cash).toBe(-loanFee('rifle', 3)); // a new player borrows on credit; later nights pay it back
     expect((await t.post('/armoury/borrow', { item: 'vest' })).json().error).toMatch(/owe/);
+    await t.store.ledger(t.id, 1000, 'grant', 'test');
+    expect((await t.post('/armoury/borrow', { item: 'rifle' })).statusCode).toBe(409); // already borrowed
+    await t.post('/armoury/borrow', { item: 'vest', days: 1 });
+    await t.post('/armoury/borrow', { item: 'bat', days: 7 });
+    expect((await t.post('/armoury/borrow', { item: 'helmet' })).json().error).toMatch(/3 loans/);
+    await t.post('/armoury/loadout', { ranked: { kit: [], ups: {} }, open: { kit: ['rifle', 'vest'], ups: {}, hand: 'rifle' } });
+    const back = await t.post('/armoury/return', { loan: v.loans[0].id });
+    expect(back.json().loans.map((l: { item: string }) => l.item)).toEqual(['vest', 'bat']);
+    expect(back.json().loadouts.open).toEqual({ kit: ['vest'], ups: {} }); // the rifle, and having it in hand, went back
+    expect((await t.post('/armoury/return', { loan: v.loans[0].id })).statusCode).toBe(409);
+    expect((await t.post('/armoury/borrow', { item: 'helmet' })).statusCode).toBe(200); // the place it freed
+  });
+
+  it('kept past due: a late fee for each day started, then it goes back by itself', async () => {
+    const clock = { t: Date.UTC(2026, 10, 18, 12) };
+    const t = await setup(clock);
+    await t.store.ledger(t.id, 1000, 'grant', 'test');
+    const id = (await t.post('/armoury/borrow', { item: 'shotgun', days: 1 })).json().loans[0].id;
+    const paid = 1000 - loanFee('shotgun', 1);
+    clock.t += 864e5 - 60_000; // not yet due
+    expect((await t.get()).cash).toBe(paid);
+    clock.t += 2 * 60_000; // a minute late: one day started
+    let v = await t.get();
+    expect(v.cash).toBe(paid - lateFee('shotgun'));
+    expect(v.loans[0]).toMatchObject({ id, overdue: true });
+    expect((await t.get()).cash).toBe(paid - lateFee('shotgun')); // taken once
+    clock.t += 2 * 864e5; // past the late days: two fees in all, and it is back
+    v = await t.get();
+    expect(v.cash).toBe(paid - 2 * lateFee('shotgun'));
+    expect(v.loans).toEqual([]);
+  });
+
+  it('players lend what they own: off their loadouts while listed, most of the fee to them, back on the rack when returned', async () => {
+    const lender = await setup();
+    const app = lender.app;
+    await lender.store.ledger(lender.id, 2000, 'grant', 'test');
+    await lender.post('/armoury/buy', { item: 'shotgun' });
+    await lender.post('/armoury/loadout', { ranked: { kit: ['shotgun'], ups: {}, hand: 'shotgun' }, open: { kit: [], ups: {} } });
+    const listed = (await lender.post('/armoury/lend', { item: 'shotgun', rate: 50 })).json();
+    expect(listed.listings).toMatchObject([{ item: 'shotgun', rate: 50, status: 'open' }]);
+    expect(listed.loadouts.ranked).toEqual({ kit: [], ups: {} });
+    expect((await lender.post('/armoury/loadout', { ranked: { kit: ['shotgun'], ups: {} }, open: { kit: [], ups: {} } })).json().error).toMatch(/not yours/);
+    expect((await lender.post('/armoury/lend', { item: 'shotgun', rate: 75 })).statusCode).toBe(409);
+    expect((await lender.post('/armoury/lend', { item: 'rifle', rate: 75 })).statusCode).toBe(409); // not owned
+    // a borrower sees the offer; borrowing it needs the cash in hand
+    const w = wallet();
+    const tok = (await w.signIn(app)).body;
+    const auth = { authorization: `Bearer ${tok.token}` };
+    const post = (url: string, payload: object) => app.inject({ method: 'POST', url, headers: auth, payload });
+    const offer = (await app.inject({ method: 'GET', url: '/armoury', headers: auth })).json().offers.shotgun;
+    expect(offer).toMatchObject({ listing: listed.listings[0].id, rate: 50 });
+    expect((await post('/armoury/borrow', { item: 'shotgun', days: 3, listing: offer.listing })).statusCode).toBe(402);
+    await lender.store.ledger(tok.account.id, 500, 'grant', 'test');
+    const fee = lendFee('shotgun', 3, 50);
+    expect(fee).toBeLessThan(loanFee('shotgun', 3));
+    const got = (await post('/armoury/borrow', { item: 'shotgun', days: 3, listing: offer.listing })).json();
+    expect(got.cash).toBe(500 - fee);
+    expect(got.loans[0]).toMatchObject({ item: 'shotgun', fee, lender: expect.any(String) });
+    const mine = await lender.get();
+    expect(mine.cash).toBe(2000 - kitDef('shotgun').price + lenderCut(fee));
+    expect(mine.listings[0]).toMatchObject({ status: 'lent' });
+    expect(mine.offers.shotgun).toBeUndefined();
+    expect((await lender.post('/armoury/unlist', { listing: offer.listing })).json().error).toMatch(/out on loan/);
+    // returned: back on the lender's rack, and they can take it back
+    await post('/armoury/return', { loan: got.loans[0].id });
+    expect((await lender.get()).listings[0].status).toBe('open');
+    const off = (await lender.post('/armoury/unlist', { listing: offer.listing })).json();
+    expect(off.listings).toEqual([]);
+    expect((await lender.post('/armoury/loadout', { ranked: { kit: ['shotgun'], ups: {} }, open: { kit: [], ups: {} } })).statusCode).toBe(200);
   });
 
   it('unlocks a survivor, then their perk a level at a time; a loadout may only bring what is owned', async () => {

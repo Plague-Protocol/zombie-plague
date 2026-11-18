@@ -128,11 +128,11 @@ export class Hud {
     this.hurtTimer = window.setTimeout(() => { this.hurtEl.style.opacity = '0'; }, 350);
   }
 
-  toast(text: string): void {
+  toast(text: string, ms = 1800): void {
     this.toastEl.textContent = text;
     this.toastEl.classList.add('on');
     clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('on'), 1800);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('on'), ms);
   }
 
   update(s: GameState, view: GameView): void {

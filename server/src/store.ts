@@ -43,8 +43,12 @@ export interface LastSelfRecord { chapter: number; x: number; y: number; weapon:
 export interface Loadouts { ranked: Loadout; open: Loadout }
 /** What an account has between nights: banked cash (below zero is a debt from a loan), what it owns, its loadouts. */
 export interface Bank { cash: number; owned: Owned; loadouts: Loadouts | null }
-/** An item borrowed for one night: active until a run uses it (its fee is then paid) or a day passes. */
-export interface Loan { id: string; item: string; fee: number; status: 'active' | 'used' | 'expired'; createdAt: Date }
+/** An item borrowed for a term (its fee paid when borrowed): active until it is returned, or goes back by itself after
+ * the late days. From the armoury, or from another player's listing (`lenderId`, `listingId`). */
+export interface Loan { id: string; item: string; fee: number; status: 'active' | 'used' | 'returned' | 'expired'; createdAt: Date; dueAt: Date; lenderId: string | null; listingId: string | null }
+export interface NewLoan { id: string; accountId: string; item: string; fee: number; dueAt: Date; lenderId?: string; listingId?: string }
+/** An owned item a player put up for others to borrow: off their loadouts while it is listed. */
+export interface Listing { id: string; ownerId: string; item: string; rate: number; status: 'open' | 'lent' | 'withdrawn'; loanId: string | null; createdAt: Date }
 /** Ledger reasons that count as earning (toward the daily cap). */
 export const EARN_REASONS = ['run', 'round'] as const;
 
@@ -96,10 +100,24 @@ export interface Store {
   /** What an account earned (run and round pay) since a moment. */
   earnedSince(accountId: string, since: Date): Promise<number>;
   setLoadouts(accountId: string, l: Loadouts): Promise<void>;
-  /** Loans still usable: active, and taken within the last day. */
+  /** Loans the account holds now (active, overdue ones included until they go back). */
   loansActive(accountId: string): Promise<Loan[]>;
-  addLoan(accountId: string, item: string, fee: number): Promise<Loan>;
-  closeLoan(id: string, status: 'used' | 'expired'): Promise<void>;
+  loanById(id: string): Promise<(Loan & { accountId: string }) | null>;
+  addLoan(l: NewLoan): Promise<Loan>;
+  /** Close an active loan; false if it was not active (already returned). */
+  closeLoan(id: string, status: 'used' | 'returned' | 'expired'): Promise<boolean>;
+  /** An owner's listings that are not withdrawn. */
+  listingsOf(ownerId: string): Promise<Listing[]>;
+  /** Every open listing, with who is lending. */
+  openListings(): Promise<Array<Listing & { ownerName: string | null; ownerAddress: string }>>;
+  addListing(ownerId: string, item: string, rate: number): Promise<Listing>;
+  listingById(id: string): Promise<Listing | null>;
+  /** Mark an open listing lent to a loan; false if it is not open any more (someone took it first, or it was withdrawn). */
+  takeListing(id: string, loanId: string): Promise<boolean>;
+  /** A lent listing back on the rack (its loan ended). */
+  reopenListing(id: string): Promise<void>;
+  /** Withdraw an open listing; false if it is lent out. */
+  withdrawListing(id: string): Promise<boolean>;
   close(): Promise<void>;
 }
 
@@ -209,12 +227,25 @@ export class MemoryStore implements Store {
     return this.ledgerRows.filter((x) => x.accountId === accountId && (EARN_REASONS as readonly string[]).includes(x.reason) && x.at >= since).reduce((a, x) => a + x.delta, 0);
   }
   async setLoadouts(accountId: string, l: Loadouts) { this.bk(accountId).loadouts = structuredClone(l); }
-  async loansActive(accountId: string) {
-    const since = this.now().getTime() - 864e5;
-    return this.loanRows.filter((x) => x.accountId === accountId && x.status === 'active' && x.createdAt.getTime() > since).map(({ accountId: _a, ...x }) => { void _a; return x; });
+  private listingRows: Listing[] = [];
+  private pub = (x: Loan & { accountId: string }): Loan => { const { accountId: _a, ...l } = x; void _a; return { ...l }; };
+  async loansActive(accountId: string) { return this.loanRows.filter((x) => x.accountId === accountId && x.status === 'active').map(this.pub); }
+  async loanById(id: string) { const l = this.loanRows.find((x) => x.id === id); return l ? { ...l } : null; }
+  async addLoan(n: NewLoan) {
+    const l = { id: n.id, accountId: n.accountId, item: n.item, fee: n.fee, status: 'active' as const, createdAt: this.now(), dueAt: n.dueAt, lenderId: n.lenderId ?? null, listingId: n.listingId ?? null };
+    this.loanRows.push(l);
+    return this.pub(l);
   }
-  async addLoan(accountId: string, item: string, fee: number) { const l = { id: newId(), accountId, item, fee, status: 'active' as const, createdAt: this.now() }; this.loanRows.push(l); return { id: l.id, item, fee, status: l.status, createdAt: l.createdAt }; }
-  async closeLoan(id: string, status: 'used' | 'expired') { const l = this.loanRows.find((x) => x.id === id); if (l) l.status = status; }
+  async closeLoan(id: string, status: 'used' | 'returned' | 'expired') { const l = this.loanRows.find((x) => x.id === id && x.status === 'active'); if (l) l.status = status; return !!l; }
+  async listingsOf(ownerId: string) { return this.listingRows.filter((x) => x.ownerId === ownerId && x.status !== 'withdrawn').map((x) => ({ ...x })); }
+  async openListings() {
+    return this.listingRows.filter((x) => x.status === 'open').map((x) => { const a = this.accounts.get(x.ownerId); return { ...x, ownerName: a?.name ?? null, ownerAddress: a?.address ?? '' }; });
+  }
+  async addListing(ownerId: string, item: string, rate: number) { const l: Listing = { id: newId(), ownerId, item, rate, status: 'open', loanId: null, createdAt: this.now() }; this.listingRows.push(l); return { ...l }; }
+  async listingById(id: string) { const l = this.listingRows.find((x) => x.id === id); return l ? { ...l } : null; }
+  async takeListing(id: string, loanId: string) { const l = this.listingRows.find((x) => x.id === id && x.status === 'open'); if (l) { l.status = 'lent'; l.loanId = loanId; } return !!l; }
+  async reopenListing(id: string) { const l = this.listingRows.find((x) => x.id === id && x.status === 'lent'); if (l) { l.status = 'open'; l.loanId = null; } }
+  async withdrawListing(id: string) { const l = this.listingRows.find((x) => x.id === id && x.status === 'open'); if (l) l.status = 'withdrawn'; return !!l; }
   async close() {}
 }
 
@@ -312,6 +343,21 @@ CREATE TABLE IF NOT EXISTS loan (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS loan_account_idx ON loan (account_id, status);
+ALTER TABLE loan ADD COLUMN IF NOT EXISTS due_at timestamptz;
+ALTER TABLE loan ADD COLUMN IF NOT EXISTS lender_id text;
+ALTER TABLE loan ADD COLUMN IF NOT EXISTS listing_id text;
+UPDATE loan SET due_at = created_at + interval '1 day' WHERE due_at IS NULL;
+CREATE TABLE IF NOT EXISTS listing (
+  id         text PRIMARY KEY,
+  owner_id   text NOT NULL REFERENCES account(id),
+  item       text NOT NULL,
+  rate       integer NOT NULL,
+  status     text NOT NULL,
+  loan_id    text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS listing_owner_idx ON listing (owner_id, status);
+CREATE INDEX IF NOT EXISTS listing_open_idx ON listing (item) WHERE status = 'open';
 `;
 
 export class PgStore implements Store {
@@ -455,15 +501,39 @@ export class PgStore implements Store {
     return Number(r.rows[0].n);
   }
   async setLoadouts(accountId: string, l: Loadouts) { await this.pool.query('UPDATE account SET loadouts = $2 WHERE id = $1', [accountId, JSON.stringify(l)]); }
+  private loanRow = (x: { id: string; item: string; fee: number; status: Loan['status']; created_at: Date; due_at: Date; lender_id: string | null; listing_id: string | null }): Loan =>
+    ({ id: x.id, item: x.item, fee: x.fee, status: x.status, createdAt: x.created_at, dueAt: x.due_at, lenderId: x.lender_id, listingId: x.listing_id });
   async loansActive(accountId: string) {
-    const r = await this.pool.query("SELECT id, item, fee, status, created_at FROM loan WHERE account_id = $1 AND status = 'active' AND created_at > now() - interval '1 day' ORDER BY created_at", [accountId]);
-    return r.rows.map((x) => ({ id: x.id, item: x.item, fee: x.fee, status: x.status, createdAt: x.created_at }));
+    const r = await this.pool.query("SELECT id, item, fee, status, created_at, due_at, lender_id, listing_id FROM loan WHERE account_id = $1 AND status = 'active' ORDER BY created_at", [accountId]);
+    return r.rows.map(this.loanRow);
   }
-  async addLoan(accountId: string, item: string, fee: number) {
+  async loanById(id: string) {
+    const r = await this.pool.query('SELECT id, account_id, item, fee, status, created_at, due_at, lender_id, listing_id FROM loan WHERE id = $1', [id]);
+    return r.rows[0] ? { ...this.loanRow(r.rows[0]), accountId: r.rows[0].account_id as string } : null;
+  }
+  async addLoan(n: NewLoan) {
+    const r = await this.pool.query("INSERT INTO loan (id, account_id, item, fee, status, due_at, lender_id, listing_id) VALUES ($1,$2,$3,$4,'active',$5,$6,$7) RETURNING created_at",
+      [n.id, n.accountId, n.item, n.fee, n.dueAt, n.lenderId ?? null, n.listingId ?? null]);
+    return { id: n.id, item: n.item, fee: n.fee, status: 'active' as const, createdAt: r.rows[0].created_at, dueAt: n.dueAt, lenderId: n.lenderId ?? null, listingId: n.listingId ?? null };
+  }
+  async closeLoan(id: string, status: 'used' | 'returned' | 'expired') { return ((await this.pool.query("UPDATE loan SET status = $2 WHERE id = $1 AND status = 'active'", [id, status])).rowCount ?? 0) > 0; }
+  private listingRow = (x: { id: string; owner_id: string; item: string; rate: number; status: Listing['status']; loan_id: string | null; created_at: Date }): Listing =>
+    ({ id: x.id, ownerId: x.owner_id, item: x.item, rate: x.rate, status: x.status, loanId: x.loan_id, createdAt: x.created_at });
+  async listingsOf(ownerId: string) {
+    return (await this.pool.query("SELECT * FROM listing WHERE owner_id = $1 AND status <> 'withdrawn' ORDER BY created_at", [ownerId])).rows.map(this.listingRow);
+  }
+  async openListings() {
+    const r = await this.pool.query("SELECT l.*, a.name AS owner_name, a.address AS owner_address FROM listing l JOIN account a ON a.id = l.owner_id WHERE l.status = 'open' ORDER BY l.created_at LIMIT 500");
+    return r.rows.map((x) => ({ ...this.listingRow(x), ownerName: x.owner_name as string | null, ownerAddress: x.owner_address as string }));
+  }
+  async addListing(ownerId: string, item: string, rate: number) {
     const id = newId();
-    const r = await this.pool.query("INSERT INTO loan (id, account_id, item, fee, status) VALUES ($1,$2,$3,$4,'active') RETURNING created_at", [id, accountId, item, fee]);
-    return { id, item, fee, status: 'active' as const, createdAt: r.rows[0].created_at };
+    const r = await this.pool.query("INSERT INTO listing (id, owner_id, item, rate, status) VALUES ($1,$2,$3,$4,'open') RETURNING *", [id, ownerId, item, rate]);
+    return this.listingRow(r.rows[0]);
   }
-  async closeLoan(id: string, status: 'used' | 'expired') { await this.pool.query('UPDATE loan SET status = $2 WHERE id = $1', [id, status]); }
+  async listingById(id: string) { const r = await this.pool.query('SELECT * FROM listing WHERE id = $1', [id]); return r.rows[0] ? this.listingRow(r.rows[0]) : null; }
+  async takeListing(id: string, loanId: string) { return ((await this.pool.query("UPDATE listing SET status = 'lent', loan_id = $2 WHERE id = $1 AND status = 'open'", [id, loanId])).rowCount ?? 0) > 0; }
+  async reopenListing(id: string) { await this.pool.query("UPDATE listing SET status = 'open', loan_id = NULL WHERE id = $1 AND status = 'lent'", [id]); }
+  async withdrawListing(id: string) { return ((await this.pool.query("UPDATE listing SET status = 'withdrawn' WHERE id = $1 AND status = 'open'", [id])).rowCount ?? 0) > 0; }
   async close() { await this.pool.end(); }
 }

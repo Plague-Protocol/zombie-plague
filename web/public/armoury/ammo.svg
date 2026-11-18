@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200"><defs><linearGradient id="c" x1="0" x2="1"><stop offset="0" stop-color="#8a6420"/><stop offset=".4" stop-color="#f2c35a"/><stop offset=".6" stop-color="#d9a23c"/><stop offset="1" stop-color="#7a5418"/></linearGradient><linearGradient id="t" x1="0" x2="1"><stop offset="0" stop-color="#7a3b1c"/><stop offset=".45" stop-color="#d07a46"/><stop offset="1" stop-color="#6a3016"/></linearGradient><g id="r"><path d="M-5 -30V-46Q0 -60 5 -46V-30Z" fill="url(#t)" stroke="#3a1f0c" stroke-width="1.2"/><rect x="-6" y="-31" width="12" height="40" rx="1.5" fill="url(#c)" stroke="#5a3c10" stroke-width="1.2"/><rect x="-6.5" y="7" width="13" height="4" fill="#9a7428"/></g></defs>
+<ellipse cx="160" cy="190" rx="120" ry="7" fill="#000" opacity=".3"/>
+<path d="M30 92Q160 196 290 92" fill="none" stroke="#3a2614" stroke-width="40" stroke-linecap="round"/>
+<path d="M30 92Q160 196 290 92" fill="none" stroke="#6b4a2a" stroke-width="34" stroke-linecap="round"/>
+<path d="M36 80Q160 178 284 80" fill="none" stroke="#8a6440" stroke-width="3" stroke-dasharray="6 5" opacity=".8"/>
+<path d="M34 104Q160 206 286 104" fill="none" stroke="#4a3018" stroke-width="2" stroke-dasharray="6 5" opacity=".9"/>
+<g id="all">
+<use href="#r" transform="translate(48 96) rotate(-38)"/><use href="#r" transform="translate(70 112) rotate(-30)"/><use href="#r" transform="translate(93 125) rotate(-22)"/><use href="#r" transform="translate(117 134) rotate(-14)"/><use href="#r" transform="translate(141 139) rotate(-5)"/><use href="#r" transform="translate(166 140) rotate(4)"/><use href="#r" transform="translate(190 136) rotate(12)"/><use href="#r" transform="translate(214 128) rotate(20)"/><use href="#r" transform="translate(237 116) rotate(28)"/><use href="#r" transform="translate(259 101) rotate(36)"/>
+</g>
+<path d="M30 92Q160 196 290 92" fill="none" stroke="#5a3c20" stroke-width="12" stroke-dasharray="12 12.6" stroke-dashoffset="-2" opacity=".95"/>
+<rect x="282" y="74" width="26" height="36" rx="4" fill="#b8b0a0" stroke="#4a4438" stroke-width="3" transform="rotate(35 295 92)"/><rect x="288" y="82" width="14" height="20" rx="2" fill="none" stroke="#4a4438" stroke-width="3" transform="rotate(35 295 92)"/>
+</svg>

@@ -1,7 +1,7 @@
 // The site's pages. Each is markup (filled from the server where it needs to be) plus what happens once it is on screen.
 // Buttons that start the game carry data-play (app.ts wires them, and keeps them disabled until the city has loaded).
 import {
-  account, api, board, BOARD_NAMES, detail, esc, fmt, ICON, ago, setName, short, shown, signInThen, unitOf,
+  account, api, board, BOARD_NAMES, detail, esc, fmt, ICON, ITEM_NAMES, itemArt, ago, setName, short, shown, signInThen, unitOf,
   type Board, type Kind, type Me,
 } from './kit';
 
@@ -15,6 +15,18 @@ export interface Page { title: string; html(): string; mount?(root: HTMLElement,
 
 const loading = '<div class="loading" data-loading><i></i>Loading the city&hellip;</div>';
 const head = (kicker: string, title: string, sub = '') => `<div class="kicker">${kicker}</div><h1 class="ph1">${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ''}`;
+
+/** What a loadout takes into a night (this device's copy, the one the game starts with), as pictures and names. */
+function carrying(slot: 'ranked' | 'open'): string {
+  const me = account();
+  if (!me) return '';
+  let kit: string[] = [], lent: string[] = [];
+  try {
+    const a = JSON.parse(localStorage.getItem('zp.armoury') ?? 'null') as { address: string; loadouts: Record<string, { kit: string[] }>; loans?: Array<{ item: string }> } | null;
+    if (a?.address === me.address) { kit = a.loadouts[slot]?.kit ?? []; lent = (a.loans ?? []).map((x) => x.item); }
+  } catch { /* the standard kit */ }
+  return `<span class="carry"><em>You carry</em>${['pistol', 'baton', ...kit].map((id) => `<span class="it${lent.includes(id) ? ' b' : ''}" title="${lent.includes(id) ? 'Borrowed' : ''}"><img src="${itemArt(id)}" alt="" />${esc(ITEM_NAMES[id] ?? id)}</span>`).join('')}</span>`;
+}
 
 const DISTRICTS = `
   <div class="card"><img class="art" src="/intro/bg-game.webp" alt="" loading="lazy" /><div class="ph">01 &middot; Downtown</div><h3>Where it started</h3><p>Scavenge, help who you can and find the parts you need, then get down into the subway before the streets close in.</p></div>
@@ -130,14 +142,14 @@ export const play: Page = {
   <div class="wrap page">
     ${head('Choose your night', 'Play', 'Tonight\'s city is the same for everyone and counts for the board. Rooms put you on the streets with others. On a phone, the game turns sideways when it starts.')}
     ${loading}
-    ${account() ? '<p class="muted" style="margin:-6px 0 14px;font-size:15px">You carry the loadouts you set in the <a href="/armoury">Armoury</a>.</p>' : ''}
+    ${account() ? '<p class="muted" style="margin:-6px 0 14px;font-size:15px">What you carry is set in the <a href="/armoury">Armoury</a>.</p>' : ''}
     <div class="modes">
-      <button class="mode hot" type="button" data-play="solo" disabled><span class="ico">${ICON.bio}</span><span class="body"><h3>Tonight's city <span class="tag g">Counts for ranks</span></h3><p>Solo &middot; three districts &middot; the same streets for everyone today &middot; your ranked loadout</p></span>${ICON.chev}</button>
+      <button class="mode hot" type="button" data-play="solo" disabled><span class="ico">${ICON.bio}</span><span class="body"><h3>Tonight's city <span class="tag g">Counts for ranks</span></h3><p>Solo &middot; three districts &middot; the same streets for everyone today &middot; your ranked loadout</p>${carrying('ranked')}</span>${ICON.chev}</button>
       <button class="mode" type="button" data-play="quick" disabled><span class="ico a">${ICON.users}</span><span class="body"><h3>Quick play <span class="tag m">Sign in</span></h3><p>Drop into the next open room with whoever is around &middot; 2 to 8 players</p></span>${ICON.chev}</button>
       <button class="mode" type="button" data-play="create" disabled><span class="ico p">${ICON.door}</span><span class="body"><h3>Private room <span class="tag m">Sign in</span></h3><p>Make a room, then share its five-letter code or an invite link</p></span>${ICON.chev}</button>
       <div class="mode" style="cursor:default"><span class="ico b">${ICON.key}</span><span class="body"><h3>Join with a code</h3><p>A friend read out their room's code? Type it here.</p>
         <form data-join><input name="code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" aria-label="Room code" /><button class="btn sm" type="submit" disabled data-play="join">Join</button></form></span></div>
-      <button class="mode" type="button" data-play="practice" disabled><span class="ico g">${ICON.dice}</span><span class="body"><h3>Practice night <span class="tag m">Not ranked</span></h3><p>A city nobody else has, with your open loadout. Learn the streets without it counting.</p></span>${ICON.chev}</button>
+      <button class="mode" type="button" data-play="practice" disabled><span class="ico g">${ICON.dice}</span><span class="body"><h3>Practice night <span class="tag m">Not ranked</span></h3><p>A city nobody else has, with your open loadout. Learn the streets without it counting.</p>${carrying('open')}</span>${ICON.chev}</button>
       <button class="mode" type="button" ${stakingOn ? 'data-play="rooms" disabled' : 'disabled'} data-k="staked"><span class="ico a">${ICON.coin}</span><span class="body"><h3>Staked rooms <span class="tag">${stakingOn ? 'USDm &middot; USDT' : 'Coming soon'}</span></h3><p>Everyone stakes the same on a room; those who get out split the pot, less a 1.5% fee. On Celo.</p></span>${ICON.chev}</button>
     </div>
     <div class="sec grid">

@@ -106,3 +106,24 @@ describe('the armoury', () => {
     expect(applyLoadout(createGame(1).arsenal, 10, undefined)).toBe(10);
   });
 });
+
+describe('the site’s item names and loan prices', () => {
+  it('the first page’s names match the catalogue and the weapon names', async () => {
+    const { ITEM_NAMES } = await import('../src/site/kit');
+    const { KIT } = await import('../../core/armoury');
+    const { WEAPON_NAMES } = await import('../../core/config');
+    for (const k of KIT) expect(ITEM_NAMES[k.id]).toBe(k.name);
+    expect(ITEM_NAMES.pistol).toBe(WEAPON_NAMES.pistol);
+    expect(ITEM_NAMES.baton).toBe(WEAPON_NAMES.baton);
+  });
+  it('a longer loan is cheaper a day, a player never asks more than the armoury, and the lender banks most of it', async () => {
+    const { KIT, loanFee, lendFee, lenderCut, LEND_RATES } = await import('../../core/armoury');
+    for (const k of KIT) {
+      expect(loanFee(k.id, 3) / 3).toBeLessThan(loanFee(k.id, 1));
+      expect(loanFee(k.id, 7) / 7).toBeLessThan(loanFee(k.id, 3) / 3 + 1e-9);
+      expect(loanFee(k.id, 7)).toBeLessThan(k.price / 2); // borrowing a week is well under buying
+      for (const r of LEND_RATES) for (const d of [1, 3, 7] as const) expect(lendFee(k.id, d, r)).toBeLessThanOrEqual(loanFee(k.id, d));
+    }
+    expect(lenderCut(100)).toBe(90);
+  });
+});

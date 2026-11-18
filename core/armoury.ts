@@ -121,6 +121,28 @@ export const DAILY_RATION = 100;
 export const DAILY_CAP = 1500;
 /** A multiplayer round: for taking part, and for getting out. */
 export const ROUND_PAY = { played: 20, escaped: 80 } as const;
-/** Borrowing an item for one night costs this share of its price, paid from what the night earns. */
-export const LOAN_SHARE = 0.15;
-export const loanFee = (id: KitId): number => Math.max(20, Math.round(kitDef(id).price * LOAN_SHARE / 10) * 10);
+// Loans: an item borrowed for a term, from the armoury or from another player who put theirs up for loan. The fee is
+// paid when it is borrowed. Return it any time (it frees one of the three loan places); keep it past the due time and
+// a late fee is taken for each day started, until it goes back on its own.
+
+/** The terms an item can be borrowed for, in days, and the share of its price each costs (longer is cheaper a day). */
+export const LOAN_TERMS = { 1: 0.06, 3: 0.12, 7: 0.2 } as const;
+export type LoanDays = keyof typeof LOAN_TERMS;
+export const LOAN_DAYS = [1, 3, 7] as const satisfies readonly LoanDays[];
+const tens = (x: number) => Math.max(10, Math.round(x / 10) * 10);
+/** The armoury's fee to borrow an item for a term. */
+export const loanFee = (id: KitId, days: LoanDays = 1): number => tens(kitDef(id).price * LOAN_TERMS[days]);
+/** Past the due time: this for each day started (the armoury's one-day fee). */
+export const lateFee = (id: KitId): number => loanFee(id, 1);
+/** Days past due before a loan goes back by itself (the late fees stop there). */
+export const LATE_DAYS = 2;
+/** Loans one account may hold at once. */
+export const MAX_LOANS = 3;
+/** What a player lending an item may ask, as a share of the armoury's fee: never more than the armoury. */
+export const LEND_RATES = [100, 75, 50] as const;
+export type LendRate = (typeof LEND_RATES)[number];
+/** A player's fee to borrow their item for a term. */
+export const lendFee = (id: KitId, days: LoanDays, rate: LendRate): number => tens((loanFee(id, days) * rate) / 100);
+/** What the lender banks of a fee (the armoury keeps the rest). */
+export const LENDER_SHARE = 0.9;
+export const lenderCut = (fee: number): number => Math.floor(fee * LENDER_SHARE);

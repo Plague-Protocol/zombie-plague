@@ -120,6 +120,6 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     return buildBoard(d.store, q.data.board, now(), await who(req), q.data.night);
   });
 
-  registerArmoury(app, { store: d.store, auth: d.auth, topup: d.topup });
+  registerArmoury(app, { store: d.store, auth: d.auth, topup: d.topup, now });
   return app;
 }

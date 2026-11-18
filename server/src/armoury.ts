@@ -5,14 +5,15 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
-  DAILY_CAP, DAILY_RATION, earnedFor, EMPTY_LOADOUT, KIT, kitDef, loadoutProblem, loanFee, MAX_GRIT, ROUND_PAY, SURVIVORS, svLevel, svPrice,
-  upgradable, upgradePrice, weaponsOf, type KitId, type Loadout, type SurvivorId, type UpId,
+  DAILY_CAP, DAILY_RATION, earnedFor, EMPTY_LOADOUT, KIT, kitDef, LATE_DAYS, lateFee, LEND_RATES, lendFee, lenderCut, loadoutProblem, loanFee,
+  MAX_GRIT, MAX_LOANS, ROUND_PAY, SURVIVORS, svLevel, svPrice, upgradable, upgradePrice, weaponsOf,
+  type KitId, type LendRate, type LoanDays, type Loadout, type Owned, type SurvivorId, type UpId,
 } from '../../core/armoury.ts';
 import { UPGRADE_LEVELS } from '../../core/config.ts';
 import type { WeaponKind, UpgradeKind } from '../../core/types.ts';
 import { nightOf } from './content.ts';
 import type { Auth } from './auth.ts';
-import type { Loadouts, Store } from './store.ts';
+import type { Bank, Listing, Loadouts, Loan, Store } from './store.ts';
 import { minUnits, verifyTopup, type ReceiptReader, type TopupConfig } from './topup.ts';
 
 const DAY = 864e5;
@@ -24,40 +25,74 @@ export function isDailyNight(night: number, now: Date): boolean {
   return false;
 }
 
+/** What an account owns and can carry: not what it has put up for others to borrow. */
+export const usable = (bank: Bank, listings: readonly Listing[]): Owned =>
+  ({ ...bank.owned, kit: bank.owned.kit.filter((k) => !listings.some((l) => l.item === k && l.status !== 'withdrawn')) });
+
+/** Take items out of an account's saved loadouts (and what went with them: the weapon in hand, its upgrades). */
+async function dropFromLoadouts(store: Store, accountId: string, items: readonly string[]): Promise<void> {
+  const bank = await store.bank(accountId);
+  if (!bank.loadouts) return;
+  const drop = (x: Loadout): Loadout => {
+    const kit = x.kit.filter((k) => !items.includes(k)), out: Loadout = { ...x, kit };
+    const brings = weaponsOf(out);
+    if (out.hand && !brings.includes(out.hand)) delete out.hand;
+    out.ups = Object.fromEntries(Object.entries(x.ups).filter(([k]) => brings.includes(k.split('.')[0] as WeaponKind)));
+    return out;
+  };
+  await store.setLoadouts(accountId, { ranked: drop(bank.loadouts.ranked), open: drop(bank.loadouts.open) });
+}
+
+/** End a loan: the item leaves the borrower's loadouts and, if a player lent it, goes back on their rack. */
+async function endLoan(store: Store, loan: Loan & { accountId: string }, status: 'returned' | 'expired'): Promise<void> {
+  if (!(await store.closeLoan(loan.id, status))) return;
+  if (loan.listingId) await store.reopenListing(loan.listingId);
+  const bank = await store.bank(loan.accountId);
+  if (!bank.owned.kit.includes(loan.item as KitId)) await dropFromLoadouts(store, loan.accountId, [loan.item]);
+}
+
+/** A loan past its due time: a late fee for each day started (each taken once), and back by itself after the late days. */
+async function settleLoan(store: Store, loan: Loan & { accountId: string }, now: Date): Promise<boolean> {
+  const over = now.getTime() - loan.dueAt.getTime();
+  if (over <= 0) return true;
+  const days = Math.min(LATE_DAYS, Math.ceil(over / DAY));
+  for (let k = 1; k <= days; k++) await store.ledger(loan.accountId, -lateFee(loan.item as KitId), 'late', `${loan.id}:${k}`, true);
+  if (over < LATE_DAYS * DAY) return true;
+  await endLoan(store, loan, 'expired');
+  return false;
+}
+
+/** Bring an account's loans up to date (its own, and those of what it lent out), and return what it holds now. */
+export async function settleLoans(store: Store, accountId: string, now: Date): Promise<Loan[]> {
+  const held: Loan[] = [];
+  for (const l of await store.loansActive(accountId)) if (await settleLoan(store, { ...l, accountId }, now)) held.push(l);
+  for (const x of await store.listingsOf(accountId)) {
+    if (x.status !== 'lent' || !x.loanId) continue;
+    const l = await store.loanById(x.loanId);
+    if (l?.status === 'active') await settleLoan(store, l, now);
+  }
+  return held;
+}
+
 /** Why a run's loadout cannot be carried (checked before its replay), or null. */
 export async function loadoutRefusal(store: Store, accountId: string, night: number, l: unknown, now: Date): Promise<string | null> {
   if (l === undefined) return null;
-  const [bank, loans] = await Promise.all([store.bank(accountId), store.loansActive(accountId)]);
-  return loadoutProblem(l, bank.owned, isDailyNight(night, now), loans.map((x) => x.item as KitId));
+  const loans = await settleLoans(store, accountId, now);
+  const [bank, listings] = await Promise.all([store.bank(accountId), store.listingsOf(accountId)]);
+  return loadoutProblem(l, usable(bank, listings), isDailyNight(night, now), loans.map((x) => x.item as KitId));
 }
 
-/** Pay for a verified night: its share of the score (within the daily cap), the day's ration, and any loan fees it owes. */
-export async function payForRun(store: Store, accountId: string, runId: string, score: number, night: number, loadout: Loadout | undefined, now: Date) {
+/** Pay for a verified night: its share of the score (within the daily cap) and the day's ration. (Loan fees are paid
+ * when an item is borrowed; `fees` stays for older clients.) */
+export async function payForRun(store: Store, accountId: string, runId: string, score: number, night: number, _loadout: Loadout | undefined, now: Date) {
   const ranked = isDailyNight(night, now);
   const day = dayStart(now);
   const left = Math.max(0, DAILY_CAP - await store.earnedSince(accountId, day));
   const earned = Math.min(left, earnedFor(score, ranked));
   if (earned > 0) await store.ledger(accountId, earned, 'run', runId);
   const ration = (await store.ledger(accountId, DAILY_RATION, 'ration', day.toISOString().slice(0, 10))).ok ? DAILY_RATION : 0;
-  // borrowed items this night carried: their fees are due now (a debt if the bank cannot cover them)
-  let fees = 0;
-  if (loadout) {
-    const bank = await store.bank(accountId);
-    for (const loan of await store.loansActive(accountId)) {
-      if (!loadout.kit.includes(loan.item as KitId) || bank.owned.kit.includes(loan.item as KitId)) continue;
-      await store.ledger(accountId, -loan.fee, 'loan', loan.id, true);
-      await store.closeLoan(loan.id, 'used');
-      fees += loan.fee;
-      // the item goes back: take it out of the loadouts that held it
-      if (bank.loadouts) {
-        const drop = (x: Loadout): Loadout => ({ ...x, kit: x.kit.filter((k) => k !== loan.item), hand: x.hand === loan.item ? undefined : x.hand });
-        await store.setLoadouts(accountId, { ranked: drop(bank.loadouts.ranked), open: drop(bank.loadouts.open) });
-        bank.loadouts = { ranked: drop(bank.loadouts.ranked), open: drop(bank.loadouts.open) };
-      }
-    }
-  }
   const cash = (await store.bank(accountId)).cash;
-  return { earned, ration, fees, cash, capped: earned < earnedFor(score, ranked) };
+  return { earned, ration, fees: 0, cash, capped: earned < earnedFor(score, ranked) };
 }
 
 /**
@@ -65,14 +100,15 @@ export async function payForRun(store: Store, accountId: string, runId: string, 
  * what it owns (borrowed kit is for a night, not a room). Anything that no longer checks out leaves it on the standard kit.
  */
 export async function roomLoadout(store: Store, accountId: string): Promise<Loadout | undefined> {
-  const bank = await store.bank(accountId);
+  const [bank, listings] = await Promise.all([store.bank(accountId), store.listingsOf(accountId)]);
   const l = bank.loadouts?.ranked;
   if (!l) return undefined;
-  const kept: Loadout = { ...l, kit: l.kit.filter((k) => bank.owned.kit.includes(k)) };
+  const owned = usable(bank, listings);
+  const kept: Loadout = { ...l, kit: l.kit.filter((k) => owned.kit.includes(k)) };
   const brings = weaponsOf(kept);
   kept.ups = Object.fromEntries(Object.entries(l.ups).filter(([k]) => brings.includes(k.split('.')[0] as WeaponKind)));
   if (kept.hand && !brings.includes(kept.hand)) delete kept.hand;
-  return loadoutProblem(kept, bank.owned, true) ? undefined : kept;
+  return loadoutProblem(kept, owned, true) ? undefined : kept;
 }
 
 /** Pay a signed-in seat for a multiplayer round (within the daily cap). */
@@ -97,11 +133,31 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
   const now = d.now ?? (() => new Date());
   const who = async (req: FastifyRequest) => d.auth.accountOf((req.headers.authorization ?? '').replace(/^Bearer /, '') || null);
 
+  const shown = (a: { name: string | null; address: string } | null) => (a ? a.name || `${a.address.slice(0, 6)}…${a.address.slice(-4)}` : 'someone');
+
   async function view(accountId: string) {
     const t = now();
-    const [bank, loans, today] = await Promise.all([d.store.bank(accountId), d.store.loansActive(accountId), d.store.earnedSince(accountId, dayStart(t))]);
+    const loans = await settleLoans(d.store, accountId, t);
+    const [bank, today, mine, open] = await Promise.all([d.store.bank(accountId), d.store.earnedSince(accountId, dayStart(t)), d.store.listingsOf(accountId), d.store.openListings()]);
     const topup = d.topup ? { ...d.topup.config, min: String(minUnits(d.topup.config)) } : null; // what the site needs to send one
-    return { cash: bank.cash, owned: bank.owned, loadouts: bank.loadouts ?? { ranked: EMPTY_LOADOUT, open: EMPTY_LOADOUT }, loans, earnedToday: today, dailyCap: DAILY_CAP, tonight: nightOf(t), topup };
+    const lenders = new Map<string, string>();
+    for (const l of loans) if (l.lenderId && !lenders.has(l.lenderId)) lenders.set(l.lenderId, shown(await d.store.accountById(l.lenderId)));
+    // the cheapest open offer from another player, per item
+    const offers: Record<string, { listing: string; rate: number; lender: string }> = {};
+    for (const x of open) {
+      if (x.ownerId === accountId) continue;
+      const cur = offers[x.item];
+      if (!cur || x.rate < cur.rate) offers[x.item] = { listing: x.id, rate: x.rate, lender: x.ownerName || `${x.ownerAddress.slice(0, 6)}…${x.ownerAddress.slice(-4)}` };
+    }
+    const listings = await Promise.all(mine.map(async (x) => {
+      const loan = x.status === 'lent' && x.loanId ? await d.store.loanById(x.loanId) : null;
+      return { id: x.id, item: x.item, rate: x.rate, status: x.status, dueAt: loan?.dueAt ?? null, borrower: loan ? shown(await d.store.accountById(loan.accountId)) : null };
+    }));
+    return {
+      cash: bank.cash, owned: bank.owned, loadouts: bank.loadouts ?? { ranked: EMPTY_LOADOUT, open: EMPTY_LOADOUT },
+      loans: loans.map((l) => ({ id: l.id, item: l.item, fee: l.fee, createdAt: l.createdAt, dueAt: l.dueAt, lender: l.lenderId ? lenders.get(l.lenderId) ?? 'someone' : null, lateFee: lateFee(l.item as KitId), overdue: l.dueAt.getTime() < t.getTime() })),
+      listings, offers, earnedToday: today, dailyCap: DAILY_CAP, tonight: nightOf(t), topup, now: t,
+    };
   }
 
   app.get('/armoury', async (req, reply) => {
@@ -139,18 +195,78 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
     return view(id);
   });
 
-  // borrow a piece of kit for one night: its fee is paid from what that night earns
+  // borrow a piece of kit for a term, from the armoury or from a player's listing; the fee is paid now
   app.post('/armoury/borrow', async (req, reply) => {
     const id = await who(req);
     if (!id) return reply.code(401).send({ error: 'sign in' });
-    const body = z.object({ item: kitId }).safeParse(req.body);
+    const body = z.object({ item: kitId, days: z.union([z.literal(1), z.literal(3), z.literal(7)]).default(1), listing: z.string().max(64).optional() }).safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: 'unknown item' });
-    const [bank, loans] = await Promise.all([d.store.bank(id), d.store.loansActive(id)]);
+    const { item, listing } = body.data, days = body.data.days as LoanDays;
+    const t = now();
+    const loans = await settleLoans(d.store, id, t);
+    const bank = await d.store.bank(id);
     if (bank.cash < 0) return reply.code(402).send({ error: 'pay off what you owe first' });
-    if (bank.owned.kit.includes(body.data.item)) return reply.code(409).send({ error: 'already yours' });
-    if (loans.some((l) => l.item === body.data.item)) return reply.code(409).send({ error: 'already borrowed' });
-    if (loans.length >= 3) return reply.code(409).send({ error: 'three loans at a time' });
-    await d.store.addLoan(id, body.data.item, loanFee(body.data.item));
+    if (bank.owned.kit.includes(item)) return reply.code(409).send({ error: 'already yours' });
+    if (loans.some((l) => l.item === item)) return reply.code(409).send({ error: 'already borrowed' });
+    if (loans.length >= MAX_LOANS) return reply.code(409).send({ error: `${MAX_LOANS} loans at a time: return one first` });
+    const loanId = globalThis.crypto.randomUUID(), dueAt = new Date(t.getTime() + days * DAY);
+    if (listing) {
+      // from another player: paid from cash in hand (no debt), most of it to them
+      const x = await d.store.listingById(listing);
+      if (!x || x.status !== 'open' || x.item !== item) return reply.code(409).send({ error: 'that offer is gone' });
+      if (x.ownerId === id) return reply.code(409).send({ error: 'that is your own' });
+      const fee = lendFee(item, days, x.rate as LendRate);
+      if (!(await d.store.takeListing(x.id, loanId))) return reply.code(409).send({ error: 'someone borrowed it first' });
+      if (!(await d.store.ledger(id, -fee, 'borrow', loanId)).ok) { await d.store.reopenListing(x.id); return reply.code(402).send({ error: 'not enough cash for that offer' }); }
+      await d.store.ledger(x.ownerId, lenderCut(fee), 'lend', loanId);
+      await d.store.addLoan({ id: loanId, accountId: id, item, fee, dueAt, lenderId: x.ownerId, listingId: x.id });
+    } else {
+      // from the armoury: may run into debt, which later nights pay back
+      const fee = loanFee(item, days);
+      await d.store.ledger(id, -fee, 'borrow', loanId, true);
+      await d.store.addLoan({ id: loanId, accountId: id, item, fee, dueAt });
+    }
+    return view(id);
+  });
+
+  // give a borrowed item back before (or after) it is due: frees a loan place and stops late fees
+  app.post('/armoury/return', async (req, reply) => {
+    const id = await who(req);
+    if (!id) return reply.code(401).send({ error: 'sign in' });
+    const body = z.object({ loan: z.string().max(64) }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: 'which loan?' });
+    await settleLoans(d.store, id, now());
+    const loan = await d.store.loanById(body.data.loan);
+    if (!loan || loan.accountId !== id || loan.status !== 'active') return reply.code(409).send({ error: 'that loan is already back' });
+    await endLoan(d.store, loan, 'returned');
+    return view(id);
+  });
+
+  // put an owned item up for others to borrow (it is off your loadouts while it is listed)
+  app.post('/armoury/lend', async (req, reply) => {
+    const id = await who(req);
+    if (!id) return reply.code(401).send({ error: 'sign in' });
+    const body = z.object({ item: kitId, rate: z.union([z.literal(100), z.literal(75), z.literal(50)]) }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: 'unknown item or rate' });
+    const [bank, mine] = await Promise.all([d.store.bank(id), d.store.listingsOf(id)]);
+    if (!bank.owned.kit.includes(body.data.item)) return reply.code(409).send({ error: 'only what you own can be lent' });
+    if (mine.some((l) => l.item === body.data.item)) return reply.code(409).send({ error: 'already up for loan' });
+    if (!(LEND_RATES as readonly number[]).includes(body.data.rate)) return reply.code(400).send({ error: 'unknown rate' });
+    await d.store.addListing(id, body.data.item, body.data.rate);
+    await dropFromLoadouts(d.store, id, [body.data.item]);
+    return view(id);
+  });
+
+  // take a listed item back (only while nobody has it)
+  app.post('/armoury/unlist', async (req, reply) => {
+    const id = await who(req);
+    if (!id) return reply.code(401).send({ error: 'sign in' });
+    const body = z.object({ listing: z.string().max(64) }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: 'which listing?' });
+    await settleLoans(d.store, id, now());
+    const x = await d.store.listingById(body.data.listing);
+    if (!x || x.ownerId !== id) return reply.code(404).send({ error: 'not yours' });
+    if (!(await d.store.withdrawListing(x.id))) return reply.code(409).send({ error: 'it is out on loan: it comes back when it is returned or due' });
     return view(id);
   });
 
@@ -177,10 +293,11 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
     if (!id) return reply.code(401).send({ error: 'sign in' });
     const body = z.object({ ranked: loadoutSchema, open: loadoutSchema }).safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: 'not a loadout' });
-    const [bank, loans] = await Promise.all([d.store.bank(id), d.store.loansActive(id)]);
-    const borrowed = loans.map((l) => l.item as KitId);
+    const loans = await settleLoans(d.store, id, now());
+    const [bank, listings] = await Promise.all([d.store.bank(id), d.store.listingsOf(id)]);
+    const borrowed = loans.map((l) => l.item as KitId), owned = usable(bank, listings);
     const l = body.data as Loadouts;
-    const why = loadoutProblem(l.ranked, bank.owned, true, borrowed) ?? loadoutProblem(l.open, bank.owned, false, borrowed);
+    const why = loadoutProblem(l.ranked, owned, true, borrowed) ?? loadoutProblem(l.open, owned, false, borrowed);
     if (why) return reply.code(400).send({ error: why });
     await d.store.setLoadouts(id, l);
     return view(id);

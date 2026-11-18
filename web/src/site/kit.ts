@@ -113,15 +113,33 @@ export async function isAdmin(): Promise<boolean> {
 
 export interface ArmouryView {
   cash: number; owned: Owned; loadouts: { ranked: Loadout; open: Loadout };
-  loans: Array<{ id: string; item: string; fee: number; createdAt: string }>;
+  loans: Array<{ id: string; item: string; fee: number; createdAt: string; dueAt: string; lender: string | null; lateFee: number; overdue: boolean }>;
+  /** What this account put up for others to borrow. */
+  listings: Array<{ id: string; item: string; rate: number; status: 'open' | 'lent'; dueAt: string | null; borrower: string | null }>;
+  /** The cheapest offer from another player, by item. */
+  offers: Record<string, { listing: string; rate: number; lender: string }>;
+  /** The server's clock (due times are counted from it). */
+  now: string;
   earnedToday: number; dailyCap: number; tonight: number;
   /** Buying cash with a stablecoin, when the server has it on. */
   topup: { token: string; treasury: string; decimals: number; rate: number; symbol: string; chainId: number; min: string } | null;
   credited?: number;
 }
+/** Item names, for saying what a night carries (kept small: the catalogue, core/armoury.ts, is not on the first page; a test keeps them equal). */
+export const ITEM_NAMES: Record<string, string> = {
+  pistol: 'Pistol', baton: 'Police baton', bat: 'Baseball bat', machete: 'Machete', shotgun: 'Shotgun', rifle: 'Assault rifle',
+  helmet: 'Riot helmet', vest: 'Kevlar vest', ammo: 'Ammo belt', bottles: 'Bottle bag', cash: 'Emergency cash',
+};
+/** An item's picture: drawn for gear and supplies, the game's own mesh for weapons. */
+export const itemArt = (id: string): string => `/armoury/${['vest', 'helmet', 'ammo', 'bottles', 'cash'].includes(id) ? `${id}.svg` : `${id}.webp`}`;
 /** Keep the loadouts on this device, where the game reads them when a night starts. */
 function keepLoadouts(v: ArmouryView): void {
-  try { const a = account(); if (a) localStorage.setItem('zp.armoury', JSON.stringify({ address: a.address, loadouts: v.loadouts })); } catch { /* the game starts with the standard kit */ }
+  try {
+    const a = account();
+    // the names of what each loadout carries go too, so the game can say what you brought without the catalogue
+    const names = (l: Loadout) => ['pistol', 'baton', ...l.kit].map((k) => ITEM_NAMES[k] ?? k);
+    if (a) localStorage.setItem('zp.armoury', JSON.stringify({ address: a.address, loadouts: v.loadouts, carry: { ranked: names(v.loadouts.ranked), open: names(v.loadouts.open) }, loans: v.loans.map((x) => ({ item: x.item, dueAt: x.dueAt })) }));
+  } catch { /* the game starts with the standard kit */ }
 }
 /** The account's armoury (and the device's copy of its loadouts brought up to date). */
 export async function armoury(): Promise<ArmouryView | null> {
@@ -131,7 +149,7 @@ export async function armoury(): Promise<ArmouryView | null> {
   return v;
 }
 /** Buy, borrow or save loadouts: the armoury as it is after, or why not. */
-export async function armouryPost(path: 'buy' | 'borrow' | 'loadout' | 'topup', body: unknown): Promise<{ view?: ArmouryView; error?: string }> {
+export async function armouryPost(path: 'buy' | 'borrow' | 'return' | 'lend' | 'unlist' | 'loadout' | 'topup', body: unknown): Promise<{ view?: ArmouryView; error?: string }> {
   try {
     const r = await fetch(`${apiBase()}/armoury/${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth() }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000) });
     const j = await r.json() as ArmouryView & { error?: string };
