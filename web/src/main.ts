@@ -340,7 +340,9 @@ function finish(): void {
   };
   void noopProgress.saveRun(anonymousSession, result);
   if (localStorage.getItem('zp.account')) void import('./net/account').then(async (m) => { const up = await m.uploadRun(result); if (up?.score !== undefined) hud.toast(`Score ${up.score.toLocaleString()}${up.bank ? ` · +${up.bank.earned + up.bank.ration} banked${up.bank.fees ? `, ${up.bank.fees} loan fee` : ''}` : ''}`); else if (up && !up.replayOk && up.reason) hud.toast(`Not counted: ${up.reason}`); for (let c = 0; c < 3; c++) serverSelves.set(c, await m.lastSelfFromServer(c)); });
-  hud.showEnd(state);
+  // gone down on foot: the film of what gets up, then the ending over that face
+  if (GameView.turns(state)) hud.playFilm(() => hud.showEnd(state), () => sound?.turned());
+  else hud.showEnd(state);
 }
 
 const task = (id: TaskId): Task | undefined => state.tasks.find((t) => t.id === id);
@@ -547,9 +549,10 @@ function frame(now: number): void {
       // let the moment play out before the ending card
       // won and cleared play out a scene first: met and checked by the soldiers, aboard, lifting off;
       // or walking down into the subway
-      // a lost night on foot plays the turning: you go down, and get up as one of them
+      // a lost night on foot plays the going down: you fall, they feed, you lie still (the film of the rest follows)
       endTimer = state.phase === 'won' || state.phase === 'cleared' || GameView.turns(state) ? 30 : state.lossReason !== 'time' ? 2.6 : 1.2; // a scene ends when it has played
       if (state.phase === 'cleared' || state.phase === 'won') hud.cinema(true);
+      if (GameView.turns(state)) hud.preloadFilm();
     }
   } else if (mode === 'room') {
     acc = 0;

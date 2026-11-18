@@ -253,6 +253,12 @@ export class Sound {
     n.connect(lp).connect(g).connect(this.sfx);
   }
 
+  /** The film of you turning: what gets up makes its sound. */
+  turned(): void {
+    if (!this.ctx) return;
+    this.sample('growl', this.panner(0), 0.7, 0.72, this.ctx.currentTime + 0.5, 0);
+  }
+
   heartbeat(vol: number): void {
     const ctx = this.ctx!;
     for (const [off, v] of [[0, 1], [0.18, 0.7]] as const) {
@@ -854,9 +860,8 @@ export class Sound {
       else if (e.type === 'zombie-killed') this.sample('hurt', this.panner(0), 0.32, 0.85, undefined, 0.12); // its last sound
       else if (e.type === 'down') this.cry(0, 0.35); // a player falls (rooms)
       else if (e.type === 'lost' && e.reason !== 'carrier' && !car) {
-        // the turning: a last heartbeat as you go down, and what gets up makes their sound
+        // going down: a last heartbeat (what gets up makes its sound with the film, see turned())
         this.heartbeat(0.45);
-        this.sample('growl', this.panner(0), 0.6, 0.72, this.ctx.currentTime + 2.35, 0);
       } else if (e.type === 'turned') this.sample('growl', this.panner(panOf(e.pos.x, e.pos.y)), 0.5, 0.8);
       else if (e.type === 'tier-up' || e.type === 'burst') this.stinger();
       else if (e.type === 'omen') this.omen(panOf(e.pos.x, e.pos.y));

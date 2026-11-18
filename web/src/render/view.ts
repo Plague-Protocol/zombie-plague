@@ -168,9 +168,9 @@ export class GameView {
   private time = 0;
   private wasCaught = false;
   /** The last moments of a lost night: you go down, the colour leaves you, and you get up as one of them. */
-  private turn: { t: number; risen: boolean } | null = null;
-  private static readonly TURN = { fall: 1.1, fit: 1.2, rise: 1.4, stand: 1.1 };
-  private heroSkin: SkinName = 'humanMaleA';
+  private turn: { t: number } | null = null;
+  /** You fall, the body fits on the ground while they feed, and it lies still: the turning itself is shown after, on film. */
+  private static readonly TURN = { fall: 1.1, fit: 1.6, still: 0.6 };
   private lastShot = -10;
   private lastSwing = -10;
   /** 0 = wide establishing shot, 1 = gameplay camera. Driven by the intro. */
@@ -248,7 +248,6 @@ export class GameView {
   /** Who you are playing: the survivor's skin (fetched the first time it is worn), with its own copy to drain of colour. */
   async setHeroSkin(skin: SkinName): Promise<void> {
     await loadSkin(this.assets, skin);
-    this.heroSkin = skin;
     this.player.setSkin(skin);
     this.playerMat = this.player.ownMaterial();
   }
@@ -737,7 +736,7 @@ export class GameView {
     if (this.outro && s.phase === 'playing') this.outro = null; // a retry
     const turning = GameView.turns(s);
     if (turning && !this.turn) {
-      this.turn = { t: 0, risen: false };
+      this.turn = { t: 0 };
       this.deathFacing = s.player.heading;
       this.feeders = s.lossReason !== 'caught' ? [] : s.zombies
         .filter((z) => z.action !== 'dead' && z.action !== 'dormant' && z.kind !== 'crawler' && Math.hypot(z.pos.x - p.x, z.pos.y - p.y) < 7)
@@ -1007,9 +1006,10 @@ export class GameView {
           zz = { ...z, pos: { x: goingUp.foot.x - goingUp.out.x * 0.55, y: goingUp.foot.y - goingUp.out.y * 0.55 }, heading: Math.atan2(-goingUp.out.y, -goingUp.out.x) };
           pose.clip = 'ZWalk'; pose.o = { rate: 0.8 };
         }
-        this.crowd.draw(z.id, zz.pos.x, zz.pos.y, zz.heading, pose.clip, dt, { ...pose.o, hunch, ...look, near: close, y: zy });
-        if (z.kind === 'lasher' && z.action !== 'dead') this.lash(zz, zy);
-        else if (shape?.grow && z.action !== 'dead' && z.action !== 'dormant' && z.action !== 'rise') this.growths(zz, shape.grow, hunch, zy);
+        const drawn = this.crowd.draw(z.id, zz.pos.x, zz.pos.y, zz.heading, pose.clip, dt, { ...pose.o, hunch, ...look, near: close, y: zy });
+        // what grows out of it is rooted on the body as drawn (turned and leaning as the body is), not where the game has it
+        if (drawn && z.kind === 'lasher' && z.action !== 'dead') this.lash(z);
+        else if (drawn && shape?.grow && z.action !== 'dead' && z.action !== 'dormant' && z.action !== 'rise') this.growths(z, shape.grow);
       }
       if (z.action !== 'dead' && z.action !== 'dormant') shadowAt(z.pos.x, z.pos.y);
     }
@@ -1094,35 +1094,33 @@ export class GameView {
   }
 
   /**
-   * What grew out of one of the plain ones: from the stump of its neck, out of its back, or where an arm was. Rooted
-   * where that part sits on a body leaning forward by `hunch`; they writhe on their own.
+   * What grew out of one of the plain ones: from the stump of its neck, out of its back, or where an arm was.
+   * Rooted on the body just drawn, as it is posed this frame; they writhe on their own.
    */
-  private growths(z: Zombie, where: Growth, hunch: number, lift = 0): void {
-    const h = z.heading, fx = Math.cos(h), fy = Math.sin(h), rx = -Math.sin(h), ry = Math.cos(h); // forward, and its right
-    const at = (up: number, fwd: number, right: number) => ({
-      x: z.pos.x + fx * (fwd + up * Math.sin(hunch)) + rx * right, y: up * Math.cos(hunch) + lift, z: z.pos.y + fy * (fwd + up * Math.sin(hunch)) + ry * right,
-    });
-    const ph = z.id * 1.3;
+  private growths(z: Zombie, where: Growth): void {
+    const h = this.crowd.lastHeading, p = this.rootAt, ph = z.id * 1.3;
     if (where === 'neck') { // three short ones feeling about where the head was
-      const p = at(2.3, 0.05, 0);
+      this.crowd.on('Head', p);
       for (let k = 0; k < 3; k++) this.tentacles.add(p.x, p.y, p.z, h + (k - 1) * 2.1, 0.45 + k * 0.12, 0.75 + (k % 2) * 0.25, ph + k * 2.1);
     } else if (where === 'back') { // a fan of them out between the shoulder blades
-      const p = at(1.95, -0.25, 0);
+      this.crowd.on('UpperChest', p);
       for (let k = 0; k < 3; k++) this.tentacles.add(p.x, p.y, p.z, h + Math.PI + (k - 1) * 0.7, 0.9 + (k % 2) * 0.25, 1.3 + k * 0.2, ph + k * 1.9);
     } else { // one, thick and long, where its right arm should be, trailing down to the ground
-      const p = at(2.05, 0, 0.42);
+      this.crowd.on('RightArm', p);
       this.tentacles.add(p.x, p.y, p.z, h + Math.PI / 2 - 0.3, 1.9, 1.7, ph);
       this.tentacles.add(p.x, p.y - 0.15, p.z, h + Math.PI / 2 + 0.4, 2.2, 1.1, ph + 2.7);
     }
   }
+  private rootAt = new Vector3();
 
   /** A lasher's tentacles: a knot of them writhing out of the neck and the back; when it strikes they all go for you. */
-  private lash(z: Zombie, lift = 0): void {
+  private lash(z: Zombie): void {
     const strike = z.action === 'attack' ? 1 - Math.max(0, z.actionT) / ATTACK_WINDUP.lasher : 0;
     const spread = [0, 2.2, -2.2, 3.1, 1.1, -1.0], lean = [0.3, 0.95, 0.95, 0.8, 1.25, 1.2], long = [1.5, 1.9, 1.8, 1.6, 1.3, 1.4];
+    const h = this.crowd.lastHeading, neck = this.crowd.on('Head', new Vector3()), back = this.crowd.on('UpperChest', this.rootAt);
     for (let k = 0; k < 6; k++) {
-      const back = k >= 4, s = strike * (back ? 0.6 : 1);
-      this.tentacles.add(z.pos.x, (back ? 1.75 : 2.3) + lift, z.pos.y, z.heading + spread[k]! * (1 - s) + (k - 2.5) * 0.09 * s,
+      const b = k >= 4, s = strike * (b ? 0.6 : 1), p = b ? back : neck;
+      this.tentacles.add(p.x, p.y, p.z, h + spread[k]! * (1 - s) + (k - 2.5) * 0.09 * s,
         lean[k]! + (1.35 - lean[k]!) * s, long[k]! + (LASH_REACH + 0.3 - long[k]!) * s * s, z.id * 1.7 + k * 2.3);
     }
   }
@@ -1233,9 +1231,9 @@ export class GameView {
     if (this.turn && s.lossReason === 'caught' && z.action !== 'dead' && z.action !== 'dormant' && z.kind !== 'crawler') {
       const k = this.feeders.indexOf(z.id);
       if (k < 0) return out;
-      const T = GameView.TURN, t = this.turn.t, down = T.fall + T.fit;
-      // in over the body (it lies back from where you faced), then back off as you rise
-      const e = t < down ? Math.min(1, t / 0.7) : Math.max(0, 1 - (t - down) / 0.9);
+      const t = this.turn.t;
+      // in over the body (it lies back from where you faced), and they stay at it
+      const e = Math.min(1, t / 0.7);
       const f = this.deathFacing;
       const cx = p.x - Math.cos(f) * 0.8, cy = p.y - Math.sin(f) * 0.8;
       const a = Math.atan2(z.pos.y - cy, z.pos.x - cx);
@@ -1243,7 +1241,7 @@ export class GameView {
       out.pos = { x: z.pos.x + (tx - z.pos.x) * e, y: z.pos.y + (ty - z.pos.y) * e };
       out.heading = Math.atan2(cy - out.pos.y, cx - out.pos.x);
       out.moved = true;
-      if (t < down && e > 0.6) { out.clip = 'ZAttack'; out.o = { rate: 0.9 + (k % 2) * 0.25 }; out.hunch = 0.85; } // bent over, tearing
+      if (e > 0.6) { out.clip = 'ZAttack'; out.o = { rate: 0.9 + (k % 2) * 0.25 }; out.hunch = 0.85; } // bent over, tearing
       else { out.clip = e > 0.05 ? 'ZWalk' : 'ZIdle'; out.o = { rate: 0.6 }; }
       return out;
     }
@@ -1338,7 +1336,7 @@ export class GameView {
   /** How long the turning runs, start to end. */
   static turnLength(): number {
     const T = GameView.TURN;
-    return T.fall + T.fit + T.rise + T.stand;
+    return T.fall + T.fit + T.still;
   }
 
   private endTurn(): void {
@@ -1349,8 +1347,8 @@ export class GameView {
   }
 
   /**
-   * The turning, a few seconds close up: you fall; on the ground the body fits while the colour drains out of it;
-   * it gets up the way they all do, and stands there swaying, looking at you (the camera), one of them now.
+   * The going down, close up: you fall, and on the ground the body fits while the colour drains out of it and the
+   * nearest of them feed. It stays down: what gets up is shown after, on film, before the ending.
    */
   private playTurn(s: GameState, dt: number): void {
     const T = GameView.TURN, o = this.turn!, a = this.player, r = a.root;
@@ -1359,31 +1357,16 @@ export class GameView {
     a.setUpper(null);
     this.updateGun(s, false);
     const down = T.fall + T.fit;
-    let heading = s.player.heading;
-    if (t < down) {
-      a.play('Death', { once: true, fade: 0.15 });
-      // the colour goes out of the skin, from the bite outward
-      const k = Math.min(1, Math.max(0, (t - T.fall * 0.4) / (down - T.fall * 0.4)));
-      this.playerMat?.color.setRGB(0.64 - k * 0.3, 0.78 - k * 0.36, 0.6 - k * 0.32);
-    } else {
-      if (!o.risen) {
-        o.risen = true;
-        // the last fit, and it is one of them that gets up
-        const zombie = this.assets.materials[/Female/.test(this.heroSkin) ? 'zombieFemaleA' : 'zombieMaleA'];
-        if (zombie) a.setMaterial(zombie);
-        const len = this.assets.clips.get('ZRise')?.duration ?? T.rise;
-        a.play('ZRise', { once: true, fade: 0.08, timeScale: len / T.rise });
-        this.shake(0.5);
-      }
-      if (t > down + T.rise) a.play('ZIdle', { fade: 0.4 });
-      if (t > down + T.rise * 0.6) heading = YAW; // it turns to face you
-    }
+    a.play('Death', { once: true, fade: 0.15 });
+    // the colour goes out of the skin, from the bite outward
+    const k = Math.min(1, Math.max(0, (t - T.fall * 0.4) / (down - T.fall * 0.4)));
+    this.playerMat?.color.setRGB(0.64 - k * 0.3, 0.78 - k * 0.36, 0.6 - k * 0.32);
     const p = s.player.pos;
-    a.update(p.x, p.y, heading, dt, true);
-    // on the ground, the body jerks; standing, it sways and its head lolls
-    const fit = t > T.fall && t < down ? (Math.sin(t * 43) * Math.sin(t * 13.7) > 0.35 ? 1 : 0.25) * (1 - (t - T.fall) / T.fit * 0.4) : 0;
-    r.rotation.z = fit * Math.sin(t * 61) * 0.07 + (t > down + T.rise ? Math.sin(t * 2.1) * 0.06 : 0);
-    r.rotation.x = t > down + T.rise ? 0.14 + Math.sin(t * 1.3) * 0.03 : 0;
+    a.update(p.x, p.y, s.player.heading, dt, true);
+    // on the ground, the body jerks, less and less, then lies still
+    const fit = t > T.fall && t < down ? (Math.sin(t * 43) * Math.sin(t * 13.7) > 0.35 ? 1 : 0.25) * (1 - (t - T.fall) / T.fit * 0.7) : 0;
+    r.rotation.z = fit * Math.sin(t * 61) * 0.07;
+    r.rotation.x = 0;
     r.position.y = fit * 0.05 * Math.abs(Math.sin(t * 29));
   }
 

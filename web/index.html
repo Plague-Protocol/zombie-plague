@@ -186,6 +186,11 @@
   @keyframes zp-tell { 0%, 100% { opacity: .85; } 38% { opacity: .45; } 44% { opacity: .9; } 61% { opacity: .35; } 67% { opacity: .8; } }
   @media (prefers-reduced-motion: reduce) { #splash .tell, #splash .motes span { animation: none; } }
   #ending { background: rgba(0,0,0,.72); }
+  #ending.turned { background: radial-gradient(ellipse at 50% 45%, rgba(0,0,0,.35), rgba(0,0,0,.88) 75%), url(/ending/end.webp) center 30%/cover #050505; }
+  #ending.turned h1, #ending.turned p { text-shadow: 0 2px 12px #000, 0 0 3px #000; }
+  #film { display: none; position: fixed; inset: 0; z-index: 60; background: #000; cursor: pointer; transition: opacity .7s; }
+  #film.out { opacity: 0; pointer-events: none; }
+  #film video { width: 100%; height: 100%; object-fit: cover; filter: contrast(1.08) saturate(.85); }
   #ending h1 { margin: 0; font-size: clamp(34px, 9vw, 56px); letter-spacing: .3em; text-indent: .3em; font-weight: 300; }
   #ending h1.won { color: #9ee6a8; } #ending h1.lost { color: #ff6a5a; }
   #ending p { margin: 0; max-width: 560px; line-height: 1.55; opacity: .88; }
@@ -430,6 +435,7 @@
   <div id="map-tools"><button id="map-close" aria-label="Close map">&#10005;</button><button id="map-in" aria-label="Zoom in">+</button><button id="map-out" aria-label="Zoom out">&minus;</button></div>
   <p>Drag to move &middot; pinch or +/&minus; to zoom &middot; tap to close</p></div>
 <div id="app"></div>
+<div id="film"><video id="film-video" src="/ending/turn.mp4" muted playsinline preload="none" disablepictureinpicture></video></div>
 <div id="ending" class="screen">
   <h1 id="end-title"></h1>
   <p id="end-text"></p>

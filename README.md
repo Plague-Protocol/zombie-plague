@@ -3,7 +3,7 @@
 A browser horror game: a virus has emptied Port Halden, and you were bitten an hour ago. Three
 antiviral doses, three districts between you and the evacuation flight that carries the treatment.
 Each dose holds the infection back for a few minutes; when it runs out, you turn. This is now Zombie Plague itself (it was built as "Outbreak"); the social deduction game
-that had the name ([plague-celo](../plague-celo), "Infect the Room") moves to its own subdomain.
+that had the name ([Deduce, once plague-celo](../deduce), "Infect the Room") moves to its own subdomain.
 That repo is read here, never modified.
 
 ## The cold open

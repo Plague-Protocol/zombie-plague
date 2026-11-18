@@ -67,6 +67,8 @@ export class Hud {
   private hurtEl = $('hurt');
   private card = $('card');
   private endScreen = $('ending');
+  private film = $('film');
+  private filmVideo = $('film-video') as HTMLVideoElement;
   private healthBar = $('health-bar');
   private funds = $('funds');
   private carHealth = $('car-health');
@@ -104,6 +106,8 @@ export class Hud {
 
   reset(): void {
     this.endScreen.style.display = 'none';
+    this.endScreen.classList.remove('turned');
+    this.stopFilm();
     this.lastTimer = this.lastTask = '';
   }
 
@@ -225,7 +229,46 @@ export class Hud {
     this.holdBar.style.width = `${Math.min(1, Math.max(0, progress)) * 100}%`;
   }
 
+  /** Fetch the film and the ending's picture while you are going down, so neither waits when it is wanted. */
+  preloadFilm(): void {
+    if (this.filmVideo.preload !== 'auto') { this.filmVideo.preload = 'auto'; this.filmVideo.load(); }
+    new Image().src = '/ending/end.webp';
+  }
+
+  /**
+   * You turning, on film, full screen; then the ending. A tap skips it; if it cannot play, straight on.
+   * `onStart` is told when it starts rolling (for its sound).
+   */
+  playFilm(then: () => void, onStart?: () => void): void {
+    const v = this.filmVideo;
+    let left = false;
+    const done = () => {
+      if (left) return;
+      left = true;
+      clearTimeout(cap);
+      this.film.classList.add('out'); // fades out over the ending behind it
+      then();
+      setTimeout(() => this.stopFilm(), 700);
+    };
+    const cap = setTimeout(done, 6000); // never stuck on it
+    this.film.classList.remove('out');
+    this.film.style.display = 'block';
+    v.currentTime = 0;
+    v.playbackRate = 0.8;
+    v.onended = done;
+    v.onerror = done;
+    this.film.onclick = done;
+    v.play().then(() => onStart?.(), done);
+  }
+
+  private stopFilm(): void {
+    this.filmVideo.pause();
+    this.film.style.display = 'none';
+    this.film.classList.remove('out');
+  }
+
   showEnd(s: GameState): void {
+    this.endScreen.classList.toggle('turned', s.phase === 'lost');
     const outcome = s.phase === 'won' ? 'won' : s.lossReason ?? 'caught';
     const e = ending(outcome, finalChapter(s));
     const title = $('end-title');

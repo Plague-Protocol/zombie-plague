@@ -32,6 +32,10 @@ const PARTS = [
   { bones: /^Head/, joint: 'Head' },
 ] as const;
 
+/** The parts things are fixed to (bones of the character). */
+const ANCHORS = ['Head', 'UpperChest', 'RightArm'] as const;
+export type Anchor = typeof ANCHORS[number];
+
 interface Baked { start: number; rows: number }
 interface Track { clip: CrowdClip; t0: number; rate: number; yaw: number; seen: number }
 
@@ -87,6 +91,10 @@ export class Crowd {
   private sv = new Vector3();
   private tint = new Color();
   private at = new Vector3();
+  /** Where the stump of the neck, the upper back and the right shoulder are, every baked frame (3 floats each). */
+  private anchors: Float32Array;
+  /** The last one drawn: its frame, and how it was placed. */
+  private last = { row: 0, m: new Matrix4(), yaw: 0 };
 
   constructor(assets: CharacterAssets, readonly max = 160) {
     this.s = new Vector3().setScalar(assets.scale);
@@ -100,7 +108,9 @@ export class Crowd {
     let total = 0;
     for (const c of CLIPS) { const clip = assets.clips.get(c as ClipName)!; const rows = Math.ceil(clip.duration * BAKE_FPS) + 1; this.baked.set(c, { start: total, rows }); total += rows; }
     const data = new Float32Array(bones * 4 * 4 * total);
-    const k = new Matrix4();
+    this.anchors = new Float32Array(total * ANCHORS.length * 3);
+    const anchorBones = ANCHORS.map((n) => sm.skeleton.bones.find((b) => b.name === n)!);
+    const k = new Matrix4(), w = new Vector3();
     for (const c of CLIPS) {
       const clip = assets.clips.get(c as ClipName)!;
       const b = this.baked.get(c)!;
@@ -113,6 +123,7 @@ export class Crowd {
           k.multiplyMatrices(bone.matrixWorld, sm.skeleton.boneInverses[i]!).multiply(sm.bindMatrix);
           data.set(k.elements, ((b.start + f) * bones + i) * 16);
         });
+        anchorBones.forEach((bone, i) => { if (bone) this.anchors.set(bone.getWorldPosition(w).toArray(), ((b.start + f) * ANCHORS.length + i) * 3); });
       }
     }
     const tex = new DataTexture(data, bones * 4, total, RGBAFormat, FloatType);
@@ -255,10 +266,10 @@ for (int k = 3; k >= 0; k--) {
       /** Stand still at this point of the clip (0..1). */ hold?: number;
       /** Play back and forth between these two points of the clip (0..1): a crawl made from the start of getting up. */ pong?: readonly [number, number];
       /** Close enough to the player to show through a building. */ near?: boolean;
-    } = {}): void {
+    } = {}): boolean {
     const skin = id % 2;
     const n = this.counts[skin]!;
-    if (n >= this.max) return;
+    if (n >= this.max) return false;
     const rate = o.rate ?? 1;
     const want = Math.PI / 2 - heading;
     let t = this.tracks.get(id);
@@ -289,7 +300,21 @@ for (int k = 3; k >= 0; k--) {
     this.meshes[skin]!.setMatrixAt(n, this.m);
     this.meshes[skin]!.setColorAt(n, this.tint.setHex(o.tint ?? 0xffffff).multiplyScalar(o.bright ?? 1));
     this.counts[skin] = n + 1;
+    this.last.row = row; this.last.m.copy(this.m); this.last.yaw = t.yaw;
+    return true;
   }
+
+  /**
+   * Where a part of the last one drawn is in the world this frame: the stump of its neck, its upper back, or its right
+   * shoulder, as its body is posed, turned, leaning and stretched. What grows out of it stays on it.
+   */
+  on(part: Anchor, out = new Vector3()): Vector3 {
+    const i = (this.last.row * ANCHORS.length + ANCHORS.indexOf(part)) * 3;
+    return out.fromArray(this.anchors, i).applyMatrix4(this.last.m);
+  }
+
+  /** Which way the last one drawn faces, in the game's radians (it turns smoothly, so not quite where it is headed). */
+  get lastHeading(): number { return Math.PI / 2 - this.last.yaw; }
 
   /** Finish the frame: upload what was drawn, forget the ones no longer in view. */
   end(): void {
