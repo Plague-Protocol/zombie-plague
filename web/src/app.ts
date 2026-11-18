@@ -11,6 +11,9 @@ if (!document.documentElement.classList.contains('intro-seen')) void import('./u
 type Game = typeof import('./main');
 let game: Game | null = null;
 let gameErr = '';
+/** Still not in after a while: a stalled connection never fails, so say so rather than spin for ever. */
+let gameSlow = false;
+setTimeout(() => { if (!game && !gameErr) { gameSlow = true; armPlay(); } }, 20000);
 void import('./main').then((m) => { game = m; armPlay(); }, (e: unknown) => { gameErr = e instanceof Error ? e.message : String(e); armPlay(); });
 
 const ROUTES: Record<string, Page> = { '/': home, '/play': play, '/armoury': armouryPage, '/ranks': ranks, '/profile': profile, '/how-to-play': how, '/admin': admin };
@@ -87,6 +90,10 @@ function armPlay(): void {
   for (const l of app.querySelectorAll<HTMLElement>('[data-loading]')) {
     if (game) l.hidden = true;
     else if (gameErr) { l.className = 'err'; l.textContent = `The game could not load (${gameErr}). Reload the page to try again.`; }
+    else if (gameSlow && !l.dataset.slow) {
+      l.dataset.slow = '1';
+      l.innerHTML = '<i></i>Still loading the city&hellip; a slow connection takes a while. <button class="linkish" type="button" data-reload>Reload</button> if it stays stuck.';
+    }
   }
 }
 
@@ -104,6 +111,7 @@ app.addEventListener('click', (e) => {
     go(link.getAttribute('href')! + (link.getAttribute('href')!.includes('?') ? '' : keep()));
     return;
   }
+  if (t.closest('[data-reload]')) { location.reload(); return; }
   if (t.closest('[data-signin]')) { if (menu) menu.open = false; signInThen(ctx.refresh); return; }
   const btn = t.closest<HTMLButtonElement>('[data-play]');
   if (!btn || btn.disabled || !game || btn.dataset.play === 'join') return;

@@ -155,7 +155,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
     if (ws && ws.readyState <= WebSocket.OPEN) { then(); return; }
     err = '';
     ws = new WebSocket(`${url}/play`);
-    ws.onopen = () => { send({ t: 'hello', token: me?.token ?? null, name: name() || me?.name || '' }); then(); };
+    ws.onopen = () => { send({ t: 'hello', token: me?.token ?? null, name: me?.name || name() }); then(); };
     ws.onerror = () => { err = 'Cannot reach the game server.'; draw(); };
     ws.onclose = () => { if (!began) { roomInfo = null; if (!err) err = 'Disconnected.'; draw(); } };
     ws.onmessage = (e) => {
@@ -213,9 +213,10 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
           }
         }
       } else {
-        const nm = el('input', { placeholder: 'Your name', maxlength: '20', value: name() });
-        nm.addEventListener('input', () => localStorage.setItem(KEY_NAME, nm.value.trim()));
-        const quick = el('button', {}, 'Quick play');
+        // the server seats you under your username when you have one: only an account without one is asked
+        const nm = me.name ? null : el('input', { placeholder: 'Your name', maxlength: '20', value: name() });
+        nm?.addEventListener('input', () => localStorage.setItem(KEY_NAME, nm.value.trim()));
+        const quick = el('button', {}, 'Quick multiplayer');
         quick.onclick = () => connect(() => send({ t: 'quick' }));
         const mk = el('button', { class: 'ghost' }, 'New private room');
         mk.onclick = () => connect(() => send({ t: 'create' }));
@@ -224,7 +225,8 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
         jn.onclick = () => { if (code.value.trim().length === 5) connect(() => send({ t: 'join', code: code.value.trim() })); };
         const row = el('div', { class: 'row' });
         row.append(code, jn);
-        root.append(nm, quick, mk, row, el('small', {}, `Signed in${me.name ? ` as ${me.name}` : ''}. Quick play puts you in any open room; a private room is joined by its code or your invite link.`));
+        if (nm) root.append(nm);
+        root.append(quick, mk, row, el('small', {}, `Signed in${me.name ? ` as ${me.name}` : ''}. Quick multiplayer puts you in any open room; a private room is joined by its code or your invite link.`));
       }
       root.append(el('small', {}, 'Free rooms. 2 to 8 players, one exit with seats for half of you.'));
       if (stacks.length && me && (window as unknown as { ethereum?: unknown }).ethereum) {
