@@ -9,6 +9,7 @@
 //
 // Captions carry the story on their own (most phones are muted). Nothing heavy loads before it is
 // needed: the gate clip only after the page has loaded, and never on a slow or data-saving link.
+import { isMuted, setMuted } from '../seams/mute';
 
 type Act = 1 | 2 | 3;
 const STORY: Array<{ text: string; act: Act }> = [
@@ -36,7 +37,8 @@ export function runSplash(): Promise<void> {
     const $ = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
     const gate = $('.gate'), story = $('.story'), lines = $('.lines'), enter = $<HTMLButtonElement>('.enter');
     const bgs = $('.bgs'), finale = $<HTMLVideoElement>('.finale'), muteBtn = $<HTMLButtonElement>('.mute');
-    let muted = false, ended = false, act3 = false;
+    let muted = isMuted(), ended = false, act3 = false;
+    muteBtn.textContent = muted ? '🔇 MUTED' : '🔊 SOUND ON';
     const audios: HTMLAudioElement[] = [];
     let ambient: HTMLAudioElement | null = null;
     const timers: number[] = [];
@@ -100,6 +102,7 @@ export function runSplash(): Promise<void> {
     enter.addEventListener('click', () => finish(false));
     muteBtn.addEventListener('click', () => {
       muted = !muted;
+      setMuted(muted);
       muteBtn.textContent = muted ? '🔇 MUTED' : '🔊 SOUND ON';
       if (muted) { ambient?.pause(); for (const a of audios) a.pause(); } else ambient?.play().catch(() => {});
     });
@@ -109,7 +112,7 @@ export function runSplash(): Promise<void> {
       ambient = new Audio('/intro/ambient-lobby.mp3');
       ambient.loop = true;
       ambient.volume = 0.28;
-      ambient.play().catch(() => {});
+      if (!muted) ambient.play().catch(() => {});
       gate.classList.add('gone');
       root.querySelector('.gateclip')?.remove();
       $('.poster').remove();

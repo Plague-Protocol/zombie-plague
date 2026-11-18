@@ -3,6 +3,7 @@
 // this runs, so it is usually ready by the time someone picks a night; the buttons that start it wait for it.
 import './site/site.css';
 import { account, armoury, esc, ICON, isAdmin, shown, signInThen, board } from './site/kit';
+import { isMuted, onMute, setMuted } from './seams/mute';
 import { admin, armouryPage, home, how, notFound, play, profile, ranks, type Ctx, type Page } from './site/pages';
 
 // the cold open, once a session (its own chunk)
@@ -31,6 +32,14 @@ function keep(): string {
 }
 const path = () => location.pathname.replace(/\/+$/, '') || '/';
 
+/** The speaker in the header: sound for the cold open and the game, remembered on this device. */
+function muteButton(): string {
+  const m = isMuted();
+  return `<button class="chip snd" type="button" data-mute aria-pressed="${m}" aria-label="${m ? 'Turn sound on' : 'Mute sound'}" title="${m ? 'Sound is off' : 'Sound is on'}">${m ? ICON.soundOff : ICON.soundOn}</button>`;
+}
+// muted from the game's own button: the header follows
+onMute(() => { const b = app.querySelector('[data-mute]'); if (b) b.outerHTML = muteButton(); });
+
 function shell(): string {
   const me = account(), at = path();
   const links = [...NAV, ...(adminOk ? [['/admin', 'Admin', ICON.shield] as [string, string, string]] : [])];
@@ -42,6 +51,7 @@ function shell(): string {
     <nav class="links" aria-label="Pages">${NAV.slice(0, 5).map((l) => a(l)).join('')}</nav>
     <div class="right">
       ${me ? `<a class="chip who" href="/profile" title="Your profile"><span>${esc(shown(me))}</span><i data-k="title" hidden></i></a>` : '<button class="chip who" type="button" data-signin>Sign in</button>'}
+      ${muteButton()}
       <button class="btn sm" type="button" data-play="solo" disabled>Play</button>
       <details class="menu"><summary aria-label="Menu">&#9776;</summary><div>
         ${links.map((l) => a(l)).join('')}
@@ -112,6 +122,7 @@ app.addEventListener('click', (e) => {
     return;
   }
   if (t.closest('[data-reload]')) { location.reload(); return; }
+  if (t.closest('[data-mute]')) { setMuted(!isMuted()); return; }
   if (t.closest('[data-signin]')) { if (menu) menu.open = false; signInThen(ctx.refresh); return; }
   const btn = t.closest<HTMLButtonElement>('[data-play]');
   if (!btn || btn.disabled || !game || btn.dataset.play === 'join') return;

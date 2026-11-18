@@ -30,6 +30,8 @@ export const ICON = {
   shieldGun: svg('<path d="M4 7h11l2 2h3v3h-3l-1 1h-3l-1 5H8l1-5H4z"/><path d="M8 10h4"/>'),
   bio: svg('<circle cx="12" cy="12" r="2"/><path d="M12 10a5 5 0 1 1 4-8M12 10a5 5 0 1 0-4-8M14 13a5 5 0 1 1 1 8.5M10 13a5 5 0 1 0-1 8.5"/>'),
   edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
+  soundOn: svg('<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>'),
+  soundOff: svg('<path d="M4 9v6h4l5 4V5L8 9z"/><path d="m16.5 9.5 5 5M21.5 9.5l-5 5"/>'),
   copy: svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/>'),
   chev: '<span class="chev" aria-hidden="true">&rsaquo;</span>',
 };

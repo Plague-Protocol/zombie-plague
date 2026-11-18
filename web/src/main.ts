@@ -25,6 +25,7 @@ import { CityMap } from './ui/map';
 import { GEAR, WEAPON_NAMES } from '../../core/config';
 import type { StorePage } from './ui/store';
 import { anonymousSession } from './seams/session';
+import { isMuted, onMute, setMuted } from './seams/mute';
 import { noopProgress, type RunResult } from './seams/progress';
 
 const SIM_DT = STEP; // fixed timestep (the same one a replay uses)
@@ -139,7 +140,7 @@ function once(key: string, blocking = false): void {
 let paT = 25, paN = 0; // the quarantine loudspeakers: when the next announcement is, and which
 // The sound engine is its own chunk, fetched as soon as the game is (nothing makes a sound before a night starts):
 // until it is in, a tap's wish to start or mute it is remembered and carried out when it arrives.
-let sound: Sound | null = null, soundOn = false, soundMuted = false;
+let sound: Sound | null = null, soundOn = false, soundMuted = isMuted(); // the site's one choice (the header's speaker, this HUD's button)
 void import('./audio/sound').then((m) => { sound = new m.Sound(); if (soundMuted) sound.setMuted(true); if (soundOn) sound.start(); });
 const startSound = () => { soundOn = true; sound?.start(); };
 const hud = new Hud({
@@ -168,11 +169,10 @@ let storePage: StorePage | null = null;
 const storeOpen = () => storePage?.open ?? false;
 const cityMap = new CityMap((open) => { paused = open || storeOpen(); controls.enabled = !paused; }, () => document.documentElement.classList.contains('playing') && (mode === 'play' || mode === 'room') && !gated && !storeOpen() && !document.getElementById('gate'));
 
-$('mute').addEventListener('click', () => {
-  soundMuted = !soundMuted;
-  sound?.setMuted(soundMuted);
-  $('mute').textContent = `Sound: ${soundMuted ? 'off' : 'on'}`;
-});
+const muteLabel = () => { $('mute').textContent = soundMuted ? '🔇 Sound off' : '🔊 Sound on'; };
+muteLabel();
+$('mute').addEventListener('click', () => setMuted(!soundMuted));
+onMute((m) => { soundMuted = m; sound?.setMuted(m); muteLabel(); });
 // Frame rate: 30 a second on phones (half the drawing, and plenty for this game), 60 on a computer.
 // Nothing to set: `?fps=30|60` overrides, for testing.
 const phone = window.matchMedia?.('(pointer: coarse)').matches ?? false;
