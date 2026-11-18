@@ -69,7 +69,7 @@ export const home: Page = {
   <div class="wrap page">
     ${me ? `<div class="status" data-k="status"><span class="k">Your night</span><span class="muted">Loading your standing&hellip;</span></div>` : ''}
     <div class="tiles" style="margin-top:${me ? 18 : 0}px">
-      <a class="tile" href="/play"><span class="ico">${ICON.play}</span><h3>Play</h3><p>Today's city &middot; Quick multiplayer &middot; Private rooms &middot; Practice</p><span class="go">${ICON.chev}</span></a>
+      <a class="tile" href="/play"><span class="ico">${ICON.play}</span><h3>Play</h3><p>Today's city &middot; Public rooms &middot; Private rooms &middot; Practice</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/ranks"><span class="ico a">${ICON.trophy}</span><h3>Ranks</h3><p>Today &middot; This week &middot; Streaks &middot; Rooms</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/profile"><span class="ico b">${ICON.user}</span><h3>Profile</h3><p>${me ? 'Your name, your standing, your last nights' : 'Sign in to keep a record'}</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/how-to-play"><span class="ico g">${ICON.book}</span><h3>How to play</h3><p>The night &middot; The controls &middot; Scoring &middot; Questions</p><span class="go">${ICON.chev}</span></a>
@@ -147,8 +147,8 @@ export const play: Page = {
     ${account() ? '<p class="muted" style="margin:-6px 0 14px;font-size:15px">What you carry is set in the <a href="/armoury">Armoury</a>.</p>' : ''}
     <div class="modes">
       <button class="mode hot" type="button" data-play="solo" disabled><span class="ico">${ICON.bio}</span><span class="body"><h3>Today's city <span class="tag g">Counts for ranks</span></h3><p>Solo &middot; three districts &middot; the same streets for everyone today &middot; your ranked loadout</p>${carrying('ranked')}</span>${ICON.chev}</button>
-      <button class="mode" type="button" data-play="quick" disabled><span class="ico a">${ICON.users}</span><span class="body"><h3>Quick multiplayer ${needsSignIn()}</h3><p>Drop into the next open room with whoever is around &middot; 2 to 8 players</p></span>${ICON.chev}</button>
-      <button class="mode" type="button" data-play="create" disabled><span class="ico p">${ICON.door}</span><span class="body"><h3>Private room ${needsSignIn()}</h3><p>Make a room, then share its five-letter code or an invite link</p></span>${ICON.chev}</button>
+      <button class="mode" type="button" data-play="quick" disabled><span class="ico a">${ICON.users}</span><span class="body"><h3>Join a public room ${needsSignIn()}</h3><p>Multiplayer: we put you with whoever is waiting, or open a new room anyone can join &middot; 2 to 8 players</p><p class="live" data-k="live" hidden></p></span>${ICON.chev}</button>
+      <button class="mode" type="button" data-play="create" disabled><span class="ico p">${ICON.door}</span><span class="body"><h3>Private room ${needsSignIn()}</h3><p>Multiplayer, friends only: make a room, then share its five-letter code or an invite link</p></span>${ICON.chev}</button>
       <div class="mode" style="cursor:default"><span class="ico b">${ICON.key}</span><span class="body"><h3>Join with a code</h3><p>A friend read out their room's code? Type it here.</p>
         <form data-join><input name="code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" aria-label="Room code" /><button class="btn sm" type="submit" disabled data-play="join">Join</button></form></span></div>
       <button class="mode" type="button" data-play="practice" disabled><span class="ico g">${ICON.dice}</span><span class="body"><h3>Practice night <span class="tag m">Not ranked</span></h3><p>A city nobody else has, with your open loadout. Learn the streets without it counting.</p>${carrying('open')}</span>${ICON.chev}</button>
@@ -160,6 +160,20 @@ export const play: Page = {
       <div class="card"><div class="ph">Phones</div><h3>Sideways to play</h3><p>The site works upright; the game asks you to turn your phone when it starts. On iPhone, play from the Home Screen for full screen.</p></div>
     </div>
   </div>`,
+  mount(root) {
+    // who is about, on the public-room button: a lobby without a list of empty rooms
+    const out = root.querySelector<HTMLElement>('[data-k=live]');
+    if (!out) return;
+    const show = async () => {
+      const n = await api<{ waiting: number; playing: number }>('/rooms/live');
+      if (!out.isConnected) return;
+      const bits = [n?.waiting ? `${n.waiting} waiting in a public room` : '', n?.playing ? `${n.playing} playing now` : ''].filter(Boolean);
+      out.hidden = !bits.length;
+      out.textContent = bits.join(' · ');
+      setTimeout(() => { if (out.isConnected) void show(); }, 15000);
+    };
+    void show();
+  },
 };
 
 // ---------------------------------------------------------------- ranks
@@ -335,7 +349,7 @@ export const how: Page = {
     </div>
     <div class="sec split">
       <div><div class="kicker">Scoring</div><h2 class="ph2">What counts</h2><ul class="steps" data-k="rules"><li class="muted">Loading the rules&hellip;</li></ul></div>
-      <div class="card"><div class="ph">Multiplayer</div><h3>Rooms</h3><p>2 to 8 players on the same streets, one exit with seats for half of you. Quick multiplayer finds an open room; a private room is joined by its code or an invite link. Rooms need a sign-in, and three rounds put you on the rooms board.</p></div>
+      <div class="card"><div class="ph">Multiplayer</div><h3>Rooms</h3><p>2 to 8 players on the same streets, one exit with seats for half of you. Join a public room puts you with whoever is waiting; a private room is joined by its code or an invite link. Rooms need a sign-in, and three rounds put you on the rooms board.</p></div>
     </div>
     <div class="sec faq"><div class="kicker">Questions</div><h2 class="ph2">Before you ask</h2>
       <details><summary>Do I need a wallet?</summary><p>No. Sign in with Google or a passkey, and a wallet is made for you. MiniPay and other wallet browsers can sign in with the wallet they already have.</p></details>

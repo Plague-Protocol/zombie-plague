@@ -147,6 +147,8 @@ html.ios-browser .ios-tip { display: block; }
 .mode .body { flex: 1; min-width: 0; }
 .mode h3 { margin: 0 0 4px; font-size: 20px; color: #e8e0cc; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .mode p { margin: 0; color: #8fa785; font-size: 15px; }
+.mode p.live { margin-top: 6px; color: #c8e07a; font-size: 14px; }
+.mode p.live::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: #9bd34a; box-shadow: 0 0 8px #9bd34a; }
 .mode .chev { color: #6b8e23; font-size: 22px; }
 .mode form { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .mode input { font: 22px 'VT323', monospace; letter-spacing: .3em; text-transform: uppercase; width: 6.5em; background: #060b06; color: #e8e0cc;

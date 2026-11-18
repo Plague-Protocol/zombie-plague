@@ -109,6 +109,8 @@ function act(c: Command): boolean {
 let state: GameState = fresh((husk) => createGame(params.has('seed') ? Number(params.get('seed')) >>> 0 : newSeed(), undefined, { husk }), 0);
 let mode: Mode = 'title';
 let endTimer = -1;
+/** The intro's cutscene, due a moment after the title card (cancelled if a room round takes over first). */
+let introTimer = -1;
 let lastTaskId: TaskId | null = null;
 let wasReady = false;
 
@@ -202,11 +204,19 @@ const roomHost: Host = {
   view, controls,
   toast: (t) => hud.toast(t),
   enter(shadow, driver, survivor) {
+    // a solo night played while waiting may be anywhere (its intro, a talk, the store, its ending): drop it all first
+    clearTimeout(introTimer); dialogue.abort(); if (talk.open) talk.close(); storePage?.hide(); if (cityMap.open) cityMap.toggle();
+    document.body.classList.remove('fade'); endTimer = -1;
     state = shadow; roomDriver = driver; mode = 'room';
     playing(); wear(survivor ? { kit: [], ups: {}, survivor: survivor as SurvivorId } : undefined); // who you brought into the room
     hud.reset(); setChapter(0); paused = false; controls.enabled = true; hud.cinema(false); convo.length = 0;
   },
   refreshStore: () => storePage?.refresh(),
+  soloWhileWaiting: () => playSolo(false),
+  holdSolo(on) {
+    if (mode === 'room') return;
+    paused = on; controls.reset(); controls.enabled = !on;
+  },
 };
 /** The multiplayer lobby, over the site (it reads fine upright): straight into quick play or a new room if asked, or a room by its code. */
 export function openRooms(opts: { join?: string; act?: 'quick' | 'create' } = {}): void {
@@ -274,7 +284,7 @@ function begin(fresh: GameState, withIntro: boolean): void {
     hud.cinema(true);
     view.cinematic = 0;
     hud.showCard(intro().card, intro().sub, 3.2);
-    window.setTimeout(() => dialogue.playCutscene(intro().lines, startPlay), 3400);
+    introTimer = window.setTimeout(() => dialogue.playCutscene(intro().lines, startPlay), 3400);
   } else {
     const c = chapterCard(state.chapter);
     hud.showCard(c.card, c.sub, 2.2);

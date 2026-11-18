@@ -43,6 +43,7 @@ if (chain) {
   staked.start();
   setInterval(() => { void staked!.resume(); }, 60_000).unref();
 }
+app.get('/rooms/live', async () => hub.live()); // the Play page: is anyone about?
 registerAdmin(app, { store, auth, hub, staked, chains, admins: cfg.admins, startedAt: Date.now(), db: cfg.DATABASE_URL ? 'postgres' : 'memory', content: () => content.latest });
 await app.listen({ port: cfg.PORT, host: '0.0.0.0' });
 const closeWs = attachWs(app.server, { hub, auth, store, origins: cfg.origins, staked });

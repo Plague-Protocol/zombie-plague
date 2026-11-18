@@ -51,6 +51,14 @@ export class Dialogue {
     if (!this.line) this.next();
   }
 
+  /** Drop a cutscene without running what was to follow it (a room round has taken over). */
+  abort(): void {
+    this.cutscene = null;
+    this.catcher.style.display = 'none';
+    this.skipBtn.style.display = 'none';
+    this.clear();
+  }
+
   clear(): void {
     this.queue = [];
     this.line = null;

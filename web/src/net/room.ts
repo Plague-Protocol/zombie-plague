@@ -16,7 +16,7 @@ import type { Controls } from '../input/controls';
 import { Actor, loadSkin, type SkinName } from '../render/characters';
 import { makeDecoder } from '../../../core/codec';
 import { ROOM_DT, type ClientMsg, type SeatInfo, type ServerMsg } from '../../../core/protocol';
-import { ZOMBIE_HEALTH } from '../../../core/config';
+import { ROOM_PLAYERS_MAX, ZOMBIE_HEALTH } from '../../../core/config';
 import { account, signIn, signInSocial, socialAvailable, type Account } from './account';
 
 /** What the page lends this module. */
@@ -28,6 +28,10 @@ export interface Host {
   enter(shadow: GameState, driver: Driver, survivor?: string | null): void;
   /** Close the store page's cached numbers if it is open (a purchase has just come back). */
   refreshStore(): void;
+  /** Start today's city while the player keeps a seat in a quiet room (enter() takes over if the round starts). */
+  soloWhileWaiting(): void;
+  /** Hold (or let go of) that solo night while the lobby is back over it. */
+  holdSolo(on: boolean): void;
 }
 export interface Driver {
   /** Called every drawn frame. Returns the events to narrate this frame. */
@@ -73,6 +77,11 @@ const CSS = `
 #mp li b { color: #e0483a; font-weight: 400; }
 #mp .err { color: #e0483a; min-height: 1.2em; }
 #mp small { color: #7a8a72; font-size: 16px; }
+#mp .quiet { border: 1px dashed #3d5a2a; border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: min(34em, 92vw); text-align: center; }
+#mp-wait { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 45; display: flex; gap: 12px; align-items: center; padding: 8px 10px 8px 16px;
+  background: rgba(8,12,8,.92); border: 2px solid #3d5a2a; border-radius: 8px; color: #d4c9b2; font-family: 'VT323', ui-monospace, monospace; font-size: 20px; letter-spacing: .06em; max-width: 94vw; }
+#mp-wait.hot { border-color: #9bd34a; box-shadow: 0 0 18px rgba(155,211,74,.45); }
+#mp-wait button { font: inherit; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; padding: 4px 14px; border: 2px solid #6b8e23; border-radius: 6px; background: #6b8e23; color: #0b0f0b; cursor: pointer; white-space: nowrap; }
 #roomhud { position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 10px); transform: translateX(-50%); z-index: 4; pointer-events: none;
   font-family: 'VT323', monospace; font-size: 18px; letter-spacing: .14em; color: #d4c9b2; text-shadow: 0 1px 3px #000; text-align: center; white-space: nowrap; }
 #roomhud b { color: #f2b630; font-weight: 400; }
@@ -157,10 +166,10 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
     ws = new WebSocket(`${url}/play`);
     ws.onopen = () => { send({ t: 'hello', token: me?.token ?? null, name: me?.name || name() }); then(); };
     ws.onerror = () => { err = 'Cannot reach the game server.'; draw(); };
-    ws.onclose = () => { if (!began) { roomInfo = null; if (!err) err = 'Disconnected.'; draw(); } };
+    ws.onclose = () => { if (!began) { roomInfo = null; if (!err) err = 'Disconnected.'; watchQuiet(); if (away) banner(false); draw(); } };
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data as string) as ServerMsg;
-      if (m.t === 'room') { roomInfo = m; err = ''; seating = null; draw(); }
+      if (m.t === 'room') { const before = roomInfo?.seats.length ?? 0; roomInfo = m; err = ''; seating = null; watchQuiet(); if (away) banner(m.seats.length > before); draw(); }
       else if (m.t === 'err') {
         if (seating && RETRY.has(m.code) && seating.tries < 12) { seating.tries++; const { stack, id } = seating; setTimeout(() => send({ t: 'staked', stack, roomId: String(id) }), 1500); return; }
         seating = null;
@@ -176,6 +185,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
   function begin(m: Extract<ServerMsg, { t: 'begin' }>): void {
     if (began) return;
     began = true;
+    away = false; waitBar?.remove(); waitBar = null; clearTimeout(quietTimer);
     if (m.content !== content().version) {
       err = 'The game has been updated. Reload the page to play.';
       ws?.close();
@@ -189,6 +199,34 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
     for (const x of buffered.splice(0)) session.message(x);
     ws!.onmessage = (e) => session.message(JSON.parse(e.data as string) as ServerMsg);
     ws!.onclose = () => session.dropped();
+  }
+
+  /** Alone in a free room for a minute: offer a solo night while the seat is kept. */
+  let quiet = false, quietTimer = -1;
+  /** Playing that solo night with the lobby hidden; `soloOn` stays set once one was started (Back lets it carry on). */
+  let away = false, soloOn = false;
+  let waitBar: HTMLElement | null = null;
+  function watchQuiet(): void {
+    const lonely = !!roomInfo && !roomInfo.onChain && roomInfo.state === 'lobby' && roomInfo.seats.length < 2;
+    if (!lonely) { clearTimeout(quietTimer); quietTimer = -1; quiet = false; return; }
+    if (quietTimer < 0 && !quiet) quietTimer = window.setTimeout(() => { quietTimer = -1; quiet = true; if (!away) draw(); }, 60_000);
+  }
+  /** The bar over the solo night: how the room stands, and the way back to it. */
+  function banner(joined: boolean): void {
+    if (!waitBar) { waitBar = el('div', { id: 'mp-wait' }); document.body.appendChild(waitBar); }
+    const r = roomInfo;
+    const n = r?.seats.length ?? 0;
+    const text = !r ? 'Lost your room.' : n > 1 ? `Someone joined your room · ${n} of ${ROOM_PLAYERS_MAX}` : `Your room is waiting · 1 of ${ROOM_PLAYERS_MAX}`;
+    const btn = el('button', {}, !r ? 'Back' : n > 1 ? 'Go to room' : 'Back to room');
+    btn.onclick = () => {
+      away = false; waitBar?.remove(); waitBar = null;
+      host.holdSolo(true);
+      root.style.display = '';
+      draw();
+    };
+    waitBar.className = n > 1 || !r ? 'hot' : '';
+    waitBar.replaceChildren(el('span', {}, text), btn);
+    if (joined && n > 1) host.toast('Someone joined your room');
   }
 
   function draw(): void {
@@ -216,7 +254,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
         // the server seats you under your username when you have one: only an account without one is asked
         const nm = me.name ? null : el('input', { placeholder: 'Your name', maxlength: '20', value: name() });
         nm?.addEventListener('input', () => localStorage.setItem(KEY_NAME, nm.value.trim()));
-        const quick = el('button', {}, 'Quick multiplayer');
+        const quick = el('button', {}, 'Join a public room');
         quick.onclick = () => connect(() => send({ t: 'quick' }));
         const mk = el('button', { class: 'ghost' }, 'New private room');
         mk.onclick = () => connect(() => send({ t: 'create' }));
@@ -226,7 +264,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
         const row = el('div', { class: 'row' });
         row.append(code, jn);
         if (nm) root.append(nm);
-        root.append(quick, mk, row, el('small', {}, `Signed in${me.name ? ` as ${me.name}` : ''}. Quick multiplayer puts you in any open room; a private room is joined by its code or your invite link.`));
+        root.append(quick, mk, row, el('small', {}, `Signed in${me.name ? ` as ${me.name}` : ''}. A public room puts you with whoever is waiting; a private room is joined by its code or your invite link.`));
       }
       root.append(el('small', {}, 'Free rooms. 2 to 8 players, one exit with seats for half of you.'));
       if (stacks.length && me && (window as unknown as { ethereum?: unknown }).ethereum) {
@@ -265,7 +303,8 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
       }
     } else {
       const r = roomInfo;
-      root.append(el('p', {}, r.onChain ? `Staked room (${r.stack ?? ''})` : 'Room code'), el('div', { class: 'code-big' }, r.onChain ? `#${r.onChain}` : r.code));
+      root.append(el('p', {}, r.onChain ? `Staked room (${r.stack ?? ''})` : r.public ? 'Public room · code' : 'Private room · code'), el('div', { class: 'code-big' }, r.onChain ? `#${r.onChain}` : r.code));
+      if (!r.onChain && r.state === 'lobby') root.append(el('small', {}, `${r.seats.length} of ${ROOM_PLAYERS_MAX} · ${r.seats.length < 2 ? 'waiting for players' : 'ready when the host is'}`));
       const list = el('ul');
       for (const s of r.seats as SeatInfo[]) {
         const li = el('li', s.connected ? {} : { class: 'off' }, `${s.name}${s.signedIn ? ' ✓' : ''}${s.seat === r.you ? ' (you)' : ''}${s.seat === r.host ? ' — host' : ''}`);
@@ -279,16 +318,32 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
       start.onclick = () => { if (r.onChain) void chainStep('Confirm in your wallet…', (m, cfg) => m.startStaked(cfg, BigInt(r.onChain!)), r.stack); else send({ t: 'start' }); };
       const leave = el('button', { class: 'ghost' }, 'Leave');
       leave.onclick = () => {
-        send({ t: 'leave' }); roomInfo = null;
+        send({ t: 'leave' }); roomInfo = null; watchQuiet();
         if (r.onChain) { // a waiting room hands the stake back: the host cancels it, anyone else leaves it
           void chainStep('Getting your stake back…', (m, cfg) => (host_ ? m.cancelStaked(cfg, BigInt(r.onChain!)) : m.leaveStaked(cfg, BigInt(r.onChain!))), r.stack);
         } else draw();
       };
-      const share = el('button', { class: 'ghost' }, 'Share invite');
+      const alone = r.seats.length < 2;
+      if (alone) start.className = 'ghost'; // nothing to start yet: bringing someone in is the next step
+      const share = el('button', alone ? {} : { class: 'ghost' }, 'Share invite');
       share.onclick = () => void shareInvite(r.onChain ? { staked: `${r.stack}:${r.onChain}` } : { join: r.code });
       root.append(start, share, leave, el('small', {}, r.onChain
         ? 'Staked: the host closes the doors on the chain, and the round starts when the chain says so. Leaving gets your stake back while the room is waiting.'
-        : 'Share the code. The round starts when the host says, or a few seconds after four are in.'));
+        : r.public
+          ? 'Anyone who picks Join a public room lands here. The round starts when the host says, or 20 seconds after four are in.'
+          : 'Only people with the code or your invite can join. The round starts when the host says, or 20 seconds after four are in.'));
+      if (quiet && alone && !r.onChain) {
+        const box = el('div', { class: 'quiet' });
+        const go = el('button', {}, 'Play while I wait');
+        go.onclick = () => {
+          away = true; soloOn = true;
+          root.style.display = 'none';
+          host.soloWhileWaiting();
+          banner(false);
+        };
+        box.append(el('p', {}, 'Quiet right now'), el('small', {}, 'Play today\'s city while you wait. You keep your seat, and we call you back the moment someone joins.'), go);
+        root.append(box);
+      }
       if (note) root.append(el('p', {}, note));
       if (linkShown) { // shown as typed (the lobby's capitals would break it), selected on a tap
         root.append(el('p', {}, shareNote));
@@ -299,7 +354,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
     }
     root.append(el('div', { class: 'err' }, err));
     const back = el('button', { class: 'ghost' }, 'Back');
-    back.onclick = () => { ws?.close(); root.remove(); };
+    back.onclick = () => { ws?.close(); root.remove(); if (soloOn) host.holdSolo(false); };
     if (!roomInfo) root.append(back);
   }
   let linkShown: string | null = null;

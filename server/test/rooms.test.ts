@@ -250,6 +250,18 @@ describe('quick play and private rooms', () => {
     expect((next as typeof q).seats.length).toBe(ROOM_PLAYERS_MAX);
     expect(hub.quick(conn('G'))).not.toBe(next);
   });
+
+  it('live counts players waiting in public rooms with a seat, and players in rounds, never private lobbies', () => {
+    const { hub } = make();
+    hub.create(conn('Pat')); // a private lobby: not waiting for strangers
+    expect(hub.live()).toEqual({ waiting: 0, playing: 0 });
+    const a = conn('A');
+    const q = hub.quick(a) as Exclude<ReturnType<Hub['create']>, 'busy'>;
+    hub.quick(conn('B'));
+    expect(hub.live()).toEqual({ waiting: 2, playing: 0 });
+    q.start(a);
+    expect(hub.live()).toEqual({ waiting: 0, playing: 2 });
+  });
 });
 
 describe('loadouts in rooms', () => {
