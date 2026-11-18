@@ -228,7 +228,7 @@ export const DORMANT_WAKE = 3.2; // walk this close and it gets up
 export const DORMANT_HEAR = 0.35; // share of a noise's radius that wakes them
 export const HUSK_HEALTH = 120;
 // Crawlers: half of one, low and slow and easy to miss in the dark. It does not bite deep; it holds on.
-export const CRAWLERS = [3, 4, 4] as const;
+export const CRAWLERS = [5, 5, 4] as const;
 export const CRAWLER_SPEED = 1.5;
 export const CRAWLER_SIGHT = 9;
 export const CRAWL_DAMAGE = 14;

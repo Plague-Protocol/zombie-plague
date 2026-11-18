@@ -23,7 +23,7 @@ const BAKE_FPS = 30;
 const TURN_RATE = 10; // rad/s, as the characters turn
 
 /** What one of them has lost (add them up). */
-export const MUT = { legs: 1, leftArm: 2, rightArm: 4, head: 8 } as const;
+export const MUT = { legs: 1, leftArm: 2, rightArm: 4, head: 8, face: 16 } as const;
 /** The parts that can go: which bones they are, and the joint each is torn off at. */
 const PARTS = [
   { bones: /^(Left|Right)(UpLeg|Leg|Foot|Toes)/, joint: 'Hips' },
@@ -168,9 +168,20 @@ mat4 crowdSkin() {
 }`)
           .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = normalize(mat3(crowdSkin()) * normal);')
           .replace('#include <begin_vertex>', `vRot = position * ROT_SCALE + vec3(float(gl_InstanceID) * 3.7, 0.0, float(gl_InstanceID) * 1.3); // the body at rest (so the rot stays put on it as it moves), shifted so no two rot alike
-vec3 transformed = (crowdSkin() * vec4(position, 1.0)).xyz;
 vStump = 0.0;
 float bits = mut;
+vec3 restPos = position;
+if (bits >= 16.0) {
+  // half the face gone: the right side of the head, from the front, caved in to the skull and raw. In the mesh's own
+  // units at rest (z up, x across the shoulders, +y forward): the head runs z 2.6 to 3.77 about x = y = 0.
+  bits -= 16.0;
+  if (part[3] > 0.4 && position.x < 0.03 && position.y > -0.1 && position.z > 2.85) {
+    restPos.x = mix(position.x, 0.05, 0.7);
+    restPos.y = mix(position.y, -0.15, 0.45);
+    vStump = 0.85;
+  }
+}
+vec3 transformed = (crowdSkin() * vec4(restPos, 1.0)).xyz;
 for (int k = 3; k >= 0; k--) {
   float bit = exp2(float(k));
   if (bits >= bit) {

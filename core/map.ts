@@ -124,6 +124,26 @@ function chooseSpecialBlocks(seed: number, districts: District[][], stores: Map<
   return { hospital, gas };
 }
 
+/**
+ * The nearest spot on the street network to `p` (it may be `p`): the centre of the closest joined cell within
+ * `maxR`, or `p` unchanged if there is none. Keeps anything placed by a scatter out of pockets behind a wreck.
+ */
+export function onStreets(map: MapData, p: Vec2, maxR = 12): Vec2 {
+  const cols = map.cols, cx = Math.floor(p.x), cy = Math.floor(p.y);
+  if (cx >= 0 && cy >= 0 && cx < cols && cy < cols && map.reach[cy * cols + cx] === 1) return p;
+  for (let r = 1; r <= maxR; r++) {
+    let best = -1, bd = Infinity;
+    for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
+      if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== r || x < 0 || y < 0 || x >= cols || y >= cols) continue;
+      if (map.reach[y * cols + x] !== 1) continue;
+      const d = (x + 0.5 - p.x) ** 2 + (y + 0.5 - p.y) ** 2;
+      if (d < bd) { bd = d; best = y * cols + x; }
+    }
+    if (best >= 0) return { x: (best % cols) + 0.5, y: Math.floor(best / cols) + 0.5 };
+  }
+  return p;
+}
+
 /** Plain 4-neighbour BFS over a blocked grid (for the connectivity check). */
 function bfs(blocked: Uint8Array, cols: number, from: Vec2): Int16Array {
   const out = new Int16Array(cols * cols).fill(UNREACHABLE);
@@ -447,6 +467,8 @@ export function generateMap(seed: number, theme: Theme = 'downtown'): MapData {
   const centre = open.reduce((a, b) => (dhypot(b.x - MAP_SIZE / 2, b.y - MAP_SIZE / 2) < dhypot(a.x - MAP_SIZE / 2, a.y - MAP_SIZE / 2) ? b : a));
   const field = bfs(blocked, cols, centre);
   const points = open.filter((p) => field[Math.floor(p.y) * cols + Math.floor(p.x)]! !== UNREACHABLE);
+  const reach = new Uint8Array(cols * cols);
+  for (let i = 0; i < reach.length; i++) reach[i] = field[i]! !== UNREACHABLE ? 1 : 0;
   const storefronts = [...storeBlocks.values()];
   // keep store doors clear of parked cars
   const parkingFree = parking.filter((p) => blocked[Math.floor(p.y) * cols + Math.floor(p.x)] === 0 && field[Math.floor(p.y) * cols + Math.floor(p.x)]! !== UNREACHABLE && storefronts.every((f) => dhypot(p.x - f.door.x, p.y - f.door.y) > 7));
@@ -460,7 +482,7 @@ export function generateMap(seed: number, theme: Theme = 'downtown'): MapData {
     for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) grid[gy * gridN + gx]!.push(idx);
   });
 
-  return { size: MAP_SIZE, cols, buildings: obstacles, blocked, points, blocks, decor, parking: parkingFree, storefronts, labels, grid, gridCell: GRID_CELL, gridN };
+  return { size: MAP_SIZE, cols, buildings: obstacles, blocked, reach, points, blocks, decor, parking: parkingFree, storefronts, labels, grid, gridCell: GRID_CELL, gridN };
 }
 
 export function districtAt(map: MapData, p: Vec2): Block | null {

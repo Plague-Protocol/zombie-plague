@@ -55,7 +55,7 @@ export function drawBase(map: MapData, fallen: number[] = []): HTMLCanvasElement
   return c;
 }
 
-interface Marker { pos: Vec2; color: string; size: number; label?: string; shape?: 'dot' | 'square' | 'ring' | 'cash' }
+interface Marker { pos: Vec2; color: string; size: number; label?: string; shape?: 'dot' | 'square' | 'ring' | 'cash' | 'cross'; rim?: boolean }
 
 export function markers(s: GameState): Marker[] {
   const out: Marker[] = [];
@@ -77,7 +77,11 @@ export function markers(s: GameState): Marker[] {
   }
   for (const h of s.houses) if (!h.searched) out.push({ pos: h.pos, color: h.mark === 'infected' ? '#e0483a' : h.mark === 'clear' ? '#f2f2ee' : '#8f9ab0', size: h.mark ? 2.6 : 2.2, shape: 'dot' });
   for (const a of s.abandoned) out.push({ pos: a.pos, color: '#c06a50', size: 3.5, shape: 'dot', label: a.name });
-  for (const p of s.pickups) if (!p.taken && p.kind === 'antiviral') out.push({ pos: p.pos, color: '#4ad27a', size: 3.5, shape: 'square', label: 'Dose' });
+  // antiviral doses: a green cross, and the nearest one keeps to the minimap's rim so you always know which way the next one is
+  const pp = s.player.pos;
+  const doses = s.pickups.filter((p) => !p.taken && p.kind === 'antiviral')
+    .sort((a, b) => Math.hypot(a.pos.x - pp.x, a.pos.y - pp.y) - Math.hypot(b.pos.x - pp.x, b.pos.y - pp.y));
+  doses.forEach((p, i) => out.push({ pos: p.pos, color: '#4ad27a', size: 4.5, shape: 'cross', label: 'Vaccine', rim: i === 0 }));
   for (const p of s.pickups) if (!p.taken && p.kind === 'jerrycan') out.push({ pos: p.pos, color: '#e05030', size: 3, shape: 'square' });
   for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan' && p.kind !== 'antiviral') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : p.kind === 'vest' || p.kind === 'helmet' ? '#8cc4ff' : '#f2d060', size: 3.5, shape: 'dot' });
   for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
@@ -92,6 +96,12 @@ export function drawMarker(g: CanvasRenderingContext2D, m: Marker, x: number, y:
   switch (m.shape) {
     case 'ring': g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.arc(x, y, r * 0.35, 0, Math.PI * 2); g.fill(); break;
     case 'square': g.fillRect(x - r, y - r, r * 2, r * 2); break;
+    case 'cross': {
+      const t = r * 0.42;
+      g.fillStyle = '#06140b'; g.fillRect(x - r - 1, y - t - 1, r * 2 + 2, t * 2 + 2); g.fillRect(x - t - 1, y - r - 1, t * 2 + 2, r * 2 + 2);
+      g.fillStyle = m.color; g.fillRect(x - r, y - t, r * 2, t * 2); g.fillRect(x - t, y - r, t * 2, r * 2);
+      break;
+    }
     case 'cash': g.fillRect(x - r, y - r, r * 2, r * 2); g.fillStyle = '#000'; g.font = `bold ${Math.round(r * 1.6)}px system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('$', x, y + 0.5); break;
     default: g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
   }
@@ -199,7 +209,7 @@ export class CityMap {
       const d = Math.hypot(x, y);
       const edge = R - 8 * dpr;
       if (d > edge) {
-        if (m.shape !== 'ring') continue; // only objectives stick to the rim
+        if (m.shape !== 'ring' && !m.rim) continue; // only objectives (and the nearest vaccine) stick to the rim
         x *= edge / d; y *= edge / d;
       }
       drawMarker(g, m, R + x, R + y, dpr * 0.8, false);

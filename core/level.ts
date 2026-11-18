@@ -32,7 +32,7 @@ export interface Level {
 function pavement(map: MapData, p: Vec2, side: number): Vec2 | null {
   const onVertical = Math.abs((p.x - STREET / 2) % PITCH) < 1e-6;
   const pos = onVertical ? { x: p.x + side * 3.3, y: p.y } : { x: p.x, y: p.y + side * 3.3 };
-  return map.blocked[cellOf(map, pos)] === 1 ? null : pos;
+  return map.reach[cellOf(map, pos)] === 1 ? pos : null; // on the pavement you can walk to, not in a pocket behind a wreck
 }
 
 const dist = (a: Vec2, b: Vec2) => dhypot(a.x - b.x, a.y - b.y);

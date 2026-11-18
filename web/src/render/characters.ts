@@ -276,7 +276,11 @@ export class Actor {
 
   /** Swap the skin (pooled actors are reused for different zombies). */
   setSkin(skin: SkinName): void {
-    const mat = this.assets.materials[skin];
+    this.setMaterial(this.assets.materials[skin]);
+  }
+
+  /** Dress the body in a material (the xray silhouette is left alone). */
+  setMaterial(mat: Material): void {
     this.root.traverse((o) => {
       const m = o as SkinnedMesh;
       if (m.isSkinnedMesh && m.material !== this.assets.xray) m.material = mat;

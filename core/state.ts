@@ -28,7 +28,7 @@ import {
 import { nearbyObstacles } from './collision';
 import { lineClear, resolve } from './collision';
 import { generateLevel, type Level } from './level';
-import { cellOf, distanceField, STREET, UNREACHABLE } from './map';
+import { cellOf, distanceField, onStreets, STREET, UNREACHABLE } from './map';
 import { createRng, fork, next, pick, range, shuffle, type Rng } from './rng';
 import type {
   Abandoned, Alarm, Arsenal, Player, Work, House, Husk, Loot, PickupKind, Survivor, Thrown,
@@ -401,8 +401,9 @@ export function withVehiclesBlocked<T>(s: GameState, fn: () => T): T {
 
 // ---------------------------------------------------------------- zombies: population and waves
 
-function addZombie(s: GameState, kind: ZombieKind, pos: Vec2, rising: boolean, rng: Rng = s.rng): Zombie {
-  resolve(s.map, pos, ZOMBIE_RADIUS);
+function addZombie(s: GameState, kind: ZombieKind, pos0: Vec2, rising: boolean, rng: Rng = s.rng): Zombie {
+  resolve(s.map, pos0, ZOMBIE_RADIUS);
+  const pos = { ...onStreets(s.map, pos0) }; // never in a pocket you cannot reach (behind a bus, inside a wall)
   const z: Zombie = {
     id: s.nextZombieId++, kind, pos, heading: next(rng) * Math.PI * 2, speed: 0,
     action: rising ? 'rise' : 'idle', actionT: rising ? RISE_SECONDS : 0, cooldown: 0,

@@ -813,12 +813,15 @@ export class Sound {
     this.engine = null;
   }
 
-  /** Per frame: react to events, pace footsteps and heartbeat, let nearby zombies groan. */
-  update(s: GameState, events: readonly GameEvent[], dt: number, panOf: (x: number, y: number) => number): void {
+  /**
+   * Per frame: react to events, pace footsteps and heartbeat, let nearby zombies groan. `held`: the game is
+   * stopped behind something (sign-in, the store, a conversation): the world keeps its wind, but you are not walking.
+   */
+  update(s: GameState, events: readonly GameEvent[], dt: number, panOf: (x: number, y: number) => number, held = false): void {
     if (!this.ctx || this.muted) return;
     this.t += dt;
     const p = s.player.pos;
-    const car = s.phase === 'playing' ? playerVehicle(s) : null;
+    const car = s.phase === 'playing' && !held ? playerVehicle(s) : null;
     if (car) {
       this.engineOn();
       const f = 32 + Math.abs(car.speed) * 4.5;
@@ -850,7 +853,11 @@ export class Sound {
       else if (e.type === 'zombie-killed' && car) this.thud(0.3);
       else if (e.type === 'zombie-killed') this.sample('hurt', this.panner(0), 0.32, 0.85, undefined, 0.12); // its last sound
       else if (e.type === 'down') this.cry(0, 0.35); // a player falls (rooms)
-      else if (e.type === 'turned') this.sample('growl', this.panner(panOf(e.pos.x, e.pos.y)), 0.5, 0.8);
+      else if (e.type === 'lost' && e.reason !== 'carrier' && !car) {
+        // the turning: a last heartbeat as you go down, and what gets up makes their sound
+        this.heartbeat(0.45);
+        this.sample('growl', this.panner(0), 0.6, 0.72, this.ctx.currentTime + 2.35, 0);
+      } else if (e.type === 'turned') this.sample('growl', this.panner(panOf(e.pos.x, e.pos.y)), 0.5, 0.8);
       else if (e.type === 'tier-up' || e.type === 'burst') this.stinger();
       else if (e.type === 'omen') this.omen(panOf(e.pos.x, e.pos.y));
       else if (e.type === 'light') this.click(e.on);
@@ -885,7 +892,7 @@ export class Sound {
         else this.scream(pan, vol * 1.4);
       }
     }
-    if (s.phase !== 'playing') return;
+    if (s.phase !== 'playing' || held) return;
 
     // the infection in your ears: the world goes dull; the moment before they come, the wind drops away
     const inf = infection(s), now = this.ctx.currentTime;

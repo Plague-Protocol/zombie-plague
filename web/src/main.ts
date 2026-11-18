@@ -534,7 +534,8 @@ function frame(now: number): void {
       // let the moment play out before the ending card
       // won and cleared play out a scene first: met and checked by the soldiers, aboard, lifting off;
       // or walking down into the subway
-      endTimer = state.phase === 'won' || state.phase === 'cleared' ? 30 : state.lossReason !== 'time' ? 2.6 : 1.2; // a scene ends when it has played
+      // a lost night on foot plays the turning: you go down, and get up as one of them
+      endTimer = state.phase === 'won' || state.phase === 'cleared' || GameView.turns(state) ? 30 : state.lossReason !== 'time' ? 2.6 : 1.2; // a scene ends when it has played
       if (state.phase === 'cleared' || state.phase === 'won') hud.cinema(true);
     }
   } else if (mode === 'room') {
@@ -547,7 +548,7 @@ function frame(now: number): void {
   }
   if (endTimer >= 0 && mode === 'play') {
     // the scene has played out: fade to black into the next district, or straight to the ending
-    if (endTimer > 1 && view.outroDone()) { endTimer = state.phase === 'cleared' ? 0.6 : 0.3; if (state.phase === 'cleared') document.body.classList.add('fade'); }
+    if (endTimer > 1 && view.outroDone()) { endTimer = state.phase === 'cleared' ? 0.6 : state.phase === 'lost' ? 0.5 : 0.3; if (state.phase === 'cleared') document.body.classList.add('fade'); }
     endTimer -= dt;
     if (endTimer < 0) { if (state.phase === 'cleared') advance(); else finish(); }
   }
@@ -560,7 +561,7 @@ function frame(now: number): void {
   dialogue.update(dt);
   talk.update(dt);
   hud.update(state, view);
-  sound?.update(state, pending, dt, (x, y) => view.screenX({ x, y }));
+  sound?.update(state, pending, dt, (x, y) => view.screenX({ x, y }), mode === 'play' && (paused || talk.open || upright()));
   view.react(state, pending);
   pending.length = 0;
   if ((mode === 'play' || mode === 'room') && (still || miniTick++ % 3 === 0)) cityMap.drawMini(state);

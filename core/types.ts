@@ -66,6 +66,8 @@ export interface MapData {
   cols: number; // nav grid is cols x cols, 1 unit per cell
   buildings: Building[]; // every solid obstacle
   blocked: Uint8Array; // 1 = not walkable for pathing
+  /** 1 = walkable and joined to the street network (0 for pockets sealed off by wrecks and walls). */
+  reach: Uint8Array;
   points: Vec2[]; // candidate street points (all walkable)
   blocks: Block[];
   decor: Decor[];
