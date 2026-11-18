@@ -289,6 +289,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
         : 'Share the code. The round starts when the host says, or a few seconds after four are in.'));
       if (note) root.append(el('p', {}, note));
       if (linkShown) { // shown as typed (the lobby's capitals would break it), selected on a tap
+        root.append(el('p', {}, shareNote));
         const box = el('input', { class: 'link', readonly: '', value: linkShown });
         box.addEventListener('focus', () => box.select());
         root.append(box);
@@ -300,6 +301,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
     if (!roomInfo) root.append(back);
   }
   let linkShown: string | null = null;
+  let shareNote = ''; // apart from `note`, which locks the buttons while a wallet step runs
   /** A link that opens the game straight into this room: the phone's share sheet (WhatsApp and the rest) where there is one, else copied. */
   async function shareInvite(q: { join?: string; staked?: string }): Promise<void> {
     const u = new URL(location.href);
@@ -309,13 +311,21 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
     if (q.join) u.searchParams.set('join', q.join);
     if (q.staked) u.searchParams.set('staked', q.staked);
     const text = q.staked ? 'A staked room in Zombie Plague. Not everyone gets out.' : `Room ${q.join} in Zombie Plague. Not everyone gets out.`;
-    const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
-    try {
-      if (nav.share) { await nav.share({ title: 'Zombie Plague', text, url: u.toString() }); return; }
-      await navigator.clipboard.writeText(`${text} ${u.toString()}`);
-      note = 'Invite link copied.';
-    } catch { linkShown = u.toString(); note = 'Copy this link and send it:'; }
+    const link = u.toString();
+    // the link goes on screen at once, whatever the share sheet does: some wallet browsers have one that never opens or never answers
+    linkShown = link; shareNote = 'Send this link:';
     draw();
+    const copy = async (): Promise<boolean> => {
+      try { await navigator.clipboard.writeText(`${text} ${link}`); return true; } catch { return false; }
+    };
+    const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
+    const touch = matchMedia('(pointer: coarse)').matches;
+    if (nav.share && touch) {
+      try { await nav.share({ title: 'Zombie Plague', text, url: link }); return; } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return; // they closed the sheet: the link is still there
+      }
+    }
+    if (await copy()) { shareNote = 'Invite link copied. Paste it to your friends:'; draw(); }
   }
 
   draw();
