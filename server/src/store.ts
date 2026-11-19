@@ -81,7 +81,29 @@ export interface FundEvent {
 /** A stablecoin top-up that bought armoury cash. */
 export interface TopupRow { accountId: string; address: string; name: string | null; cash: number; tx: string; at: Date }
 
+/** A promotion shown across the site: a bounty, a prize, a deal (which may pay extra ZP on top-ups) or news. */
+export interface Promo {
+  id: string;
+  kind: 'bounty' | 'prize' | 'deal' | 'news';
+  title: string;
+  body: string;
+  cta: { label: string; href: string } | null;
+  startsAt: Date;
+  endsAt: Date;
+  /** A deal: extra ZP on every top-up while it runs, in percent (50: half as much again). */
+  topupBonus: number;
+  ended: boolean;
+  createdAt: Date;
+}
+
 export interface Store {
+  /** Promotions, newest first (all of them, or only those live at `now`). */
+  promos(o: { liveAt?: Date; limit: number }): Promise<Promo[]>;
+  addPromo(p: Omit<Promo, 'id' | 'ended' | 'createdAt'>): Promise<Promo>;
+  /** End a promotion now (it stops showing, and a deal stops paying). */
+  endPromo(id: string): Promise<boolean>;
+  /** An account by its wallet address or its name (either case). */
+  accountByHandle(handle: string): Promise<Account | null>;
   /** Money events of one stake token's contracts, oldest first. */
   fundEvents(stack: string): Promise<FundEvent[]>;
   /** Idempotent on (stack, tx, logIndex). */
@@ -89,6 +111,10 @@ export interface Store {
   /** The last block read for this token (null: never read). */
   fundCursor(stack: string): Promise<number | null>;
   setFundCursor(stack: string, block: number): Promise<void>;
+  /** Has this account a ledger row for this reason (e.g. its first top-up bonus)? */
+  hasLedger(accountId: string, reason: string): Promise<boolean>;
+  /** ZP stakes that were neither refunded nor settled (a restart cut their room short): see zp.ts. */
+  openZpStakes(): Promise<Array<{ accountId: string; ref: string; amount: number }>>;
   /** Top-ups, newest first, with the total ever. */
   topups(limit: number): Promise<{ count: number; cash: number; recent: TopupRow[] }>;
   /** Idempotent on roomId: a second call for the same room changes nothing and returns false. */
@@ -223,6 +249,23 @@ export class MemoryStore implements Store {
   }
   async fundCursor(stack: string) { return this.cursors.get(stack) ?? null; }
   async setFundCursor(stack: string, block: number) { this.cursors.set(stack, block); }
+  private promoRows: Promo[] = [];
+  async promos(o: { liveAt?: Date; limit: number }) {
+    const t = o.liveAt?.getTime();
+    return this.promoRows.filter((p) => t === undefined || (!p.ended && p.startsAt.getTime() <= t && p.endsAt.getTime() > t))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, o.limit).map((p) => ({ ...p }));
+  }
+  async addPromo(p: Omit<Promo, 'id' | 'ended' | 'createdAt'>) { const x = { ...p, id: newId(), ended: false, createdAt: new Date() }; this.promoRows.push(x); return { ...x }; }
+  async endPromo(id: string) { const x = this.promoRows.find((p) => p.id === id); if (!x || x.ended) return false; x.ended = true; return true; }
+  async accountByHandle(handle: string) {
+    const h = handle.trim().toLowerCase();
+    return [...this.accounts.values()].find((a) => a.address === h || (a.name ?? '').toLowerCase() === h) ?? null;
+  }
+  async hasLedger(accountId: string, reason: string) { return this.ledgerRows.some((x) => x.accountId === accountId && x.reason === reason); }
+  async openZpStakes() {
+    const closed = new Set(this.ledgerRows.filter((x) => x.reason === 'zprefund' || x.reason === 'zpdone').map((x) => `${x.accountId}|${x.ref}`));
+    return this.ledgerRows.filter((x) => x.reason === 'zpstake' && !closed.has(`${x.accountId}|${x.ref}`)).map((x) => ({ accountId: x.accountId, ref: x.ref, amount: -x.delta }));
+  }
   async topups(limit: number) {
     const rows = this.ledgerRows.filter((x) => x.reason === 'topup');
     const recent = rows.slice(-limit).reverse().map((x) => { const a = this.accounts.get(x.accountId); return { accountId: x.accountId, address: a?.address ?? '', name: a?.name ?? null, cash: x.delta, tx: x.ref, at: x.at }; });
@@ -415,6 +458,19 @@ CREATE TABLE IF NOT EXISTS fund_event (
   PRIMARY KEY (stack, tx, log_index)
 );
 CREATE INDEX IF NOT EXISTS fund_event_order_idx ON fund_event (stack, block, log_index);
+CREATE TABLE IF NOT EXISTS promo (
+  id          text PRIMARY KEY,
+  kind        text NOT NULL,
+  title       text NOT NULL,
+  body        text NOT NULL,
+  cta_label   text,
+  cta_href    text,
+  starts_at   timestamptz NOT NULL,
+  ends_at     timestamptz NOT NULL,
+  topup_bonus integer NOT NULL DEFAULT 0,
+  ended       boolean NOT NULL DEFAULT false,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS fund_cursor (
   stack text PRIMARY KEY,
   block bigint NOT NULL
@@ -510,6 +566,32 @@ export class PgStore implements Store {
   }
   async fundCursor(stack: string) { const r = await this.pool.query('SELECT block FROM fund_cursor WHERE stack = $1', [stack]); return r.rows[0] ? Number(r.rows[0].block) : null; }
   async setFundCursor(stack: string, block: number) { await this.pool.query('INSERT INTO fund_cursor (stack, block) VALUES ($1,$2) ON CONFLICT (stack) DO UPDATE SET block = EXCLUDED.block', [stack, block]); }
+  private promo(x: { id: string; kind: Promo['kind']; title: string; body: string; cta_label: string | null; cta_href: string | null; starts_at: Date; ends_at: Date; topup_bonus: number; ended: boolean; created_at: Date }): Promo {
+    return { id: x.id, kind: x.kind, title: x.title, body: x.body, cta: x.cta_label && x.cta_href ? { label: x.cta_label, href: x.cta_href } : null, startsAt: x.starts_at, endsAt: x.ends_at, topupBonus: x.topup_bonus, ended: x.ended, createdAt: x.created_at };
+  }
+  async promos(o: { liveAt?: Date; limit: number }) {
+    const r = o.liveAt
+      ? await this.pool.query('SELECT * FROM promo WHERE NOT ended AND starts_at <= $1 AND ends_at > $1 ORDER BY created_at DESC LIMIT $2', [o.liveAt, o.limit])
+      : await this.pool.query('SELECT * FROM promo ORDER BY created_at DESC LIMIT $1', [o.limit]);
+    return r.rows.map((x) => this.promo(x));
+  }
+  async addPromo(p: Omit<Promo, 'id' | 'ended' | 'createdAt'>) {
+    const r = await this.pool.query('INSERT INTO promo (id, kind, title, body, cta_label, cta_href, starts_at, ends_at, topup_bonus) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
+      [newId(), p.kind, p.title, p.body, p.cta?.label ?? null, p.cta?.href ?? null, p.startsAt, p.endsAt, p.topupBonus]);
+    return this.promo(r.rows[0]);
+  }
+  async endPromo(id: string) { return ((await this.pool.query('UPDATE promo SET ended = true WHERE id = $1 AND NOT ended', [id])).rowCount ?? 0) > 0; }
+  async accountByHandle(handle: string) {
+    const h = handle.trim().toLowerCase();
+    const r = await this.pool.query('SELECT id, address, name, created_at FROM account WHERE address = $1 OR lower(name) = $1 LIMIT 1', [h]);
+    return r.rows[0] ? this.acc(r.rows[0]) : null;
+  }
+  async hasLedger(accountId: string, reason: string) { return (await this.pool.query('SELECT 1 FROM ledger WHERE account_id = $1 AND reason = $2 LIMIT 1', [accountId, reason])).rows.length > 0; }
+  async openZpStakes() {
+    const r = await this.pool.query(`SELECT s.account_id, s.ref, s.delta FROM ledger s WHERE s.reason = 'zpstake'
+      AND NOT EXISTS (SELECT 1 FROM ledger c WHERE c.account_id = s.account_id AND c.ref = s.ref AND c.reason IN ('zprefund', 'zpdone'))`);
+    return r.rows.map((x) => ({ accountId: x.account_id, ref: x.ref, amount: -Number(x.delta) }));
+  }
   async topups(limit: number) {
     const [t, r] = await Promise.all([
       this.pool.query("SELECT count(*)::int AS n, coalesce(sum(delta),0)::bigint AS cash FROM ledger WHERE reason = 'topup'"),

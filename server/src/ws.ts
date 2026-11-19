@@ -10,6 +10,7 @@ import type { Conn, Hub, Room } from './rooms.ts';
 import type { ServerMsg } from '../../core/protocol.ts';
 import type { Store } from './store.ts';
 import type { Staked } from './staked.ts';
+import { isZpStake, type ZpBank } from './zp.ts';
 
 export const MAX_FRAME_BYTES = 2048;
 const INPUTS_PER_SECOND = 60;
@@ -22,8 +23,8 @@ const cmd = z.discriminatedUnion('t', [
 ]);
 const frame = z.discriminatedUnion('t', [
   z.object({ t: z.literal('hello'), token: z.string().max(4096).nullable(), name: z.string().trim().max(20) }),
-  z.object({ t: z.literal('create') }),
-  z.object({ t: z.literal('quick') }),
+  z.object({ t: z.literal('create'), zp: z.number().int().optional() }),
+  z.object({ t: z.literal('quick'), zp: z.number().int().optional() }),
   z.object({ t: z.literal('join'), code: z.string().length(5).regex(/^[A-Za-z]+$/) }),
   z.object({ t: z.literal('staked'), stack: z.string().regex(/^[A-Za-z0-9]{1,8}$/), roomId: z.string().regex(/^\d{1,18}$/) }),
   z.object({ t: z.literal('start') }),
@@ -40,6 +41,8 @@ export interface WsOptions {
   requireSignIn?: boolean;
   /** Present only when staked rooms are switched on. */
   staked?: Staked;
+  /** ZP rooms (stakes in the game currency, held in the ledger). Absent: ZP rooms are off. */
+  zp?: ZpBank;
   origins: string[];
   /** Sockets that have not answered a ping in this long are cut. */
   keepAliveMs?: number;
@@ -89,6 +92,24 @@ export function attachWs(server: Server, o: WsOptions): () => void {
     ws.on('close', () => { beats.delete(ws); conn.room?.drop(conn); });
     ws.on('error', () => ws.terminate());
 
+    /** Into a ZP room: take the stake, then the seat (opening a room for it if `target` is null); undone if the seat is gone. */
+    async function zpEnter(target: Room | null, zp: number | undefined, isPublic: boolean): Promise<void> {
+      if (!o.zp) { conn.send({ t: 'err', code: 'zp-off' }); return; }
+      if (!isZpStake(zp) || !conn.accountId) { conn.send({ t: 'err', code: 'bad' }); return; }
+      const room = target ?? o.hub.open(isPublic, zp);
+      if (room === 'busy') { conn.send({ t: 'err', code: 'busy' }); return; }
+      const ref = `${room.uid}:${globalThis.crypto.randomUUID().slice(0, 8)}`;
+      const dropEmpty = () => { if (!room.seats.length && o.hub.rooms.get(room.code) === room) o.hub.remove(room); };
+      if (!(await o.zp.stake(conn.accountId, ref, zp))) { dropEmpty(); conn.send({ t: 'err', code: 'no-zp' }); return; }
+      const gone = o.hub.rooms.get(room.code) !== room || conn.room || ws.readyState !== ws.OPEN;
+      const s = gone ? 'started' : room.seat(conn, ref);
+      if (s === 'full' || s === 'started') {
+        await o.zp.refund(conn.accountId, ref, zp);
+        dropEmpty();
+        if (ws.readyState === ws.OPEN) conn.send({ t: 'err', code: gone && o.hub.rooms.get(room.code) !== room ? 'no-room' : s });
+      }
+    }
+
     async function handle(m: z.infer<typeof frame>): Promise<void> {
       if (m.t === 'hello') {
         if (hello) return;
@@ -107,12 +128,14 @@ export function attachWs(server: Server, o: WsOptions): () => void {
       switch (m.t) {
         case 'create': {
           if (conn.room) return;
+          if (m.zp !== undefined) { await zpEnter(null, m.zp, false); return; }
           const r = o.hub.create(conn);
           if (r === 'busy') conn.send({ t: 'err', code: 'busy' });
           return;
         }
         case 'quick': {
           if (conn.room) return;
+          if (m.zp !== undefined) { await zpEnter(o.hub.findQuick(m.zp) ?? null, m.zp, true); return; }
           if (o.hub.quick(conn) === 'busy') conn.send({ t: 'err', code: 'busy' });
           return;
         }
@@ -120,6 +143,7 @@ export function attachWs(server: Server, o: WsOptions): () => void {
           if (conn.room) return;
           const room = o.hub.find(m.code);
           if (!room) { conn.send({ t: 'err', code: 'no-room' }); return; }
+          if (room.zp && !room.heldFor(conn)) { await zpEnter(room, room.zp, room.isPublic); return; }
           const s = room.seat(conn);
           if (s === 'full' || s === 'started') conn.send({ t: 'err', code: s });
           else if (room.state === 'playing') { // taking back a seat mid-round: say where things stand

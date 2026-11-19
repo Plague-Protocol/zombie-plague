@@ -1,6 +1,7 @@
 // Rooms: the server runs the game for everyone in one, at 30 ticks a second, and tells each seat only what that seat
 // may know. Players send inputs; the rules (the same ones the browser runs) do the rest.
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
+import { zpPayout, type ZpSeat } from './zp.ts';
 import { gzipSync } from 'node:zlib';
 import { command, hashState, quantize, RoomRecorder, type Command, type RoomLog } from '../../core/replay.ts';
 import { createRoom, step, type GameState } from '../../core/state.ts';
@@ -38,6 +39,8 @@ interface Seat {
   address: string | null;
   /** When it dropped (room time), if it has. */
   droppedAt: number | null;
+  /** In a ZP room: whose stake this seat holds, by its ledger ref (kept even if the seat is given up mid-round). */
+  zp?: { accountId: string; ref: string };
   /** What this connection has already been told (a new connection starts from nothing). */
   encode: (v: ReturnType<typeof viewFor>) => WireSnap;
   // what to simulate for it next tick
@@ -50,6 +53,8 @@ export interface RoundResult {
   seats: Array<{ name: string; accountId: string | null }>;
   /** Set for a staked room: the on-chain room, and the wallets of the seats that got out (the settlement). */
   staked?: { stack: string; roomId: string; winners: string[] };
+  /** Set for a ZP room: its stake and every staked seat, for the pay-out (zp.ts). */
+  zp?: { uid: string; stake: number; seats: ZpSeat[] };
   placements: ServerMsgEnd['placements'];
   log: Buffer; // gzip of the RoomLog
   logHash: string;
@@ -59,6 +64,8 @@ type ServerMsgEnd = Extract<ServerMsg, { t: 'end' }>;
 export interface HubOptions {
   contentVersion: () => number;
   onRound?: (r: RoundResult) => void;
+  /** A ZP stake goes back (left the lobby, or the room was closed before it ended). */
+  onZpRefund?: (accountId: string, ref: string, amount: number) => void;
   /** Time source and timers, replaceable so tests need not wait in real time. */
   now?: () => number;
   setTimer?: (f: () => void, ms: number) => unknown;
@@ -82,6 +89,10 @@ export class Room {
   /** A staked room is bound to an on-chain room: the chain decides when it starts, and the winners are paid from it. */
   /** A public room is found by Quick play; any other is joined only by its code (or an invite link holding it). */
   isPublic = false;
+  /** A ZP room: what each seat stakes (null: a free room). */
+  zp: number | null = null;
+  /** This room and no other, ever (codes are reused): the ZP ledger's key. */
+  readonly uid = randomUUID();
   constructor(readonly code: string, private hub: Hub, readonly staked: { stack: string; roomId: string } | null = null) {}
 
   get live(): number { return this.seats.filter((s) => s.conn).length; }
@@ -89,7 +100,7 @@ export class Room {
   info(forSeat: number): ServerMsg {
     const seats: SeatInfo[] = this.seats.map((s, i) => ({ seat: i, name: s.name, signedIn: s.accountId !== null, connected: s.conn !== null }));
     const startsIn = this.countdownEnds === null ? null : Math.max(0, Math.ceil((this.countdownEnds - this.hub.now()) / 1000));
-    return { t: 'room', code: this.code, seats, you: forSeat, host: this.host, state: this.state, startsIn, public: this.isPublic, ...(this.staked ? { onChain: this.staked.roomId, stack: this.staked.stack } : {}) };
+    return { t: 'room', code: this.code, seats, you: forSeat, host: this.host, state: this.state, startsIn, public: this.isPublic, ...(this.zp ? { zp: this.zp, pot: this.zp * this.seats.filter((s) => s.zp).length } : {}), ...(this.staked ? { onChain: this.staked.roomId, stack: this.staked.stack } : {}) };
   }
 
   broadcastInfo(): void {
@@ -97,12 +108,18 @@ export class Room {
   }
 
   /** A player sits down (or takes back the seat they dropped). Returns the seat, or an error. */
-  seat(conn: Conn): number | 'full' | 'started' {
+  /** Is there a dropped seat here this connection's account can take back? (No new stake for that.) */
+  heldFor(conn: Conn): boolean {
+    return conn.accountId !== null && this.seats.some((s) => s.accountId === conn.accountId && s.conn === null && s.droppedAt !== null);
+  }
+
+  seat(conn: Conn, zpRef?: string): number | 'full' | 'started' {
     const back = conn.accountId === null ? -1 : this.seats.findIndex((s) => s.accountId === conn.accountId && s.conn === null && s.droppedAt !== null);
     if (back >= 0) { const s = this.seats[back]!; s.conn = conn; s.droppedAt = null; s.encode = makeEncoder(); conn.room = this; this.broadcastInfo(); return back; }
     if (this.state !== 'lobby') return 'started';
     if (this.seats.length >= ROOM_PLAYERS_MAX) return 'full';
-    this.seats.push({ conn, name: conn.name, accountId: conn.accountId, address: conn.address ?? null, droppedAt: null, encode: makeEncoder(), dx: 0, dy: 0, held: 0, edges: 0, seq: 0 });
+    this.seats.push({ conn, name: conn.name, accountId: conn.accountId, address: conn.address ?? null, droppedAt: null, encode: makeEncoder(), dx: 0, dy: 0, held: 0, edges: 0, seq: 0,
+      ...(zpRef && conn.accountId ? { zp: { accountId: conn.accountId, ref: zpRef } } : {}) });
     conn.room = this;
     if (this.staked) this.broadcastInfo(); // the chain starts a staked room, never the seats
     else if (this.seats.length >= ROOM_PLAYERS_MAX) this.begin();
@@ -125,6 +142,7 @@ export class Room {
     s.conn = null;
     if (this.state === 'lobby') {
       this.seats.splice(i, 1);
+      if (s.zp && this.zp) { this.hub.opts.onZpRefund?.(s.zp.accountId, s.zp.ref, this.zp); conn.send({ t: 'zp', stake: this.zp, got: this.zp }); }
       if (!this.seats.length) { this.hub.remove(this); return; }
       if (this.host >= this.seats.length || i === this.host) this.host = 0;
       this.seats.forEach((x, k) => { if (x.conn) x.conn.send(this.info(k)); });
@@ -243,9 +261,17 @@ export class Room {
     const log: RoomLog = this.rec!.log();
     const logHash = hashState(g);
     this.seats.forEach((s) => s.conn?.send({ t: 'end', placements: g.placements ?? [], logHash }));
+    let zp: RoundResult['zp'];
+    if (this.zp) {
+      const seats: ZpSeat[] = this.seats.flatMap((s, i) => (s.zp ? [{ ...s.zp, escaped: g.players[i]!.status === 'escaped' }] : []));
+      const p = zpPayout(this.zp, seats);
+      this.seats.forEach((s) => { if (s.zp) s.conn?.send({ t: 'zp', stake: this.zp!, got: p.refund ? this.zp! : p.winners.includes(s.zp.accountId) ? p.share : 0 }); });
+      zp = { uid: this.uid, stake: this.zp, seats };
+    }
     this.hub.opts.onRound?.({
       code: this.code, seed: this.seed, seats: this.seats.map((s) => ({ name: s.name, accountId: s.accountId })),
       placements: g.placements ?? [], log: gzipSync(JSON.stringify(log)), logHash,
+      ...(zp ? { zp } : {}),
       ...(this.staked ? { staked: { stack: this.staked.stack, roomId: this.staked.roomId, winners: this.seats.filter((s, i) => s.address && g.players[i]!.status === 'escaped').map((s) => s.address!) } } : {}),
     });
     this.broadcastInfo();
@@ -282,14 +308,27 @@ export class Hub {
   later(f: () => void, ms: number): void { const t = this.setTimer(() => { this.timers.delete(t); f(); }, ms); }
 
   create(conn: Conn, isPublic = false): Room | 'busy' {
+    const room = this.open(isPublic);
+    if (room !== 'busy') room.seat(conn);
+    return room;
+  }
+
+  /** A new room with nobody in it yet (a ZP room is opened, then its first seat staked, then sat). */
+  open(isPublic: boolean, zp: number | null = null): Room | 'busy' {
     if (this.rooms.size >= MAX_ROOMS) return 'busy';
     let code = '';
     do { code = Array.from({ length: 5 }, () => CODE_LETTERS[randomInt(0, CODE_LETTERS.length)]).join(''); } while (this.rooms.has(code));
     const room = new Room(code, this);
     room.isPublic = isPublic;
+    room.zp = zp;
     this.rooms.set(code, room);
-    room.seat(conn);
     return room;
+  }
+
+  /** The public lobby Quick play would put you in at this stake (null: free): the fullest one with a seat. */
+  findQuick(zp: number | null): Room | undefined {
+    const open = [...this.rooms.values()].filter((r) => r.isPublic && !r.staked && r.zp === zp && r.state === 'lobby' && r.seats.length < ROOM_PLAYERS_MAX && r.live > 0);
+    return open.sort((a, b) => b.seats.length - a.seats.length)[0];
   }
 
   find(code: string): Room | undefined { return this.rooms.get(code.toUpperCase()); }
@@ -307,9 +346,7 @@ export class Hub {
 
   /** Quick play: the public lobby with the most players that still has a seat (so rounds fill and start), or a new public room. */
   quick(conn: Conn): Room | 'busy' {
-    const open = [...this.rooms.values()].filter((r) => r.isPublic && !r.staked && r.state === 'lobby' && r.seats.length < ROOM_PLAYERS_MAX && r.live > 0);
-    open.sort((a, b) => b.seats.length - a.seats.length);
-    const room = open[0];
+    const room = this.findQuick(null);
     if (room) { const s = room.seat(conn); if (typeof s === 'number') return room; }
     const made = this.create(conn, true);
     return made;
@@ -336,6 +373,8 @@ export class Hub {
   }
 
   remove(room: Room): void {
+    // a ZP room closed before it ended (by an admin, or a shutdown): every stake still in it goes back
+    if (room.zp && room.state !== 'ended') for (const s of room.seats) if (s.zp) { this.opts.onZpRefund?.(s.zp.accountId, s.zp.ref, room.zp); s.conn?.send({ t: 'zp', stake: room.zp, got: room.zp }); }
     room.destroy();
     this.rooms.delete(room.code);
   }

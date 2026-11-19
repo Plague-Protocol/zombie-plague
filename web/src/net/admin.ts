@@ -79,6 +79,11 @@ const CSS = `
 #admin .msg { color: #f2b630; font: 17px 'VT323', monospace; letter-spacing: .06em; }
 #admin .msg:empty { display: none; }
 #admin .ad-note { margin: 10px 0 0; color: #7d9a72; font-size: 13px; }
+#admin .ad-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#admin .ad-form input, #admin .ad-form select { font: 14px system-ui, sans-serif; background: #0b0f0b; color: #d4c9b2; border: 1px solid rgba(107,142,35,.4); border-radius: 6px; padding: 6px 9px; min-width: 0; }
+#admin .ad-form input[name=title] { flex: 1 1 320px; } #admin .ad-form input[name=body] { flex: 1 1 260px; } #admin .ad-form input[name=to] { flex: 1 1 260px; }
+#admin .ad-form label { color: #8fa785; font-size: 13px; display: flex; gap: 6px; align-items: center; }
+#admin .ad-form input[type=number] { width: 90px; }
 #admin .ad-gate { max-width: 560px; border: 1px solid rgba(107,142,35,.25); border-radius: 14px; padding: 22px; background: linear-gradient(180deg, #0d150d, #080d08); }
 #admin .ad-gate p { margin: 0 0 14px; color: #a0bb94; }
 #admin.inpage > h1 { display: none; }
@@ -174,6 +179,8 @@ export function openAdmin(parent?: HTMLElement): void {
     const grid = el('div', '', 'grid');
     root.append(grid);
 
+    grid.append(await promoCard(), grantCard());
+
     const srv = card('Server');
     srv.append(kv('Uptime', ago(o.server.uptimeS)), kv('Memory', `${o.server.rssMb} MB`, o.server.rssMb > 400 ? 'warn' : ''), kv('Store', o.server.db, o.server.db === 'memory' ? 'warn' : 'good'), kv('Content', `v${o.server.content}`), kv('Node', o.server.node));
     grid.append(srv);
@@ -248,6 +255,61 @@ export function openAdmin(parent?: HTMLElement): void {
     sus.append(el('p', 'A failed replay is a run whose log does not end the way the player said: a modified client, or a bug. Several from one account is worth a look.', 'ad-note'));
     grid.append(sus);
     root.append(fundsBox);
+  }
+
+  /** Promotions: the banner across the site. Make one (a deal may pay extra ZP on top-ups), see them all, end one. */
+  async function promoCard(): Promise<HTMLElement> {
+    interface P { id: string; kind: string; title: string; body: string; cta: { label: string; href: string } | null; startsAt: string; endsAt: string; topupBonus: number; ended: boolean }
+    const c = card('Promotions', true);
+    const list = await call<P[]>('GET', '/admin/promos').catch(() => 0);
+    const f = document.createElement('form'); f.className = 'ad-form';
+    f.innerHTML = `<select name="kind"><option value="bounty">🏆 Bounty</option><option value="prize">🎁 Prize</option><option value="deal">⚡ Deal</option><option value="news">📣 News</option></select>
+      <input name="title" maxlength="80" placeholder="Headline: First out of the docks wins 5,000 ZP" required />
+      <input name="body" maxlength="280" placeholder="One line more (optional)" />
+      <input name="label" maxlength="24" placeholder="Button (e.g. Play now)" /><input name="href" placeholder="Button link: /play or https://…" />
+      <label>Ends <input name="ends" type="datetime-local" required /></label>
+      <label>Top-up bonus % <input name="bonus" type="number" min="0" max="200" value="0" /></label>
+      <button type="submit">Publish</button>`;
+    const ends = f.elements.namedItem('ends') as HTMLInputElement;
+    const d = new Date(Date.now() + 86400_000); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); ends.value = d.toISOString().slice(0, 16);
+    f.onsubmit = (e) => {
+      e.preventDefault();
+      const v = (n: string) => (f.elements.namedItem(n) as HTMLInputElement).value.trim();
+      const body = { kind: v('kind'), title: v('title'), body: v('body'), endsAt: new Date(v('ends')).toISOString(), topupBonus: Number(v('bonus')) || 0, cta: v('label') && v('href') ? { label: v('label'), href: v('href') } : null };
+      void act('Publish promotion', async () => { const r = await fetch(`${apiBase()}/admin/promos`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${account()?.token ?? ''}` }, body: JSON.stringify(body) }); if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `refused (${r.status})`); });
+    };
+    c.append(f, el('p', 'Shows under the header on every page with a countdown, until it ends. A deal with a top-up bonus pays that much extra ZP on every top-up while it runs. Pay bounties and prizes with Grant ZP (or by hand for crypto).', 'ad-note'));
+    if (typeof list !== 'number' && list.length) {
+      const t = el('table'); t.innerHTML = '<tr><th>Kind</th><th>Headline</th><th>Ends</th><th>State</th><th></th></tr>';
+      for (const p of list) {
+        const live = !p.ended && Date.parse(p.startsAt) <= Date.now() && Date.parse(p.endsAt) > Date.now();
+        const tr = el('tr'); const st = el('td'); st.append(el('span', p.ended ? 'ended' : live ? 'live' : Date.parse(p.endsAt) <= Date.now() ? 'over' : 'scheduled', `ad-badge ${live ? 'good' : ''}`));
+        tr.append(el('td', p.kind + (p.topupBonus ? ` +${p.topupBonus}%` : '')), el('td', p.title), el('td', new Date(p.endsAt).toLocaleString()), st);
+        const td = el('td');
+        if (live) { const b = el('button', 'End now', 'danger'); b.onclick = () => void act('End promotion', () => call('POST', `/admin/promos/${p.id}/end`)); td.append(b); }
+        tr.append(td); t.append(tr);
+      }
+      c.append(wrap(t));
+    }
+    return c;
+  }
+
+  /** Give ZP to a player: testers, a bounty or a prize paid. */
+  function grantCard(): HTMLElement {
+    const c = card('Grant ZP');
+    const f = document.createElement('form'); f.className = 'ad-form';
+    f.innerHTML = '<input name="to" placeholder="Wallet address or player name" required /><input name="amount" type="number" min="1" max="100000" placeholder="ZP" required /><input name="note" maxlength="60" placeholder="Why (tester, bounty: docks…)" required /><button type="submit">Grant</button>';
+    f.onsubmit = (e) => {
+      e.preventDefault();
+      const v = (n: string) => (f.elements.namedItem(n) as HTMLInputElement).value.trim();
+      void act(`Grant ${v('amount')} ZP to ${v('to')}`, async () => {
+        const r = await fetch(`${apiBase()}/admin/grant`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${account()?.token ?? ''}` }, body: JSON.stringify({ to: v('to'), amount: Number(v('amount')), note: v('note') }) });
+        const j = (await r.json().catch(() => ({}))) as { error?: string; balance?: number };
+        if (!r.ok) throw new Error(j.error ?? `refused (${r.status})`);
+      });
+    };
+    c.append(f, el('p', 'Written in the ledger with your note. ZP is game currency: it is never paid out.', 'ad-note'));
+    return c;
   }
 
   /** The Funds section: totals, a check against the contracts, the rooms that need someone, every room's money, top-ups. */

@@ -28,11 +28,18 @@ describe('top-ups in USDm', () => {
   it('credits a mined transfer from your wallet to the treasury, once', async () => {
     const t = await setup();
     t.receipts.set(hash(1), { status: 'success', logs: [transfer(TOKEN, t.me, TREASURY, 3n * ONE)] });
+    const before = (await t.app.inject({ method: 'GET', url: '/armoury', headers: { authorization: `Bearer ${t.token}` } })).json();
+    expect(before.topup.firstBonus).toBe(true);
     const r = await t.post(hash(1));
     expect(r.statusCode).toBe(200);
-    expect(r.json().credited).toBe(1500);
-    expect(r.json().cash).toBe(1500);
+    expect(r.json().credited).toBe(3000); // the first top-up is paid double
+    expect(r.json().bonus).toBe(1500);
+    expect(r.json().cash).toBe(3000);
+    expect(r.json().topup.firstBonus).toBe(false);
     expect((await t.post(hash(1))).statusCode).toBe(409); // the same transaction twice
+    t.receipts.set(hash(9), { status: 'success', logs: [transfer(TOKEN, t.me, TREASURY, ONE)] });
+    const again = await t.post(hash(9));
+    expect(again.json()).toMatchObject({ credited: 500, bonus: 0, cash: 3500 }); // the second is not
     const view = (await t.app.inject({ method: 'GET', url: '/armoury', headers: { authorization: `Bearer ${t.token}` } })).json();
     expect(view.topup).toMatchObject({ token: TOKEN, treasury: TREASURY, rate: 500, symbol: 'USDm' });
   });

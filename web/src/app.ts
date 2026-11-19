@@ -4,6 +4,7 @@
 import './site/site.css';
 import { account, armoury, esc, ICON, isAdmin, shown, signInThen, board } from './site/kit';
 import { isMuted, onMute, setMuted } from './seams/mute';
+import { drawPromos, startPromos } from './site/promos';
 import { admin, armouryPage, home, how, notFound, play, profile, ranks, type Ctx, type Page } from './site/pages';
 
 // the cold open, once a session (its own chunk)
@@ -59,6 +60,7 @@ function shell(): string {
       </div></details>
     </div>
   </div></header>
+  <div data-k="promos"></div>
   <main id="page"></main>
   <footer class="foot"><div class="wrap">
     <div><a class="brand" href="/"><img src="/intro/splash-mark.webp" alt="" width="32" height="32" loading="lazy" /><span>ZOMBIE PLAGUE</span></a>
@@ -81,6 +83,7 @@ function render(): void {
   const main = app.querySelector<HTMLElement>('#page')!;
   main.innerHTML = page.html();
   document.title = page === home ? 'Zombie Plague' : `${page.title} · Zombie Plague`;
+  drawPromos(app.querySelector<HTMLElement>('[data-k=promos]'));
   page.mount?.(main, ctx);
   armPlay();
   // your title tonight, beside your name
@@ -142,5 +145,6 @@ app.addEventListener('submit', (e) => {
 window.addEventListener('popstate', render);
 
 render();
+startPromos(() => app.querySelector<HTMLElement>('[data-k=promos]')); // bounties, prizes, deals: under the header on every page
 checkAdmin();
 void armoury(); // the device's copy of your loadouts, for the game to start nights with

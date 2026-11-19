@@ -124,7 +124,7 @@ export interface ArmouryView {
   now: string;
   earnedToday: number; dailyCap: number; tonight: number;
   /** Buying cash with a stablecoin, when the server has it on. */
-  topup: { token: string; treasury: string; decimals: number; rate: number; symbol: string; chainId: number; min: string } | null;
+  topup: { token: string; treasury: string; decimals: number; rate: number; symbol: string; chainId: number; min: string; /** the first top-up is paid double */ firstBonus?: boolean; /** a deal running now: extra ZP in percent */ deal?: { bonus: number; endsAt: string; title: string } | null } | null;
   credited?: number;
 }
 /** Item names, for saying what a night carries (kept small: the catalogue, core/armoury.ts, is not on the first page; a test keeps them equal). */

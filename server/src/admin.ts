@@ -98,6 +98,47 @@ export function registerAdmin(app: FastifyInstance, d: AdminDeps): void {
     return { on: true, syncing, stacks, topups };
   });
 
+  // Promotions: bounties, prizes, deals and news across the site. A deal may pay extra ZP on top-ups while it runs.
+  const promoBody = z.object({
+    kind: z.enum(['bounty', 'prize', 'deal', 'news']),
+    title: z.string().trim().min(3).max(80),
+    body: z.string().trim().max(280).default(''),
+    cta: z.object({ label: z.string().trim().min(1).max(24), href: z.string().trim().regex(/^(\/[\w\-./?=&#%]*|https:\/\/[^\s"'<>]+)$/) }).nullable().default(null),
+    startsAt: z.coerce.date().optional(),
+    endsAt: z.coerce.date(),
+    topupBonus: z.number().int().min(0).max(200).default(0),
+  });
+  app.get('/admin/promos', async (req, reply) => {
+    if (!(await admin(req))) return reply.code(403).send({ error: 'not_admin' });
+    return d.store.promos({ limit: 50 });
+  });
+  app.post('/admin/promos', async (req, reply) => {
+    if (!(await admin(req))) return reply.code(403).send({ error: 'not_admin' });
+    const b = promoBody.safeParse(req.body);
+    if (!b.success) return reply.code(400).send({ error: b.error.issues[0]?.message ?? 'bad promotion' });
+    const startsAt = b.data.startsAt ?? new Date();
+    if (b.data.endsAt.getTime() <= Math.max(startsAt.getTime(), Date.now())) return reply.code(400).send({ error: 'it has to end in the future, after it starts' });
+    if (b.data.topupBonus && b.data.kind !== 'deal') return reply.code(400).send({ error: 'only a deal pays a top-up bonus' });
+    return d.store.addPromo({ ...b.data, startsAt });
+  });
+  app.post('/admin/promos/:id/end', async (req, reply) => {
+    if (!(await admin(req))) return reply.code(403).send({ error: 'not_admin' });
+    return { ended: await d.store.endPromo(String((req.params as { id: string }).id)) };
+  });
+
+  // Give ZP to a player (testers, a bounty paid, a prize): by wallet address or name, written in the ledger once per `ref`.
+  app.post('/admin/grant', async (req, reply) => {
+    const who = await admin(req);
+    if (!who) return reply.code(403).send({ error: 'not_admin' });
+    const b = z.object({ to: z.string().trim().min(2).max(64), amount: z.number().int().min(1).max(100_000), note: z.string().trim().min(2).max(60) }).safeParse(req.body);
+    if (!b.success) return reply.code(400).send({ error: 'to, amount (1 to 100,000) and a note' });
+    const acc = await d.store.accountByHandle(b.data.to);
+    if (!acc) return reply.code(404).send({ error: 'no account with that address or name' });
+    const ref = `${b.data.note} · by ${who.slice(0, 8)} · ${new Date().toISOString()}`;
+    const r = await d.store.ledger(acc.id, b.data.amount, 'grant', ref.slice(0, 200));
+    return { to: acc.name ?? acc.address, amount: b.data.amount, balance: r.cash };
+  });
+
   // A room that is stuck (nobody left in it, a round that will not end): close it. Everyone in it is told.
   app.post('/admin/rooms/:code/close', async (req, reply) => {
     if (!(await admin(req))) return reply.code(403).send({ error: 'not_admin' });

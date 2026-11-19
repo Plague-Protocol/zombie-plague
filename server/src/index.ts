@@ -7,6 +7,7 @@ import { Hub } from './rooms.ts';
 import { Staked } from './staked.ts';
 import { registerAdmin } from './admin.ts';
 import { Funds } from './funds.ts';
+import { ZpBank } from './zp.ts';
 import { payForRound } from './armoury.ts';
 import { rpcReceipts } from './topup.ts';
 import { MemoryStore, PgStore, type Store } from './store.ts';
@@ -26,10 +27,15 @@ const topup = cfg.TOPUP_TOKEN && cfg.TOPUP_TREASURY && cfg.CELO_RPC ? {
 } : undefined;
 const app = await buildApp({ store, auth, content, origins: cfg.origins, chain, stacks: Object.keys(chains), topup });
 let staked: Staked | undefined;
+// ZP rooms: stakes in the game currency, held in the ledger; any cut short by the last restart go back first
+const zp = new ZpBank(store);
+await zp.recover();
 const hub = new Hub({
   contentVersion: () => content.latest,
+  onZpRefund: (accountId, ref, amount) => { zp.refund(accountId, ref, amount).catch((e) => console.error('zp refund failed', e)); },
   onRound: (r) => {
     void staked?.onRound(r);
+    if (r.zp) zp.settle(r.zp.uid, r.zp.stake, r.zp.seats).catch((e) => console.error('zp settle failed (refunded on the next start)', e));
     // the rooms leaderboard: each signed-in seat's part in the round
     const rows = r.placements.flatMap((p) => { const id = r.seats[p.seat]?.accountId; return id ? [{ accountId: id, code: r.code, status: p.status, kills: p.kills, escaped: p.status === 'escaped' }] : []; });
     if (rows.length) store.addRoundSeats(rows).catch((e) => console.error('round not recorded', e));
@@ -50,7 +56,7 @@ const funds = Object.keys(chains).length ? new Funds({ logs: chains, store, from
 if (funds) { void funds.syncAll(); setInterval(() => { void funds.syncAll(); }, 120_000).unref(); }
 registerAdmin(app, { store, auth, hub, staked, chains, funds, topup: topup && { symbol: topup.config.symbol, rate: topup.config.rate, treasury: topup.config.treasury, decimals: topup.config.decimals }, admins: cfg.admins, startedAt: Date.now(), db: cfg.DATABASE_URL ? 'postgres' : 'memory', content: () => content.latest });
 await app.listen({ port: cfg.PORT, host: '0.0.0.0' });
-const closeWs = attachWs(app.server, { hub, auth, store, origins: cfg.origins, staked });
+const closeWs = attachWs(app.server, { hub, auth, store, origins: cfg.origins, staked, zp });
 console.log(`outbreak server on :${cfg.PORT} (content v${content.latest}, ${cfg.DATABASE_URL ? 'postgres' : 'memory'})`);
 
 const stop = async () => { staked?.stop(); closeWs(); hub.close(); await app.close(); await store.close(); process.exit(0); };

@@ -149,9 +149,10 @@ export function mountArmoury(root: HTMLElement): void {
     const wallet = !!(window as unknown as { ethereum?: unknown }).ethereum;
     const owed = pendingTx();
     return `<div class="card" style="margin-top:16px"><div class="ph">${esc(t.symbol)} on Celo</div><h3>Top up</h3>
+      ${t.firstBonus || t.deal ? `<p>${t.firstBonus ? '<span class="tag g">First top-up: double ZP</span> ' : ''}${t.deal ? `<span class="tag g">⚡ ${esc(t.deal.title)}: +${t.deal.bonus}% ZP until ${new Date(t.deal.endsAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span>` : ''}</p>` : ''}
       <p>${fmt(t.rate)} ZP for each ${esc(t.symbol)}, sent from the wallet you signed in with. The server checks the payment on the chain before it adds the ZP. ZP is for the armoury and ZP rooms: it cannot be turned back into ${esc(t.symbol)}.</p>
       ${owed ? `<p class="err" style="margin-top:10px">A payment is waiting to be counted.</p><div class="buy"><button class="btn sm" type="button" data-a="topup-retry"${busy ? ' disabled' : ''}>Count my payment</button></div>` : ''}
-      <div class="buy">${TOPUPS.map((n) => `<button class="btn ghost sm" type="button" data-a="topup:${n}"${!wallet || busy || owed ? ' disabled' : ''}>${n} ${esc(t.symbol)} &rarr; ${fmt(Math.floor(n * t.rate))} ZP</button>`).join('')}</div>
+      <div class="buy">${TOPUPS.map((n) => `<button class="btn ghost sm" type="button" data-a="topup:${n}"${!wallet || busy || owed ? ' disabled' : ''}>${n} ${esc(t.symbol)} &rarr; ${fmt(Math.floor(n * t.rate) * (t.firstBonus ? 2 : 1) + Math.floor((Math.floor(n * t.rate) * (t.deal?.bonus ?? 0)) / 100))} ZP</button>`).join('')}</div>
       ${wallet ? '' : '<p class="muted" style="font-size:14px;margin-top:8px">Paying needs a wallet in the browser: open the game in MiniPay or a wallet app.</p>'}</div>`;
   }
   const PENDING = 'zp.topup.pending';

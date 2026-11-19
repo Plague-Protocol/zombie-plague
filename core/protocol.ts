@@ -14,9 +14,10 @@ export const RECONNECT_SECONDS = 20;
 export type ClientMsg =
   /** First message. `token` is the sign-in token, or null to play as a guest (free rooms only). */
   | { t: 'hello'; token: string | null; name: string }
-  | { t: 'create' }
-  /** Quick play: a seat in any public lobby with room, or a new public room. */
-  | { t: 'quick' }
+  /** `zp`: a ZP room, each seat staking that much ZP (one of the server's stakes). */
+  | { t: 'create'; zp?: number }
+  /** Quick play: a seat in any public lobby with room (at the same ZP stake), or a new public room. */
+  | { t: 'quick'; zp?: number }
   | { t: 'join'; code: string }
   /** Take a seat in a staked room by its on-chain id; the server checks the chain and the account, never this message. */
   | { t: 'staked'; stack: string; roomId: string }
@@ -29,10 +30,12 @@ export type ClientMsg =
 export interface SeatInfo { seat: number; name: string; signedIn: boolean; connected: boolean }
 
 export type ServerMsg =
-  | { t: 'room'; code: string; seats: SeatInfo[]; you: number; host: number; state: 'lobby' | 'playing' | 'ended'; startsIn: number | null; public?: boolean; onChain?: string; stack?: string }
+  | { t: 'room'; code: string; seats: SeatInfo[]; you: number; host: number; state: 'lobby' | 'playing' | 'ended'; startsIn: number | null; public?: boolean; onChain?: string; stack?: string; /** a ZP room: each seat's stake, and the pot */ zp?: number; pot?: number }
   /** The round begins: build the district from the seed (createRoom(seed, players)) and play. */
   | { t: 'begin'; seed: number; players: number; content: number; seat: number; /** who each seat plays (null: Sam) */ sv?: Array<string | null> }
   /** `w`: the view in its wire form (see codec.ts). `ack`: the last input of yours the server used. */
   | { t: 'snap'; tick: number; ack: number; w: WireSnap }
   | { t: 'end'; placements: Placement[]; logHash: string }
-  | { t: 'err'; code: 'full' | 'no-room' | 'started' | 'rate' | 'bad' | 'busy' | 'hello' | 'staked-off' | 'not-staked' | 'not-eligible' | 'no-chain' | 'signin' };
+  /** What a ZP room paid you: `got` back of your `stake` (0: lost; the stake: nobody got out, or the room closed). */
+  | { t: 'zp'; stake: number; got: number }
+  | { t: 'err'; code: 'full' | 'no-room' | 'started' | 'rate' | 'bad' | 'busy' | 'hello' | 'staked-off' | 'not-staked' | 'not-eligible' | 'no-chain' | 'signin' | 'no-zp' | 'zp-off' };

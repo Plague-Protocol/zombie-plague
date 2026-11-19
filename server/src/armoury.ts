@@ -135,11 +135,20 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
 
   const shown = (a: { name: string | null; address: string } | null) => (a ? a.name || `${a.address.slice(0, 6)}…${a.address.slice(-4)}` : 'someone');
 
+  /** The best top-up deal running now (its bonus in percent, and when it ends), or null. */
+  async function dealNow(): Promise<{ bonus: number; endsAt: string; title: string } | null> {
+    const live = (await d.store.promos({ liveAt: now(), limit: 20 })).filter((p) => p.kind === 'deal' && p.topupBonus > 0);
+    const best = live.sort((a, b) => b.topupBonus - a.topupBonus)[0];
+    return best ? { bonus: best.topupBonus, endsAt: best.endsAt.toISOString(), title: best.title } : null;
+  }
+
   async function view(accountId: string) {
     const t = now();
     const loans = await settleLoans(d.store, accountId, t);
     const [bank, today, mine, open] = await Promise.all([d.store.bank(accountId), d.store.earnedSince(accountId, dayStart(t)), d.store.listingsOf(accountId), d.store.openListings()]);
-    const topup = d.topup ? { ...d.topup.config, min: String(minUnits(d.topup.config)) } : null; // what the site needs to send one
+    // what the site needs to send one, and whether this account's first top-up (paid double) is still to come
+    const deal = d.topup ? await dealNow() : null;
+    const topup = d.topup ? { ...d.topup.config, min: String(minUnits(d.topup.config)), firstBonus: !(await d.store.hasLedger(accountId, 'firsttopup')), deal } : null;
     const lenders = new Map<string, string>();
     for (const l of loans) if (l.lenderId && !lenders.has(l.lenderId)) lenders.set(l.lenderId, shown(await d.store.accountById(l.lenderId)));
     // the cheapest open offer from another player, per item
@@ -284,7 +293,12 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
     if ('error' in v) return reply.code(400).send({ error: v.error });
     const r = await d.store.ledger(id, v.cash, 'topup', tx);
     if (!r.ok) return reply.code(409).send({ error: 'That transaction has already been counted.' });
-    return { ...(await view(id)), credited: v.cash };
+    // the first top-up an account ever makes is paid double (once: the ledger's key is the account and 'first')
+    let bonus = (await d.store.ledger(id, v.cash, 'firsttopup', 'first')).ok ? v.cash : 0;
+    // and a deal running now pays its share on top (once per transaction)
+    const deal = await dealNow();
+    if (deal) { const extra = Math.floor((v.cash * deal.bonus) / 100); if (extra > 0 && (await d.store.ledger(id, extra, 'dealbonus', tx)).ok) bonus += extra; }
+    return { ...(await view(id)), credited: v.cash + bonus, bonus };
   });
 
   // keep the two loadouts (the ranked one must fit the budget)

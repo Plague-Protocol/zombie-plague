@@ -77,6 +77,10 @@ const CSS = `
 #mp li b { color: #e0483a; font-weight: 400; }
 #mp .err { color: #e0483a; min-height: 1.2em; }
 #mp small { color: #7a8a72; font-size: 16px; }
+#mp .stakes button { font-size: 17px; padding: 4px 12px; letter-spacing: .08em; }
+#mp .stakes button.on { background: #6b8e23; color: #0b0f0b; }
+#mp p.pot { color: #e8c86a; }
+#roomend p.won { color: #9bd34a; }
 #mp .quiet { border: 1px dashed #3d5a2a; border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: min(34em, 92vw); text-align: center; }
 #mp-wait { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 45; display: flex; gap: 12px; align-items: center; padding: 8px 10px 8px 16px;
   background: rgba(8,12,8,.92); border: 2px solid #3d5a2a; border-radius: 8px; color: #d4c9b2; font-family: 'VT323', ui-monospace, monospace; font-size: 20px; letter-spacing: .06em; max-width: 94vw; }
@@ -110,7 +114,11 @@ const ERRORS: Record<string, string> = {
   'not-eligible': 'Staked rooms need an account that is a day old, with three finished nights, signed in, and not already in a staked room.',
   'no-chain': 'The server could not read the chain. Try again.',
   signin: 'Sign in to play with others.',
+  'no-zp': 'Not enough ZP for that stake. Play a night, or top up in the Armoury.',
+  'zp-off': 'ZP rooms are not open on this server yet.',
 };
+/** The ZP stakes on offer (the server's list: server/src/zp.ts). */
+const ZP_STAKES = [50, 100, 250, 500, 1000] as const;
 /** Errors that may only mean the chain has not caught up with a transaction a moment ago: the seat is asked for again. */
 const RETRY = new Set(['not-staked', 'no-room', 'no-chain']);
 
@@ -175,6 +183,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
         seating = null;
         err = ERRORS[m.code] ?? 'Something went wrong.'; draw();
       }
+      else if (m.t === 'zp') { note = ''; err = ''; zpNote = m.got ? `Your ${m.got} ZP stake is back.` : ''; draw(); }
       else if (m.t === 'begin') begin(m);
       else buffered.push(m); // snapshots that arrive before the shadow is built
     };
@@ -201,6 +210,9 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
     ws!.onclose = () => session.dropped();
   }
 
+  /** The ZP stake picked for Join a public room and New private room (null: a free room), your balance, and the last refund. */
+  let stake: number | null = null, zpHave: number | null = null, zpNote = '';
+  void import('../site/kit').then((k) => k.armoury()).then((a) => { if (a) { zpHave = a.cash; if (!roomInfo) draw(); } }, () => {});
   /** Alone in a free room for a minute: offer a solo night while the seat is kept. */
   let quiet = false, quietTimer = -1;
   /** Playing that solo night with the lobby hidden; `soloOn` stays set once one was started (Back lets it carry on). */
@@ -254,16 +266,30 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
         // the server seats you under your username when you have one: only an account without one is asked
         const nm = me.name ? null : el('input', { placeholder: 'Your name', maxlength: '20', value: name() });
         nm?.addEventListener('input', () => localStorage.setItem(KEY_NAME, nm.value.trim()));
-        const quick = el('button', {}, 'Join a public room');
-        quick.onclick = () => connect(() => send({ t: 'quick' }));
-        const mk = el('button', { class: 'ghost' }, 'New private room');
-        mk.onclick = () => connect(() => send({ t: 'create' }));
+        // what to stake: nothing (a free room) or ZP, the game's currency; those who get out split the pot
+        const pick = el('div', { class: 'row stakes' });
+        pick.append(el('small', {}, 'Stake'));
+        for (const v of [null, ...ZP_STAKES]) {
+          const b = el('button', { class: stake === v ? 'on' : 'ghost' }, v === null ? 'Free' : `${v} ZP`);
+          if (v !== null && zpHave !== null && zpHave < v) b.disabled = true;
+          b.onclick = () => { stake = v; zpNote = ''; draw(); };
+          pick.append(b);
+        }
+        const tail = stake ? ` · ${stake} ZP` : '';
+        const quick = el('button', {}, `Join a public room${tail}`);
+        quick.onclick = () => connect(() => send(stake ? { t: 'quick', zp: stake } : { t: 'quick' }));
+        const mk = el('button', { class: 'ghost' }, `New private room${tail}`);
+        mk.onclick = () => connect(() => send(stake ? { t: 'create', zp: stake } : { t: 'create' }));
         const code = el('input', { class: 'code', placeholder: 'CODE', maxlength: '5', value: invite ?? '' });
         const jn = el('button', { class: 'ghost' }, 'Join');
         jn.onclick = () => { if (code.value.trim().length === 5) connect(() => send({ t: 'join', code: code.value.trim() })); };
         const row = el('div', { class: 'row' });
         row.append(code, jn);
         if (nm) root.append(nm);
+        root.append(pick, el('small', {}, stake
+          ? `Everyone stakes ${stake} ZP. Those who get out split the pot, less 5%. If nobody gets out, everyone gets their stake back.${zpHave !== null ? ` You have ${zpHave.toLocaleString()} ZP.` : ''}`
+          : `A free room: nothing at stake.${zpHave !== null ? ` You have ${zpHave.toLocaleString()} ZP to stake.` : ''}`));
+        if (zpNote) root.append(el('p', {}, zpNote));
         root.append(quick, mk, row, el('small', {}, `Signed in${me.name ? ` as ${me.name}` : ''}. A public room puts you with whoever is waiting; a private room is joined by its code or your invite link.`));
       }
       root.append(el('small', {}, 'Free rooms. 2 to 8 players, one exit with seats for half of you.'));
@@ -305,6 +331,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
       const r = roomInfo;
       root.append(el('p', {}, r.onChain ? `Staked room (${r.stack ?? ''})` : r.public ? 'Public room · code' : 'Private room · code'), el('div', { class: 'code-big' }, r.onChain ? `#${r.onChain}` : r.code));
       if (!r.onChain && r.state === 'lobby') root.append(el('small', {}, `${r.seats.length} of ${ROOM_PLAYERS_MAX} · ${r.seats.length < 2 ? 'waiting for players' : 'ready when the host is'}`));
+      if (r.zp) root.append(el('p', { class: 'pot' }, `${r.zp} ZP each · pot ${(r.pot ?? 0).toLocaleString()} ZP`), el('small', {}, 'Those who get out split the pot, less 5%. Nobody out: every stake back. Leaving before the start gives yours back.'));
       const list = el('ul');
       for (const s of r.seats as SeatInfo[]) {
         const li = el('li', s.connected ? {} : { class: 'off' }, `${s.name}${s.signedIn ? ' ✓' : ''}${s.seat === r.you ? ' (you)' : ''}${s.seat === r.host ? ' — host' : ''}`);
@@ -436,6 +463,7 @@ class Session implements Driver {
     if (m.t === 'snap') { const v = this.decode(m.w); this.snaps.push({ t: m.tick * ROOM_DT, arrived: performance.now() / 1000, v }); if (this.snaps.length > 12) this.snaps.shift(); this.reconcile(v, m.ack); this.events.push(...v.events); }
     else if (m.t === 'room') this.roomNames = m.seats.map((x) => x.name);
     else if (m.t === 'end') this.showEnd(m);
+    else if (m.t === 'zp') this.zpResult(m);
     else if (m.t === 'err' && m.code === 'rate') this.host.toast('Sending too fast.');
   }
 
@@ -615,6 +643,15 @@ class Session implements Driver {
   private roomNames: string[] = [];
 
   setNames(names: string[]): void { this.roomNames = names; }
+
+  /** A ZP room's pay-out, under the placings (it comes right after the end). */
+  private zpResult(m: Extract<ServerMsg, { t: 'zp' }>): void {
+    const text = m.got > m.stake ? `You won ${m.got.toLocaleString()} ZP` : m.got === m.stake ? `Your ${m.stake} ZP stake came back` : `Your ${m.stake} ZP stake is lost`;
+    this.host.toast(text);
+    const box = document.getElementById('roomend');
+    const back = box?.querySelector('button');
+    if (box && back) back.before(el('p', { class: m.got > m.stake ? 'won' : '' }, text));
+  }
 
   private showEnd(m: Extract<ServerMsg, { t: 'end' }> | null): void {
     if (this.over) return;
