@@ -37,6 +37,17 @@ export const upgradePrice = (w: WeaponKind, u: UpgradeKind, level: number): numb
 export const UPGRADE_POINTS = 1; // per level brought
 export const upgradable = (w: WeaponKind): UpgradeKind[] => (w in GUNS ? ['damage', 'mag', 'reload'] : ['damage']);
 
+/** What a sale (a promotion from the admin page) takes off, and what it covers. Only buying is discounted: loans keep
+ * their fee (a share of the full price). */
+export type SaleScope = 'all' | 'weapon' | 'gear' | 'supply' | 'upgrade' | 'survivor';
+export const SALE_SCOPES: readonly SaleScope[] = ['all', 'weapon', 'gear', 'supply', 'upgrade', 'survivor'];
+export interface Sale { discount: number; scope: SaleScope; title: string; endsAt: string }
+/** What a thing costs under a sale: an item by its group, an upgrade, or a survivor step (unlock or perk). */
+export function salePrice(base: number, what: Exclude<SaleScope, 'all'>, sale: Pick<Sale, 'discount' | 'scope'> | null | undefined): number {
+  if (!sale || sale.discount <= 0 || (sale.scope !== 'all' && sale.scope !== what)) return base;
+  return Math.max(1, Math.round((base * (100 - Math.min(90, sale.discount))) / 100));
+}
+
 /** Points a ranked loadout may spend. */
 export const RANKED_POINTS = 8;
 

@@ -25,7 +25,7 @@ const frame = z.discriminatedUnion('t', [
   z.object({ t: z.literal('hello'), token: z.string().max(4096).nullable(), name: z.string().trim().max(20) }),
   z.object({ t: z.literal('create'), zp: z.number().int().optional() }),
   z.object({ t: z.literal('quick'), zp: z.number().int().optional() }),
-  z.object({ t: z.literal('join'), code: z.string().length(5).regex(/^[A-Za-z]+$/) }),
+  z.object({ t: z.literal('join'), code: z.string().length(5).regex(/^[A-Za-z]+$/), zp: z.number().int().optional() }),
   z.object({ t: z.literal('staked'), stack: z.string().regex(/^[A-Za-z0-9]{1,8}$/), roomId: z.string().regex(/^\d{1,18}$/) }),
   z.object({ t: z.literal('start') }),
   z.object({ t: z.literal('in'), seq: int(0, 2 ** 31), i: z.tuple([int(-96, 96), int(-96, 96), int(0, 127)]) }),
@@ -143,7 +143,12 @@ export function attachWs(server: Server, o: WsOptions): () => void {
           if (conn.room) return;
           const room = o.hub.find(m.code);
           if (!room) { conn.send({ t: 'err', code: 'no-room' }); return; }
-          if (room.zp && !room.heldFor(conn)) { await zpEnter(room, room.zp, room.isPublic); return; }
+          if (room.zp && !room.heldFor(conn)) {
+            // nothing is taken until the player has seen the stake and agreed to it
+            if (m.zp !== room.zp) { const n = room.seats.filter((x) => x.zp).length; conn.send({ t: 'confirm', code: room.code, zp: room.zp, seats: room.seats.length, pot: room.zp * n }); return; }
+            await zpEnter(room, room.zp, room.isPublic);
+            return;
+          }
           const s = room.seat(conn);
           if (s === 'full' || s === 'started') conn.send({ t: 'err', code: s });
           else if (room.state === 'playing') { // taking back a seat mid-round: say where things stand

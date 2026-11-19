@@ -259,33 +259,57 @@ export function openAdmin(parent?: HTMLElement): void {
 
   /** Promotions: the banner across the site. Make one (a deal may pay extra ZP on top-ups), see them all, end one. */
   async function promoCard(): Promise<HTMLElement> {
-    interface P { id: string; kind: string; title: string; body: string; cta: { label: string; href: string } | null; startsAt: string; endsAt: string; topupBonus: number; ended: boolean }
+    interface P { id: string; kind: string; title: string; body: string; cta: { label: string; href: string } | null; startsAt: string; endsAt: string; topupBonus: number; discount: number; scope: string; ended: boolean }
     const c = card('Promotions', true);
     const list = await call<P[]>('GET', '/admin/promos').catch(() => 0);
     const f = document.createElement('form'); f.className = 'ad-form';
-    f.innerHTML = `<select name="kind"><option value="bounty">🏆 Bounty</option><option value="prize">🎁 Prize</option><option value="deal">⚡ Deal</option><option value="news">📣 News</option></select>
+    f.innerHTML = `<select name="kind"><option value="bounty">🏆 Bounty</option><option value="prize">🎁 Prize</option><option value="deal">⚡ Deal</option><option value="sale">🏷️ Sale</option><option value="news">📣 News</option></select>
       <input name="title" maxlength="80" placeholder="Headline: First out of the docks wins 5,000 ZP" required />
       <input name="body" maxlength="280" placeholder="One line more (optional)" />
       <input name="label" maxlength="24" placeholder="Button (e.g. Play now)" /><input name="href" placeholder="Button link: /play or https://…" />
       <label>Ends <input name="ends" type="datetime-local" required /></label>
-      <label>Top-up bonus % <input name="bonus" type="number" min="0" max="200" value="0" /></label>
-      <button type="submit">Publish</button>`;
+      <label data-for="deal">Top-up bonus % <input name="bonus" type="number" min="0" max="200" value="0" /></label>
+      <label data-for="sale">Discount % <input name="discount" type="number" min="0" max="90" value="20" /></label>
+      <label data-for="sale">On <select name="scope"><option value="all">everything</option><option value="weapon">weapons</option><option value="gear">gear</option><option value="supply">supplies</option><option value="upgrade">upgrades</option><option value="survivor">survivors and perks</option></select></label>
+      <button type="submit">Publish</button><button type="button" class="ghost" data-cancel hidden>Cancel edit</button>`;
+    const kindSel = f.elements.namedItem('kind') as HTMLSelectElement;
+    // only the fields that belong to the kind: a deal's bonus, a sale's discount
+    const fit = () => { for (const l of f.querySelectorAll<HTMLElement>('[data-for]')) l.hidden = l.dataset.for !== kindSel.value; };
+    kindSel.onchange = fit; fit();
+    const local = (iso: string) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+    const submit = f.querySelector<HTMLButtonElement>('button[type=submit]')!, cancel = f.querySelector<HTMLButtonElement>('[data-cancel]')!;
+    /** Load a promotion into the form to change it (its kind stays). */
+    const edit = (p: P) => {
+      const set = (n: string, v: string) => { (f.elements.namedItem(n) as HTMLInputElement).value = v; };
+      f.dataset.edit = p.id; kindSel.value = p.kind; kindSel.disabled = true; fit();
+      set('title', p.title); set('body', p.body); set('label', p.cta?.label ?? ''); set('href', p.cta?.href ?? ''); set('ends', local(p.endsAt));
+      set('bonus', String(p.topupBonus)); set('discount', String(p.discount)); set('scope', p.scope);
+      submit.textContent = 'Save changes'; cancel.hidden = false;
+      f.scrollIntoView({ block: 'center' });
+    };
+    cancel.onclick = () => { delete f.dataset.edit; kindSel.disabled = false; submit.textContent = 'Publish'; cancel.hidden = true; f.reset(); fit(); };
     const ends = f.elements.namedItem('ends') as HTMLInputElement;
     const d = new Date(Date.now() + 86400_000); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); ends.value = d.toISOString().slice(0, 16);
     f.onsubmit = (e) => {
       e.preventDefault();
       const v = (n: string) => (f.elements.namedItem(n) as HTMLInputElement).value.trim();
-      const body = { kind: v('kind'), title: v('title'), body: v('body'), endsAt: new Date(v('ends')).toISOString(), topupBonus: Number(v('bonus')) || 0, cta: v('label') && v('href') ? { label: v('label'), href: v('href') } : null };
-      void act('Publish promotion', async () => { const r = await fetch(`${apiBase()}/admin/promos`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${account()?.token ?? ''}` }, body: JSON.stringify(body) }); if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `refused (${r.status})`); });
+      const kind = kindSel.value, editing = f.dataset.edit;
+      const body = {
+        ...(editing ? {} : { kind }), title: v('title'), body: v('body'), endsAt: new Date(v('ends')).toISOString(),
+        topupBonus: kind === 'deal' ? Number(v('bonus')) || 0 : 0, discount: kind === 'sale' ? Number(v('discount')) || 0 : 0, scope: kind === 'sale' ? v('scope') : 'all',
+        cta: v('label') && v('href') ? { label: v('label'), href: v('href') } : null,
+      };
+      void act(editing ? 'Save promotion' : 'Publish promotion', async () => { const r = await fetch(`${apiBase()}/admin/promos${editing ? `/${editing}` : ''}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${account()?.token ?? ''}` }, body: JSON.stringify(body) }); if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `refused (${r.status})`); });
     };
-    c.append(f, el('p', 'Shows under the header on every page with a countdown, until it ends. A deal with a top-up bonus pays that much extra ZP on every top-up while it runs. Pay bounties and prizes with Grant ZP (or by hand for crypto).', 'ad-note'));
+    c.append(f, el('p', 'Shows under the header on every page with a countdown, until it ends. A deal pays its bonus % extra ZP on every top-up while it runs; a sale takes its discount % off buying in the armoury (loans keep their fee). Edit changes one that is running or scheduled. Pay bounties and prizes with Grant ZP (or by hand for crypto).', 'ad-note'));
     if (typeof list !== 'number' && list.length) {
       const t = el('table'); t.innerHTML = '<tr><th>Kind</th><th>Headline</th><th>Ends</th><th>State</th><th></th></tr>';
       for (const p of list) {
         const live = !p.ended && Date.parse(p.startsAt) <= Date.now() && Date.parse(p.endsAt) > Date.now();
         const tr = el('tr'); const st = el('td'); st.append(el('span', p.ended ? 'ended' : live ? 'live' : Date.parse(p.endsAt) <= Date.now() ? 'over' : 'scheduled', `ad-badge ${live ? 'good' : ''}`));
-        tr.append(el('td', p.kind + (p.topupBonus ? ` +${p.topupBonus}%` : '')), el('td', p.title), el('td', new Date(p.endsAt).toLocaleString()), st);
+        tr.append(el('td', p.kind + (p.topupBonus ? ` +${p.topupBonus}%` : '') + (p.discount ? ` −${p.discount}% ${p.scope}` : '')), el('td', p.title), el('td', new Date(p.endsAt).toLocaleString()), st);
         const td = el('td');
+        if (!p.ended && Date.parse(p.endsAt) > Date.now()) { const e = el('button', 'Edit', 'ghost'); e.onclick = () => edit(p); td.append(e, document.createTextNode(' ')); }
         if (live) { const b = el('button', 'End now', 'danger'); b.onclick = () => void act('End promotion', () => call('POST', `/admin/promos/${p.id}/end`)); td.append(b); }
         tr.append(td); t.append(tr);
       }

@@ -183,6 +183,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
         seating = null;
         err = ERRORS[m.code] ?? 'Something went wrong.'; draw();
       }
+      else if (m.t === 'confirm') { joinAsk = m; err = ''; draw(); }
       else if (m.t === 'zp') { note = ''; err = ''; zpNote = m.got ? `Your ${m.got} ZP stake is back.` : ''; draw(); }
       else if (m.t === 'begin') begin(m);
       else buffered.push(m); // snapshots that arrive before the shadow is built
@@ -212,6 +213,15 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
 
   /** The ZP stake picked for Join a public room and New private room (null: a free room), your balance, and the last refund. */
   let stake: number | null = null, zpHave: number | null = null, zpNote = '';
+  /** A ZP room joined by its code, waiting for the player to agree to its stake. */
+  let joinAsk: Extract<ServerMsg, { t: 'confirm' }> | null = null;
+  /** Players waiting in public rooms, by stake ('free' for none), refreshed while the menu is open. */
+  let waitingBy: Record<string, number> = {};
+  const fetchWaiting = async () => {
+    try { const r = await fetch(`${httpUrl(url)}/rooms/live`); if (r.ok) { waitingBy = ((await r.json()) as { byStake?: Record<string, number> }).byStake ?? {}; if (!roomInfo && !joinAsk) draw(); } } catch { /* the counts are a nicety */ }
+  };
+  void fetchWaiting();
+  const waitTimer = window.setInterval(() => { if (!root.isConnected) { clearInterval(waitTimer); return; } if (!roomInfo) void fetchWaiting(); }, 10_000);
   void import('../site/kit').then((k) => k.armoury()).then((a) => { if (a) { zpHave = a.cash; if (!roomInfo) draw(); } }, () => {});
   /** Alone in a free room for a minute: offer a solo night while the seat is kept. */
   let quiet = false, quietTimer = -1;
@@ -244,6 +254,19 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
   function draw(): void {
     root.replaceChildren();
     root.append(el('h2', {}, 'Multiplayer'));
+    if (!roomInfo && joinAsk) {
+      // a ZP room by its code: say what it costs before anything is taken
+      const a = joinAsk;
+      root.append(el('p', {}, `Room ${a.code} is a ZP room`), el('div', { class: 'code-big' }, `${a.zp} ZP`),
+        el('small', {}, `Everyone stakes ${a.zp} ZP. ${a.seats} in it now, pot ${a.pot.toLocaleString()} ZP. Those who get out split the pot, less 5%; if nobody gets out, every stake comes back. Leaving before the start gives yours back.${zpHave !== null ? ` You have ${zpHave.toLocaleString()} ZP.` : ''}`));
+      const yes = el('button', {}, `Stake ${a.zp} ZP and join`);
+      if (zpHave !== null && zpHave < a.zp) yes.disabled = true;
+      yes.onclick = () => { joinAsk = null; connect(() => send({ t: 'join', code: a.code, zp: a.zp })); draw(); };
+      const no = el('button', { class: 'ghost' }, 'Not now');
+      no.onclick = () => { joinAsk = null; draw(); };
+      root.append(yes, no, el('div', { class: 'err' }, err));
+      return;
+    }
     if (!roomInfo) {
       root.append(el('p', {}, 'Survive together. Not everyone gets out.'));
       if (!me) {
@@ -270,7 +293,8 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
         const pick = el('div', { class: 'row stakes' });
         pick.append(el('small', {}, 'Stake'));
         for (const v of [null, ...ZP_STAKES]) {
-          const b = el('button', { class: stake === v ? 'on' : 'ghost' }, v === null ? 'Free' : `${v} ZP`);
+          const n = waitingBy[v === null ? 'free' : String(v)] ?? 0;
+          const b = el('button', { class: stake === v ? 'on' : 'ghost' }, `${v === null ? 'Free' : `${v} ZP`}${n ? ` · ${n} waiting` : ''}`);
           if (v !== null && zpHave !== null && zpHave < v) b.disabled = true;
           b.onclick = () => { stake = v; zpNote = ''; draw(); };
           pick.append(b);

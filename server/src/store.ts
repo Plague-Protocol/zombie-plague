@@ -84,7 +84,7 @@ export interface TopupRow { accountId: string; address: string; name: string | n
 /** A promotion shown across the site: a bounty, a prize, a deal (which may pay extra ZP on top-ups) or news. */
 export interface Promo {
   id: string;
-  kind: 'bounty' | 'prize' | 'deal' | 'news';
+  kind: 'bounty' | 'prize' | 'deal' | 'news' | 'sale';
   title: string;
   body: string;
   cta: { label: string; href: string } | null;
@@ -92,6 +92,9 @@ export interface Promo {
   endsAt: Date;
   /** A deal: extra ZP on every top-up while it runs, in percent (50: half as much again). */
   topupBonus: number;
+  /** A sale: percent off buying, and what it covers (core/armoury.ts salePrice). */
+  discount: number;
+  scope: import('../../core/armoury.ts').SaleScope;
   ended: boolean;
   createdAt: Date;
 }
@@ -102,6 +105,8 @@ export interface Store {
   addPromo(p: Omit<Promo, 'id' | 'ended' | 'createdAt'>): Promise<Promo>;
   /** End a promotion now (it stops showing, and a deal stops paying). */
   endPromo(id: string): Promise<boolean>;
+  /** Change a promotion (its words, button, times, bonus or discount). Null: no such promotion. */
+  updatePromo(id: string, patch: Partial<Omit<Promo, 'id' | 'kind' | 'ended' | 'createdAt'>>): Promise<Promo | null>;
   /** An account by its wallet address or its name (either case). */
   accountByHandle(handle: string): Promise<Account | null>;
   /** Money events of one stake token's contracts, oldest first. */
@@ -257,6 +262,12 @@ export class MemoryStore implements Store {
   }
   async addPromo(p: Omit<Promo, 'id' | 'ended' | 'createdAt'>) { const x = { ...p, id: newId(), ended: false, createdAt: new Date() }; this.promoRows.push(x); return { ...x }; }
   async endPromo(id: string) { const x = this.promoRows.find((p) => p.id === id); if (!x || x.ended) return false; x.ended = true; return true; }
+  async updatePromo(id: string, patch: Partial<Omit<Promo, 'id' | 'kind' | 'ended' | 'createdAt'>>) {
+    const x = this.promoRows.find((p) => p.id === id);
+    if (!x) return null;
+    for (const [k, v] of Object.entries(patch)) if (v !== undefined) (x as unknown as Record<string, unknown>)[k] = v;
+    return { ...x };
+  }
   async accountByHandle(handle: string) {
     const h = handle.trim().toLowerCase();
     return [...this.accounts.values()].find((a) => a.address === h || (a.name ?? '').toLowerCase() === h) ?? null;
@@ -471,6 +482,8 @@ CREATE TABLE IF NOT EXISTS promo (
   ended       boolean NOT NULL DEFAULT false,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE promo ADD COLUMN IF NOT EXISTS discount integer NOT NULL DEFAULT 0;
+ALTER TABLE promo ADD COLUMN IF NOT EXISTS scope text NOT NULL DEFAULT 'all';
 CREATE TABLE IF NOT EXISTS fund_cursor (
   stack text PRIMARY KEY,
   block bigint NOT NULL
@@ -566,8 +579,8 @@ export class PgStore implements Store {
   }
   async fundCursor(stack: string) { const r = await this.pool.query('SELECT block FROM fund_cursor WHERE stack = $1', [stack]); return r.rows[0] ? Number(r.rows[0].block) : null; }
   async setFundCursor(stack: string, block: number) { await this.pool.query('INSERT INTO fund_cursor (stack, block) VALUES ($1,$2) ON CONFLICT (stack) DO UPDATE SET block = EXCLUDED.block', [stack, block]); }
-  private promo(x: { id: string; kind: Promo['kind']; title: string; body: string; cta_label: string | null; cta_href: string | null; starts_at: Date; ends_at: Date; topup_bonus: number; ended: boolean; created_at: Date }): Promo {
-    return { id: x.id, kind: x.kind, title: x.title, body: x.body, cta: x.cta_label && x.cta_href ? { label: x.cta_label, href: x.cta_href } : null, startsAt: x.starts_at, endsAt: x.ends_at, topupBonus: x.topup_bonus, ended: x.ended, createdAt: x.created_at };
+  private promo(x: { id: string; kind: Promo['kind']; title: string; body: string; cta_label: string | null; cta_href: string | null; starts_at: Date; ends_at: Date; topup_bonus: number; discount: number; scope: Promo['scope']; ended: boolean; created_at: Date }): Promo {
+    return { id: x.id, kind: x.kind, title: x.title, body: x.body, cta: x.cta_label && x.cta_href ? { label: x.cta_label, href: x.cta_href } : null, startsAt: x.starts_at, endsAt: x.ends_at, topupBonus: x.topup_bonus, discount: x.discount, scope: x.scope, ended: x.ended, createdAt: x.created_at };
   }
   async promos(o: { liveAt?: Date; limit: number }) {
     const r = o.liveAt
@@ -576,9 +589,21 @@ export class PgStore implements Store {
     return r.rows.map((x) => this.promo(x));
   }
   async addPromo(p: Omit<Promo, 'id' | 'ended' | 'createdAt'>) {
-    const r = await this.pool.query('INSERT INTO promo (id, kind, title, body, cta_label, cta_href, starts_at, ends_at, topup_bonus) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
-      [newId(), p.kind, p.title, p.body, p.cta?.label ?? null, p.cta?.href ?? null, p.startsAt, p.endsAt, p.topupBonus]);
+    const r = await this.pool.query('INSERT INTO promo (id, kind, title, body, cta_label, cta_href, starts_at, ends_at, topup_bonus, discount, scope) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *',
+      [newId(), p.kind, p.title, p.body, p.cta?.label ?? null, p.cta?.href ?? null, p.startsAt, p.endsAt, p.topupBonus, p.discount, p.scope]);
     return this.promo(r.rows[0]);
+  }
+  async updatePromo(id: string, patch: Partial<Omit<Promo, 'id' | 'kind' | 'ended' | 'createdAt'>>) {
+    const col: Record<string, string> = { title: 'title', body: 'body', startsAt: 'starts_at', endsAt: 'ends_at', topupBonus: 'topup_bonus', discount: 'discount', scope: 'scope' };
+    const sets: string[] = [], vals: unknown[] = [id];
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) continue;
+      if (k === 'cta') { const c = v as Promo['cta']; vals.push(c?.label ?? null, c?.href ?? null); sets.push(`cta_label = $${vals.length - 1}`, `cta_href = $${vals.length}`); continue; }
+      if (!col[k]) continue;
+      vals.push(v); sets.push(`${col[k]} = $${vals.length}`);
+    }
+    const r = sets.length ? await this.pool.query(`UPDATE promo SET ${sets.join(', ')} WHERE id = $1 RETURNING *`, vals) : await this.pool.query('SELECT * FROM promo WHERE id = $1', [id]);
+    return r.rows[0] ? this.promo(r.rows[0]) : null;
   }
   async endPromo(id: string) { return ((await this.pool.query('UPDATE promo SET ended = true WHERE id = $1 AND NOT ended', [id])).rowCount ?? 0) > 0; }
   async accountByHandle(handle: string) {

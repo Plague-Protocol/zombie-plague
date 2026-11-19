@@ -4,7 +4,7 @@
 import {
   ALL_WEAPONS, DAILY_RATION, KIT, kitDef, LATE_DAYS, LEND_RATES, lendFee, lenderCut, loanFee, LOAN_DAYS, loadoutPoints, MAX_LOANS, RANKED_POINTS, ROUND_PAY,
   STANDARD, UPGRADE_NAMES, upgradable, upgradePrice, weaponsOf, type KitId, type LendRate, type LoanDays, type Loadout, type UpId,
-  MAX_GRIT, perkAt, ROSTER, SURVIVORS, svLevel, svPrice, type SurvivorId,
+  MAX_GRIT, perkAt, ROSTER, salePrice, SURVIVORS, svLevel, svPrice, type SurvivorId, type SaleScope,
 } from '../../../core/armoury';
 import { UPGRADE_LEVELS, WEAPON_NAMES } from '../../../core/config';
 import type { WeaponKind } from '../../../core/types';
@@ -46,7 +46,10 @@ export function mountArmoury(root: HTMLElement): void {
     const mine = ids.filter((id) => svLevel(v!.owned, id) > 0), who = l.survivor ?? 'sam', grit = l.grit ?? 0;
     const brings = weaponsOf(l);
     const upRows = brings.flatMap((w) => upgradable(w).map((u) => [w, u, v!.owned.ups[`${w}.${u}` as UpId] ?? 0] as const)).filter(([, , n]) => n > 0);
+    const sale = v.sale;
+    const saleWhat: Record<SaleScope, string> = { all: 'everything', weapon: 'weapons', gear: 'gear', supply: 'supplies', upgrade: 'upgrades', survivor: 'survivors and perks' };
     root.innerHTML = `
+    ${sale ? `<div class="salebar"><span class="tag r">🏷️ Sale</span> <b>${esc(sale.title)}</b> <span>${sale.discount}% off ${saleWhat[sale.scope]} until ${new Date(sale.endsAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>` : ''}
     <div class="status" style="margin-bottom:22px">
       <span class="k">Bank</span><span><b style="${v.cash < 0 ? 'color:#ff7a6b' : ''}">${fmt(v.cash)}</b> <span class="muted">ZP</span></span>
       <span class="muted">Earned today <b style="font-size:20px">${fmt(v.earnedToday)}</b> of ${fmt(v.dailyCap)}</span>
@@ -93,13 +96,13 @@ export function mountArmoury(root: HTMLElement): void {
 
     <div class="sec" style="margin-top:40px"><div class="kicker">Roster</div><h2 class="ph2">Survivors</h2><p class="sub">Who you play. Each has one perk that grows over three levels; a level brought into a ranked night costs a loadout point.</p>
       <div class="grid roster">${ids.map((id) => {
-        const lv = svLevel(v!.owned, id), next = lv + 1, price = next <= MAX_GRIT + 1 ? svPrice(id, next) : 0;
+        const lv = svLevel(v!.owned, id), next = lv + 1, base = next <= MAX_GRIT + 1 ? svPrice(id, next) : 0, price = cost(base, 'survivor');
         return `<div class="card sv${lv ? ' own' : ''}">
           <div class="svart"><img src="/survivors/${id}.webp" alt="" loading="lazy" width="150" height="180" />${lv ? `<span class="tag g">${lv > 1 ? `Perk ${lv - 1}` : 'Yours'}</span>` : ''}</div>
           <div class="ph">${esc(ROSTER[id].role)}</div><h3>${SURVIVORS[id].name}</h3>
           <p>${esc(ROSTER[id].blurb)}</p>
           <p class="perk"><b>${esc(ROSTER[id].perk)}</b>${lv ? perkAt(id, lv - 1) : perkAt(id, 0)}${next <= MAX_GRIT + 1 && lv ? ` &rarr; ${perkAt(id, lv)}` : ''}</p>
-          <div class="buy">${next > MAX_GRIT + 1 ? '<span class="tag g">Fully upgraded</span>' : `<button class="btn${lv ? ' ghost' : ''} sm" type="button" data-a="buy:sv.${id}"${v!.cash < price || busy ? ' disabled' : ''}>${lv ? `Perk ${lv}` : 'Unlock'} &middot; ${fmt(price)}</button>`}</div></div>`;
+          <div class="buy">${next > MAX_GRIT + 1 ? '<span class="tag g">Fully upgraded</span>' : `<button class="btn${lv ? ' ghost' : ''} sm" type="button" data-a="buy:sv.${id}"${v!.cash < price || busy ? ' disabled' : ''}>${lv ? `Perk ${lv}` : 'Unlock'} &middot; ${priced(base, price)}</button>`}</div></div>`;
       }).join('')}</div>
     </div>
 
@@ -111,15 +114,19 @@ export function mountArmoury(root: HTMLElement): void {
 
     <div class="sec" style="margin-top:40px"><div class="kicker">Workshop</div><h2 class="ph2">Upgrades</h2><p class="sub">Permanent, for weapons you own. A level brought into a night costs a loadout point.</p>
       <div class="grid">${ALL_WEAPONS.filter((w) => (STANDARD as readonly string[]).includes(w) || v!.owned.kit.includes(w as KitId)).map((w) => `<div class="card"><div class="itemart sm"><img src="${itemArt(w)}" alt="" loading="lazy" width="320" height="200" /></div><h3>${WEAPON_NAMES[w]}</h3>${upgradable(w as WeaponKind).map((u) => {
-        const n = v!.owned.ups[`${w}.${u}` as UpId] ?? 0, price = n < UPGRADE_LEVELS ? upgradePrice(w as WeaponKind, u, n + 1) : 0;
-        return `<div class="uprow"><span>${UPGRADE_NAMES[u]}</span><span class="pips">${Array.from({ length: UPGRADE_LEVELS }, (_, k) => `<em class="${k < n ? 'on' : ''}"></em>`).join('')}</span>${n < UPGRADE_LEVELS ? `<button class="btn ghost sm" type="button" data-a="buy:${w}.${u}"${v!.cash < price || busy ? ' disabled' : ''}>${fmt(price)}</button>` : '<span class="tag g">Max</span>'}</div>`;
+        const n = v!.owned.ups[`${w}.${u}` as UpId] ?? 0, base = n < UPGRADE_LEVELS ? upgradePrice(w as WeaponKind, u, n + 1) : 0, price = cost(base, 'upgrade');
+        return `<div class="uprow"><span>${UPGRADE_NAMES[u]}</span><span class="pips">${Array.from({ length: UPGRADE_LEVELS }, (_, k) => `<em class="${k < n ? 'on' : ''}"></em>`).join('')}</span>${n < UPGRADE_LEVELS ? `<button class="btn ghost sm" type="button" data-a="buy:${w}.${u}"${v!.cash < price || busy ? ' disabled' : ''}>${priced(base, price)}</button>` : '<span class="tag g">Max</span>'}</div>`;
       }).join('')}</div>`).join('')}</div>
     </div>`;
   }
 
+  /** What buying costs now (a sale may take some off), and that price as shown (the old one struck through). */
+  function cost(base: number, what: Exclude<SaleScope, 'all'>): number { return salePrice(base, what, v!.sale); }
+  function priced(base: number, now: number): string { return now < base ? `<s class="was">${fmt(base)}</s> ${fmt(now)}` : fmt(now); }
+
   /** A shop card: buy it; borrow it (from the armoury, or the cheapest player offer) for the chosen term; or, owned, lend it out. */
   function shopCard(id: KitId): string {
-    const k = kitDef(id), own = v!.owned.kit.includes(id), loan = v!.loans.find((x) => x.item === id), mineListed = listed(id);
+    const k = kitDef(id), own = v!.owned.kit.includes(id), loan = v!.loans.find((x) => x.item === id), mineListed = listed(id), price = cost(k.price, k.group);
     const offer = v!.offers[id], full = v!.loans.length >= MAX_LOANS, broke = v!.cash < 0;
     const tag = own ? (mineListed ? `<span class="tag">${mineListed.status === 'lent' ? 'Lent out' : 'Up for loan'}</span>` : '<span class="tag g">Owned</span>') : loan ? '<span class="tag">Borrowed</span>' : '';
     let actions: string;
@@ -129,10 +136,10 @@ export function mountArmoury(root: HTMLElement): void {
       actions = `<label class="lendrow">Lend at<select data-a="rate:${id}">${LEND_RATES.map((x) => `<option value="${x}"${x === r ? ' selected' : ''}>${x === 100 ? 'armoury price' : `${x}% of it`}</option>`).join('')}</select></label>
         <button class="btn ghost sm" type="button" data-a="lend:${id}"${busy ? ' disabled' : ''}>Lend out</button>
         <small class="muted lendnote">You bank ${fmt(lenderCut(lendFee(id, 1, r)))} / ${fmt(lenderCut(lendFee(id, 3, r)))} / ${fmt(lenderCut(lendFee(id, 7, r)))} when it goes for 1 / 3 / 7 days</small>`;
-    } else if (loan) actions = `<button class="btn sm" type="button" data-a="buy:${id}"${v!.cash < k.price || busy ? ' disabled' : ''}>Buy ${fmt(k.price)}</button><span class="muted" style="font-size:14px">Borrowed, ${due(loan.dueAt)}</span>`;
+    } else if (loan) actions = `<button class="btn sm" type="button" data-a="buy:${id}"${v!.cash < price || busy ? ' disabled' : ''}>Buy ${priced(k.price, price)}</button><span class="muted" style="font-size:14px">Borrowed, ${due(loan.dueAt)}</span>`;
     else {
       const off = offer ? lendFee(id, term, offer.rate as LendRate) : 0;
-      actions = `<button class="btn sm" type="button" data-a="buy:${id}"${v!.cash < k.price || busy ? ' disabled' : ''}>Buy ${fmt(k.price)}</button>
+      actions = `<button class="btn sm" type="button" data-a="buy:${id}"${v!.cash < price || busy ? ' disabled' : ''}>Buy ${priced(k.price, price)}</button>
         <button class="btn ghost sm" type="button" data-a="borrow:${id}"${broke || full || busy ? ' disabled' : ''} title="From the armoury, ${term} day${term > 1 ? 's' : ''}">Borrow ${fmt(loanFee(id, term))}</button>
         ${offer ? `<button class="btn ghost sm offer" type="button" data-a="borrowp:${id}:${offer.listing}"${broke || full || busy || v!.cash < off ? ' disabled' : ''} title="From ${esc(offer.lender)}, ${term} day${term > 1 ? 's' : ''}">From ${esc(offer.lender)} &middot; ${fmt(off)}</button>` : ''}`;
     }

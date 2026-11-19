@@ -59,7 +59,7 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
   // the promotions running now (bounties, prizes, deals, news), for the banner across the site
   app.get('/promos', async () => {
     const live = await d.store.promos({ liveAt: now(), limit: 5 });
-    return live.map((p) => ({ id: p.id, kind: p.kind, title: p.title, body: p.body, cta: p.cta, endsAt: p.endsAt.toISOString(), topupBonus: p.topupBonus }));
+    return live.map((p) => ({ id: p.id, kind: p.kind, title: p.title, body: p.body, cta: p.cta, endsAt: p.endsAt.toISOString(), topupBonus: p.topupBonus, discount: p.discount, scope: p.scope }));
   });
 
   app.get('/night/today', async () => ({ night: nightOf(now()), content: d.content.latest }));

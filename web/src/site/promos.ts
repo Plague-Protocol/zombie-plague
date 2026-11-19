@@ -3,9 +3,9 @@
 // The promotions come from the server (/promos), made on the admin page.
 import { api, esc } from './kit';
 
-export interface Promo { id: string; kind: 'bounty' | 'prize' | 'deal' | 'news'; title: string; body: string; cta: { label: string; href: string } | null; endsAt: string; topupBonus: number }
+export interface Promo { id: string; kind: 'bounty' | 'prize' | 'deal' | 'news' | 'sale'; title: string; body: string; cta: { label: string; href: string } | null; endsAt: string; topupBonus: number }
 
-const BADGE: Record<Promo['kind'], string> = { bounty: '🏆 Bounty', prize: '🎁 Prize', deal: '⚡ Deal', news: '📣 News' };
+const BADGE: Record<Promo['kind'], string> = { bounty: '🏆 Bounty', prize: '🎁 Prize', deal: '⚡ Deal', sale: '🏷️ Sale', news: '📣 News' };
 const HIDDEN = 'zp.promos.hidden';
 let live: Promo[] = [];
 let at = 0;

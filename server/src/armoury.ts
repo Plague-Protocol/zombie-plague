@@ -6,8 +6,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   DAILY_CAP, DAILY_RATION, earnedFor, EMPTY_LOADOUT, KIT, kitDef, LATE_DAYS, lateFee, LEND_RATES, lendFee, lenderCut, loadoutProblem, loanFee,
-  MAX_GRIT, MAX_LOANS, ROUND_PAY, SURVIVORS, svLevel, svPrice, upgradable, upgradePrice, weaponsOf,
-  type KitId, type LendRate, type LoanDays, type Loadout, type Owned, type SurvivorId, type UpId,
+  MAX_GRIT, MAX_LOANS, ROUND_PAY, salePrice, SURVIVORS, svLevel, svPrice, upgradable, upgradePrice, weaponsOf,
+  type KitId, type Sale, type LendRate, type LoanDays, type Loadout, type Owned, type SurvivorId, type UpId,
 } from '../../core/armoury.ts';
 import { UPGRADE_LEVELS } from '../../core/config.ts';
 import type { WeaponKind, UpgradeKind } from '../../core/types.ts';
@@ -142,6 +142,13 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
     return best ? { bonus: best.topupBonus, endsAt: best.endsAt.toISOString(), title: best.title } : null;
   }
 
+  /** The biggest sale running now, or null. Buying uses it; the page shows it. */
+  async function saleNow(): Promise<Sale | null> {
+    const live = (await d.store.promos({ liveAt: now(), limit: 20 })).filter((p) => p.kind === 'sale' && p.discount > 0);
+    const best = live.sort((a, b) => b.discount - a.discount)[0];
+    return best ? { discount: best.discount, scope: best.scope, title: best.title, endsAt: best.endsAt.toISOString() } : null;
+  }
+
   async function view(accountId: string) {
     const t = now();
     const loans = await settleLoans(d.store, accountId, t);
@@ -165,7 +172,7 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
     return {
       cash: bank.cash, owned: bank.owned, loadouts: bank.loadouts ?? { ranked: EMPTY_LOADOUT, open: EMPTY_LOADOUT },
       loans: loans.map((l) => ({ id: l.id, item: l.item, fee: l.fee, createdAt: l.createdAt, dueAt: l.dueAt, lender: l.lenderId ? lenders.get(l.lenderId) ?? 'someone' : null, lateFee: lateFee(l.item as KitId), overdue: l.dueAt.getTime() < t.getTime() })),
-      listings, offers, earnedToday: today, dailyCap: DAILY_CAP, tonight: nightOf(t), topup, now: t,
+      listings, offers, earnedToday: today, dailyCap: DAILY_CAP, tonight: nightOf(t), topup, now: t, sale: await saleNow(),
     };
   }
 
@@ -181,22 +188,22 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
     if (!id) return reply.code(401).send({ error: 'sign in' });
     const body = z.object({ item: z.union([kitId, upId, svId]) }).safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: 'unknown item' });
-    const item = body.data.item, bank = await d.store.bank(id);
+    const item = body.data.item, bank = await d.store.bank(id), sale = await saleNow();
     let level = 1, price: number;
     if (item.startsWith('sv.')) { // a survivor: unlock, then each perk level
       const sv = item.slice(3) as SurvivorId;
       level = svLevel(bank.owned, sv) + 1;
       if (level > MAX_GRIT + 1) return reply.code(409).send({ error: 'already at the top level' });
-      price = svPrice(sv, level);
+      price = salePrice(svPrice(sv, level), 'survivor', sale);
     } else if (item.includes('.')) {
       const [w, u] = item.split('.') as [WeaponKind, UpgradeKind];
       if (!upgradable(w).includes(u)) return reply.code(400).send({ error: 'that weapon does not take that upgrade' });
       level = (bank.owned.ups[item as UpId] ?? 0) + 1;
       if (level > UPGRADE_LEVELS) return reply.code(409).send({ error: 'already at the top level' });
-      price = upgradePrice(w, u, level);
+      price = salePrice(upgradePrice(w, u, level), 'upgrade', sale);
     } else {
       if (bank.owned.kit.includes(item as KitId)) return reply.code(409).send({ error: 'already yours' });
-      price = kitDef(item as KitId).price;
+      price = salePrice(kitDef(item as KitId).price, kitDef(item as KitId).group, sale);
     }
     if (bank.cash < price) return reply.code(402).send({ error: 'not enough ZP' });
     const ok = await d.store.purchase(id, item, level, price, `${item}:${level}`);

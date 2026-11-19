@@ -392,4 +392,9 @@ ol.steps { margin: 0; padding-left: 1.3em; color: #a0bb94; } ol.steps li { margi
   .promo .btn.sm { order: 3; } .promo .pdots { order: 3; }
 }
 @media (prefers-reduced-motion: reduce) { .promo, .promo .pbadge { animation: none; } }
+.promo.sale { background: linear-gradient(90deg, rgba(150,20,60,.55), rgba(40,10,20,.9)); border-bottom-color: rgba(255,120,150,.4); }
+.promo.sale .pbadge { color: #ff9ab4; border-color: rgba(255,154,180,.5); }
+s.was { color: #8a7a62; font-size: .85em; margin-right: 2px; }
+.salebar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 16px; padding: 10px 14px; border: 1px solid rgba(255,120,150,.35); border-radius: 10px; background: rgba(60,10,25,.45); }
+.salebar b { color: #f3ead6; } .salebar span:last-child { color: #c8b89a; font-size: 14px; }
 

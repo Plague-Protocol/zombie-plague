@@ -18,7 +18,8 @@ export type ClientMsg =
   | { t: 'create'; zp?: number }
   /** Quick play: a seat in any public lobby with room (at the same ZP stake), or a new public room. */
   | { t: 'quick'; zp?: number }
-  | { t: 'join'; code: string }
+  /** `zp`: the stake you agreed to, for a ZP room (without it the server only says what the room stakes: 'confirm'). */
+  | { t: 'join'; code: string; zp?: number }
   /** Take a seat in a staked room by its on-chain id; the server checks the chain and the account, never this message. */
   | { t: 'staked'; stack: string; roomId: string }
   | { t: 'start' }
@@ -36,6 +37,8 @@ export type ServerMsg =
   /** `w`: the view in its wire form (see codec.ts). `ack`: the last input of yours the server used. */
   | { t: 'snap'; tick: number; ack: number; w: WireSnap }
   | { t: 'end'; placements: Placement[]; logHash: string }
+  /** Joining a ZP room by its code: what it stakes, so you can agree before anything is taken. */
+  | { t: 'confirm'; code: string; zp: number; seats: number; pot: number }
   /** What a ZP room paid you: `got` back of your `stake` (0: lost; the stake: nobody got out, or the room closed). */
   | { t: 'zp'; stake: number; got: number }
   | { t: 'err'; code: 'full' | 'no-room' | 'started' | 'rate' | 'bad' | 'busy' | 'hello' | 'staked-off' | 'not-staked' | 'not-eligible' | 'no-chain' | 'signin' | 'no-zp' | 'zp-off' };

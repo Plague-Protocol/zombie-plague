@@ -335,13 +335,18 @@ export class Hub {
 
   /** What the Play page shows on the public-room button: players waiting in a public room that still has a seat, and
    * players in a round anywhere (public, private or staked). Counts only, no codes: a public room is reached through quick(). */
-  live(): { waiting: number; playing: number } {
+  live(): { waiting: number; playing: number; byStake: Record<string, number> } {
     let waiting = 0, playing = 0;
+    const byStake: Record<string, number> = {}; // players waiting in a public room, by its ZP stake ('free' for none)
     for (const r of this.rooms.values()) {
       if (r.state === 'playing') playing += r.live;
-      else if (r.isPublic && !r.staked && r.state === 'lobby' && r.seats.length < ROOM_PLAYERS_MAX) waiting += r.live;
+      else if (r.isPublic && !r.staked && r.state === 'lobby' && r.seats.length < ROOM_PLAYERS_MAX) {
+        waiting += r.live;
+        const k = r.zp ? String(r.zp) : 'free';
+        byStake[k] = (byStake[k] ?? 0) + r.live;
+      }
     }
-    return { waiting, playing };
+    return { waiting, playing, byStake };
   }
 
   /** Quick play: the public lobby with the most players that still has a seat (so rounds fill and start), or a new public room. */

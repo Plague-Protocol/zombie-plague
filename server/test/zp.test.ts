@@ -146,7 +146,12 @@ describe('ZP rooms over the socket', () => {
     other.send({ t: 'quick', zp: 250 }); // a different stake: its own room
     await other.until(() => !!other.last('room'));
     expect(other.last('room')!.code).not.toBe(a.last('room')!.code);
-    c.send({ t: 'join', code: a.last('room')!.code }); // by code: the room's stake, taken the same way
+    const code = a.last('room')!.code;
+    c.send({ t: 'join', code }); // by code: first only told what it stakes, nothing taken
+    await c.until(() => !!c.last('confirm'));
+    expect(c.last('confirm')).toEqual({ t: 'confirm', code, zp: 100, seats: 1, pot: 100 });
+    expect(await c.balance()).toBe(300);
+    c.send({ t: 'join', code, zp: 100 }); // agreed: the stake is taken the same way
     await c.until(() => c.last('room')?.seats.length === 2);
     expect(c.last('room')!.pot).toBe(200);
     expect(await c.balance()).toBe(200);
@@ -160,5 +165,6 @@ describe('ZP rooms over the socket', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(await a.balance()).toBe(300);
     expect(await b.store.openZpStakes()).toHaveLength(1); // only `other`, still waiting in its room
+    expect(b.hub.live().byStake).toEqual({ '250': 1 });
   });
 });

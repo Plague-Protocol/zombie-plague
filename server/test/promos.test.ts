@@ -58,6 +58,33 @@ describe('promotions', () => {
   });
 });
 
+describe('sales and edits', () => {
+  it('a sale takes its share off what it covers, and the server charges the sale price; only a sale may discount', async () => {
+    const w = await world();
+    expect((await w.admin('POST', '/admin/promos', { kind: 'bounty', title: 'Nope', endsAt: soon(2), discount: 30 })).json().error).toMatch(/only a sale/);
+    expect((await w.admin('POST', '/admin/promos', { kind: 'sale', title: 'Nope', endsAt: soon(2), discount: 0 })).json().error).toMatch(/needs a discount/);
+    const made = await w.admin('POST', '/admin/promos', { kind: 'sale', title: 'Weapons weekend', endsAt: soon(24), discount: 50, scope: 'weapon' });
+    expect(made.statusCode).toBe(200);
+    expect((await w.anon('GET', '/promos')).json()[0]).toMatchObject({ kind: 'sale', discount: 50, scope: 'weapon' });
+    await w.admin('POST', '/admin/grant', { to: w.player.account.address, amount: 2000, note: 'test' });
+    expect((await w.me('GET', '/armoury')).json().sale).toMatchObject({ discount: 50, scope: 'weapon', title: 'Weapons weekend' });
+    expect((await w.me('POST', '/armoury/buy', { item: 'rifle' })).json().cash).toBe(2000 - 800); // 1,600 half off
+    expect((await w.me('POST', '/armoury/buy', { item: 'vest' })).json().cash).toBe(1200 - 500); // gear: full price
+  });
+
+  it('an admin edits a running promotion; its kind\'s rules still hold', async () => {
+    const w = await world();
+    const id = (await w.admin('POST', '/admin/promos', { kind: 'deal', title: '+20% ZP', endsAt: soon(2), topupBonus: 20 })).json().id;
+    const r = await w.admin('POST', `/admin/promos/${id}`, { title: '+40% ZP, extended', topupBonus: 40, endsAt: soon(30) });
+    expect(r.json()).toMatchObject({ title: '+40% ZP, extended', topupBonus: 40 });
+    expect((await w.anon('GET', '/promos')).json()[0]).toMatchObject({ title: '+40% ZP, extended', topupBonus: 40 });
+    expect((await w.admin('POST', `/admin/promos/${id}`, { discount: 30 })).json().error).toMatch(/only a sale/);
+    expect((await w.admin('POST', `/admin/promos/${id}`, { endsAt: soon(-5) })).statusCode).toBe(400);
+    expect((await w.me('POST', `/admin/promos/${id}`, { title: 'hacked' })).statusCode).toBe(403);
+    expect((await w.admin('POST', '/admin/promos/nope', { title: 'x y z' })).statusCode).toBe(404);
+  });
+});
+
 describe('granting ZP', () => {
   it('an admin gives ZP by wallet address or name; a stranger cannot', async () => {
     const w = await world();

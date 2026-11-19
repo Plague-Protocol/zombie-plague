@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { Auth } from './auth.ts';
 import type { Chain, ChainLog } from './chain.ts';
 import { accounts, type Funds } from './funds.ts';
+import { SALE_SCOPES, type SaleScope } from '../../core/armoury.ts';
 import type { Hub } from './rooms.ts';
 import type { Staked } from './staked.ts';
 import type { Store } from './store.ts';
@@ -99,15 +100,34 @@ export function registerAdmin(app: FastifyInstance, d: AdminDeps): void {
   });
 
   // Promotions: bounties, prizes, deals and news across the site. A deal may pay extra ZP on top-ups while it runs.
+  const cta = z.object({ label: z.string().trim().min(1).max(24), href: z.string().trim().regex(/^(\/[\w\-./?=&#%]*|https:\/\/[^\s"'<>]+)$/) }).nullable();
   const promoBody = z.object({
-    kind: z.enum(['bounty', 'prize', 'deal', 'news']),
+    kind: z.enum(['bounty', 'prize', 'deal', 'news', 'sale']),
     title: z.string().trim().min(3).max(80),
     body: z.string().trim().max(280).default(''),
-    cta: z.object({ label: z.string().trim().min(1).max(24), href: z.string().trim().regex(/^(\/[\w\-./?=&#%]*|https:\/\/[^\s"'<>]+)$/) }).nullable().default(null),
+    cta: cta.default(null),
     startsAt: z.coerce.date().optional(),
     endsAt: z.coerce.date(),
     topupBonus: z.number().int().min(0).max(200).default(0),
+    discount: z.number().int().min(0).max(90).default(0),
+    scope: z.enum(SALE_SCOPES as [SaleScope, ...SaleScope[]]).default('all'),
   });
+  /** What can be changed on one that exists (not its kind). */
+  const promoPatch = z.object({
+    title: z.string().trim().min(3).max(80).optional(),
+    body: z.string().trim().max(280).optional(),
+    cta: cta.optional(),
+    startsAt: z.coerce.date().optional(),
+    endsAt: z.coerce.date().optional(),
+    topupBonus: z.number().int().min(0).max(200).optional(),
+    discount: z.number().int().min(0).max(90).optional(),
+    scope: z.enum(SALE_SCOPES as [SaleScope, ...SaleScope[]]).optional(),
+  });
+  /** A promotion's money parts belong to its kind: a deal's top-up bonus, a sale's discount. */
+  const misfit = (kind: string, p: { topupBonus?: number; discount?: number }): string | null =>
+    p.topupBonus && kind !== 'deal' ? 'only a deal pays a top-up bonus'
+      : p.discount && kind !== 'sale' ? 'only a sale takes money off'
+      : kind === 'sale' && p.discount === 0 ? 'a sale needs a discount' : null;
   app.get('/admin/promos', async (req, reply) => {
     if (!(await admin(req))) return reply.code(403).send({ error: 'not_admin' });
     return d.store.promos({ limit: 50 });
@@ -118,8 +138,22 @@ export function registerAdmin(app: FastifyInstance, d: AdminDeps): void {
     if (!b.success) return reply.code(400).send({ error: b.error.issues[0]?.message ?? 'bad promotion' });
     const startsAt = b.data.startsAt ?? new Date();
     if (b.data.endsAt.getTime() <= Math.max(startsAt.getTime(), Date.now())) return reply.code(400).send({ error: 'it has to end in the future, after it starts' });
-    if (b.data.topupBonus && b.data.kind !== 'deal') return reply.code(400).send({ error: 'only a deal pays a top-up bonus' });
+    const bad = misfit(b.data.kind, b.data);
+    if (bad) return reply.code(400).send({ error: bad });
     return d.store.addPromo({ ...b.data, startsAt });
+  });
+  app.post('/admin/promos/:id', async (req, reply) => {
+    if (!(await admin(req))) return reply.code(403).send({ error: 'not_admin' });
+    const id = String((req.params as { id: string }).id);
+    const b = promoPatch.safeParse(req.body);
+    if (!b.success) return reply.code(400).send({ error: b.error.issues[0]?.message ?? 'bad change' });
+    const have = (await d.store.promos({ limit: 500 })).find((p) => p.id === id);
+    if (!have) return reply.code(404).send({ error: 'no such promotion' });
+    const next = { ...have, ...Object.fromEntries(Object.entries(b.data).filter(([, v]) => v !== undefined)) } as typeof have;
+    if (next.endsAt.getTime() <= next.startsAt.getTime()) return reply.code(400).send({ error: 'it has to end after it starts' });
+    const bad = misfit(have.kind, next);
+    if (bad) return reply.code(400).send({ error: bad });
+    return d.store.updatePromo(id, b.data);
   });
   app.post('/admin/promos/:id/end', async (req, reply) => {
     if (!(await admin(req))) return reply.code(403).send({ error: 'not_admin' });
