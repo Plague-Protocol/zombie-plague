@@ -92,22 +92,38 @@ export function attachWs(server: Server, o: WsOptions): () => void {
     ws.on('close', () => { beats.delete(ws); conn.room?.drop(conn); });
     ws.on('error', () => ws.terminate());
 
-    /** Into a ZP room: take the stake, then the seat (opening a room for it if `target` is null); undone if the seat is gone. */
-    async function zpEnter(target: Room | null, zp: number | undefined, isPublic: boolean): Promise<void> {
+    /**
+     * Into a ZP room: take the stake, then the seat (opening a room for it if `target` is null). Taking the stake waits
+     * on the ledger, and in that moment the room may fill or start. Quick play (`quick`) then keeps the stake and seats
+     * the player in the next public room waiting at that stake, or a new one, as free Quick play does. By code there is
+     * no other room to offer: the stake goes back and the player is told.
+     */
+    async function zpEnter(target: Room | null, zp: number | undefined, isPublic: boolean, quick = false): Promise<void> {
       if (!o.zp) { conn.send({ t: 'err', code: 'zp-off' }); return; }
       if (!isZpStake(zp) || !conn.accountId) { conn.send({ t: 'err', code: 'bad' }); return; }
-      const room = target ?? o.hub.open(isPublic, zp);
-      if (room === 'busy') { conn.send({ t: 'err', code: 'busy' }); return; }
-      const ref = `${room.uid}:${globalThis.crypto.randomUUID().slice(0, 8)}`;
-      const dropEmpty = () => { if (!room.seats.length && o.hub.rooms.get(room.code) === room) o.hub.remove(room); };
+      const first = target ?? o.hub.open(isPublic, zp);
+      if (first === 'busy') { conn.send({ t: 'err', code: 'busy' }); return; }
+      // the stake's ledger ref names the room it was taken for; if the seat moves, the ref stays (it is only a key)
+      const ref = `${first.uid}:${globalThis.crypto.randomUUID().slice(0, 8)}`;
+      const opened = target ? [] : [first]; // rooms opened here, to close again if nobody ends up in them
+      const dropEmpty = () => { for (const r of opened) if (!r.seats.length && o.hub.rooms.get(r.code) === r) o.hub.remove(r); };
       if (!(await o.zp.stake(conn.accountId, ref, zp))) { dropEmpty(); conn.send({ t: 'err', code: 'no-zp' }); return; }
-      const gone = o.hub.rooms.get(room.code) !== room || conn.room || ws.readyState !== ws.OPEN;
-      const s = gone ? 'started' : room.seat(conn, ref);
-      if (s === 'full' || s === 'started') {
-        await o.zp.refund(conn.accountId, ref, zp);
-        dropEmpty();
-        if (ws.readyState === ws.OPEN) conn.send({ t: 'err', code: gone && o.hub.rooms.get(room.code) !== room ? 'no-room' : s });
+      let room = first, why: 'full' | 'started' | 'no-room' | 'busy' = 'started';
+      for (let tries = 0; ; tries++) {
+        if (conn.room || ws.readyState !== ws.OPEN) break; // sat somewhere else meanwhile, or gone: nothing to seat
+        const there = o.hub.rooms.get(room.code) === room;
+        const s = there ? room.seat(conn, ref) : 'no-room';
+        if (typeof s === 'number') { dropEmpty(); return; }
+        why = s;
+        if (!quick || tries >= 3) break;
+        const next = o.hub.findQuick(zp) ?? o.hub.open(true, zp);
+        if (next === 'busy') { why = 'busy'; break; }
+        if (!opened.includes(next) && !next.seats.length) opened.push(next);
+        room = next;
       }
+      await o.zp.refund(conn.accountId, ref, zp);
+      dropEmpty();
+      if (ws.readyState === ws.OPEN && !conn.room) conn.send({ t: 'err', code: why });
     }
 
     async function handle(m: z.infer<typeof frame>): Promise<void> {
@@ -135,7 +151,7 @@ export function attachWs(server: Server, o: WsOptions): () => void {
         }
         case 'quick': {
           if (conn.room) return;
-          if (m.zp !== undefined) { await zpEnter(o.hub.findQuick(m.zp) ?? null, m.zp, true); return; }
+          if (m.zp !== undefined) { await zpEnter(o.hub.findQuick(m.zp) ?? null, m.zp, true, true); return; }
           if (o.hub.quick(conn) === 'busy') conn.send({ t: 'err', code: 'busy' });
           return;
         }

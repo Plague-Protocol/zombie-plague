@@ -9,6 +9,7 @@ import { MemoryStore } from '../src/store.ts';
 import { ContentRegistry } from '../src/content.ts';
 import { ZpBank, zpPayout, ZP_FEE } from '../src/zp.ts';
 import { CONTENT_DIR, makeServer, wallet } from './helpers.ts';
+import { signInMessage } from '../src/auth.ts';
 import type { ServerMsg } from '../../core/protocol.ts';
 
 describe('the pay-out', () => {
@@ -118,7 +119,11 @@ describe('ZP rooms over the socket', () => {
     return { ...s, hub, port: (server.address() as { port: number }).port };
   }
   async function player(b: Awaited<ReturnType<typeof boot>>, zp: number) {
-    const signed = (await wallet().signIn(b.app)).body;
+    // signed in through Auth itself: the HTTP route allows only so many sign-ins a minute from one address
+    const w = wallet(), address = w.account.address;
+    const acc = await b.store.upsertAccount(address);
+    const token = await b.auth.verify(address, await w.account.signMessage({ message: signInMessage(b.auth.nonce(address)) }), async () => acc.id);
+    const signed = { token: token!, account: { id: acc.id } };
     if (zp) await b.store.ledger(signed.account.id, zp, 'grant', 'test');
     const ws = new WebSocket(`ws://127.0.0.1:${b.port}/play`, { origin: 'http://localhost:5173' });
     const got: ServerMsg[] = [];
@@ -132,6 +137,36 @@ describe('ZP rooms over the socket', () => {
     const balance = async () => (await b.store.bank(signed.account.id)).cash;
     return { send, until, last, got, balance, ws };
   }
+
+  it('two players racing Quick play for the last seat: one takes it, the other is seated in a new room, both charged once', async () => {
+    const b = await boot();
+    const ps = [];
+    for (let i = 0; i < 7; i++) {
+      const p = await player(b, 200);
+      p.send({ t: 'quick', zp: 50 });
+      await p.until(() => p.last('room')?.seats.length === i + 1);
+      ps.push(p);
+    }
+    const code = ps[0]!.last('room')!.code;
+    const x = await player(b, 200), y = await player(b, 200);
+    // a database takes a moment to write a stake: both are told about the same last seat before either sits
+    const ledger = b.store.ledger.bind(b.store);
+    b.store.ledger = async (...a: Parameters<typeof ledger>) => { if (a[2] === 'zpstake') await new Promise((r) => setTimeout(r, 30)); return ledger(...a); };
+    let retries = 0;
+    const seat = b.hub.find(code)!.seat.bind(b.hub.find(code)!);
+    b.hub.find(code)!.seat = (...a: Parameters<typeof seat>) => { const s = seat(...a); if (typeof s !== 'number') retries++; return s; };
+    x.send({ t: 'quick', zp: 50 }); y.send({ t: 'quick', zp: 50 }); // at once: one seat left
+    await Promise.all([x.until(() => !!x.last('room')), y.until(() => !!y.last('room'))]);
+    const codes = [x.last('room')!.code, y.last('room')!.code];
+    expect(codes).toContain(code); // one got the last seat (and the full room started)
+    expect(codes.filter((c) => c !== code)).toHaveLength(1); // the other is in a new public room at the same stake
+    expect([x, y].some((p) => p.got.some((m) => m.t === 'err'))).toBe(false);
+    expect(await x.balance()).toBe(150);
+    expect(await y.balance()).toBe(150);
+    expect(await b.store.openZpStakes()).toHaveLength(9); // every stake held exactly once, none refunded twice or lost
+    expect(b.hub.find(code)!.state).toBe('playing');
+    expect(retries).toBe(1); // the race really happened: one of them found the seat gone, and was moved
+  });
 
   it('takes the stake to sit, refuses a player who cannot cover it, pairs only at the same stake, and refunds on leaving', async () => {
     const b = await boot();
