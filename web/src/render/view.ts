@@ -15,6 +15,9 @@ import type { GameEvent, Task, TaskId, Vec2, WeaponKind, Zombie } from '../../..
 import { chapterInfo, stepDef } from '../../../core/content';
 
 const params = new URLSearchParams(location.search);
+const DOOR_LEAF = new BoxGeometry(1, 1.95, 0.06);
+const DOOR_MAT = new MeshLambertMaterial({ color: 0x2a1d14 });
+const DOOR_OUT = 0.5; // seconds to walk back out of a house you searched
 /** How close (units) one of the infected must be to show through a building. */
 const XRAY_NEAR = 8;
 const VIEW_SPAN = Number(params.get('zoom')) || 24; // world units visible across the narrower screen axis
@@ -92,6 +95,12 @@ export class GameView {
   private noraKey = '';
   /** Searchable house doors (a glint until searched). */
   private houseGlints = new Map<number, Object3D>();
+  /** Rooms: the bags left where players turned. */
+  private dropMeshes = new Map<number, Object3D>();
+  /** The searchable houses' front doors: a leaf on its hinge that swings open, and the dark doorway behind it. */
+  private houseDoors = new Map<number, { hinge: Object3D; hole: Mesh<BoxGeometry, MeshBasicMaterial> }>();
+  /** Going into a house to search it, or coming back out (`out` counts down the walk out; -1 while inside). */
+  private entry: { id: number; out: number } | null = null;
   /** Survivors: their character, the glint over them, and the bag they want back. */
   private survivors = new Map<number, { actor: Actor; glint: Object3D; bag: Group }>();
   /** A car alarm: hazard lights blinking on the parked car. */
@@ -321,6 +330,9 @@ export class GameView {
     for (const v of this.survivors.values()) { this.scene.remove(v.actor.root); v.actor.dispose(); }
     this.survivors.clear();
     this.houseGlints.clear();
+    this.dropMeshes.clear();
+    this.houseDoors.clear();
+    this.entry = null;
     for (const m of this.alarmLights.values()) this.scene.remove(m);
     this.alarmLights.clear();
     this.scene.remove(this.level);
@@ -358,6 +370,19 @@ export class GameView {
       g.position.set(h.pos.x, this.groundAt(s, h.pos) + 1.1, h.pos.y - 0.6);
       this.level.add(g);
       this.houseGlints.set(h.id, g);
+      // its door, drawn over the house's own: it opens when you go in (the doorway behind it is dark, or torchlit while you are inside)
+      const z = h.pos.y - 1.2, y0 = this.groundAt(s, h.pos);
+      const hole = new Mesh(new BoxGeometry(1, 1.95, 0.01), new MeshBasicMaterial({ color: 0x050403 }));
+      hole.position.set(h.pos.x, y0 + 1.125, z + 0.035);
+      hole.visible = false;
+      const hinge = new Object3D();
+      hinge.position.set(h.pos.x - 0.5, y0, z + 0.07);
+      const leaf = new Mesh(DOOR_LEAF, DOOR_MAT);
+      leaf.position.set(0.5, 1.125, 0);
+      hinge.add(leaf);
+      hinge.visible = false;
+      this.level.add(hole, hinge);
+      this.houseDoors.set(h.id, { hinge, hole });
     }
     for (const v of s.survivors) {
       const actor = new Actor(this.assets, v.skin ? 'humanFemaleA' : 'humanMaleA');
@@ -772,6 +797,8 @@ export class GameView {
     const caught = s.phase === 'lost' && s.lossReason === 'caught';
     const bike = car?.kind === 'bike' ? car : null;
     this.player.root.visible = !car || !!bike || !!this.outro;
+    if (this.outro || this.turn) this.player.crouch(false);
+    const door = car || caught || this.outro || this.turn ? null : this.doorway(s, dt);
     if (this.outro) this.playOutro(s, dt);
     else if (this.turn) this.playTurn(s, dt);
     else {
@@ -782,7 +809,8 @@ export class GameView {
       const work = s.work;
       const g = this.gesture && this.time < this.gesture.until ? this.gesture : null;
       if (!g) this.gesture = null;
-      if (work?.kind === 'climb') this.player.play('Walk', { timeScale: 0.75, fade: 0.15 }); // hand over hand up the rungs
+      if (door?.walking) this.player.play('Walk', { fade: 0.12 }); // through the doorway
+      else if (work?.kind === 'climb') this.player.play('Walk', { timeScale: 0.75, fade: 0.15 }); // hand over hand up the rungs
       else if (s.player.hide !== null || (s.player.crouched && playerSpeed(s) < 0.3)) this.player.play('Kneel', { startAt: 0.12, timeScale: 0.0001, fade: 0.25 }); // down low
       else if (hold && playerSpeed(s) < 0.6) this.player.play(KNEEL_SCENES.includes(stepDef(hold).scene) ? 'Kneel' : 'Interact', { fade: 0.25 });
       else if (work && playerSpeed(s) < 0.6) this.player.play(work.kind === 'refuel' ? 'Kneel' : work.kind === 'talk' ? 'Talk' : 'Interact', { fade: 0.25 });
@@ -800,7 +828,14 @@ export class GameView {
     // on a ladder: against the wall, facing it, as far up as the climb has got
     const cl = s.work?.kind === 'climb' ? s.map.ladders[s.work.id] : undefined;
     if (cl) this.player.update(cl.foot.x - cl.out.x * 0.55, cl.foot.y - cl.out.y * 0.55, Math.atan2(-cl.out.y, -cl.out.x), dt, true);
-    else this.player.update(p.x, p.y, s.player.heading, dt, true);
+    else if (door) {
+      this.player.crouch(false);
+      this.player.update(door.x, door.y, door.heading, dt, true);
+      if (door.inside) this.player.root.visible = false; // in there, out of sight
+    } else {
+      this.player.crouch(!car && !caught && s.player.crouched && s.player.hide === null && playerSpeed(s) >= 0.3); // a low creep, knees bent
+      this.player.update(p.x, p.y, s.player.heading, dt, true);
+    }
     this.player.root.position.y = this.liftOf(s);
     // stepping over a body: high steps, lifted over it
     if (!car && !cl && s.player.roof === null && playerSpeed(s) > 0.3 && onBody(s, p)) this.player.root.position.y = 0.16 * Math.abs(Math.sin(this.time * 9));
@@ -812,7 +847,6 @@ export class GameView {
     this.player.root.rotation.x = caught ? 0 : Math.sin((this.coughT / 0.55) * Math.PI * 2) ** 2 * 0.3 * (this.coughT > 0 ? 1 : 0) + limp * 0.06;
     this.playerMat?.color.setRGB(1 - inf * 0.36, 1 - inf * 0.22, 1 - inf * 0.4);
     if (s.player.hide !== null) this.playerMat?.color.multiplyScalar(0.35); // in the shadow of it
-    if (s.player.crouched && playerSpeed(s) >= 0.3) { this.player.root.rotation.x += 0.32; this.player.root.position.y -= 0.12; } // a low creep
     if (bike) { // on the seat, behind the tank
       this.player.root.position.x -= Math.cos(bike.heading) * 0.45;
       this.player.root.position.z -= Math.sin(bike.heading) * 0.45;
@@ -871,6 +905,27 @@ export class GameView {
       if (!g) continue;
       g.visible = !pk.taken;
       if (g.visible) pulseGlint(g.getObjectByName('glint')!, this.time, pk.id * 0.37);
+    }
+    // bags left by players who turned: there until someone takes one
+    for (const [id, m] of this.dropMeshes) if (!s.drops.some((d) => d.id === id && !d.taken)) { this.level.remove(m); this.dropMeshes.delete(id); }
+    for (const d of s.drops) {
+      if (d.taken) continue;
+      let m = this.dropMeshes.get(d.id);
+      if (!m) {
+        m = new Group();
+        const bag = satchelMesh();
+        bag.scale.setScalar(2.4);
+        bag.rotation.set(0, d.id * 1.7, Math.PI / 2); // lying on its side
+        bag.position.y = 0.2;
+        const g = glint(0.9, 0xffd27a);
+        g.name = 'glint';
+        g.position.y = 0.9;
+        m.add(bag, g);
+        m.position.set(d.pos.x, this.groundAt(s, d.pos), d.pos.y);
+        this.level.add(m);
+        this.dropMeshes.set(d.id, m);
+      }
+      pulseGlint(m.getObjectByName('glint')!, this.time, d.id * 0.41);
     }
     for (const h of s.houses) {
       const g = this.houseGlints.get(h.id);
@@ -1329,6 +1384,45 @@ export class GameView {
   }
 
   /** Whether a lost night ends on the turning (you on foot, bitten down or out of time: not in a car, not a room). */
+  /**
+   * Searching a house, you go in: the door swings open, you walk through it and are gone while a torch moves about
+   * inside, then you come back out to where you stood and it swings shut. Only drawn: by the rules you never left
+   * the step (so the search, and walking off to cancel it, are unchanged).
+   */
+  private doorway(s: GameState, dt: number): { x: number; y: number; heading: number; walking: boolean; inside: boolean } | null {
+    const w = s.work, p = s.player.pos;
+    const into = -Math.PI / 2; // the doors face +y: in is -y
+    const h = w?.kind === 'search' ? s.houses.find((x) => x.id === w.id) : undefined;
+    const doorOf = (id: number) => { const hh = s.houses.find((x) => x.id === id)!; return { x: hh.pos.x, y: hh.pos.y - 1.05 }; };
+    const swing = (id: number, open: number, lit: boolean) => {
+      const d = this.houseDoors.get(id);
+      if (!d) return;
+      d.hinge.visible = d.hole.visible = open > 0.001;
+      d.hinge.rotation.y = -open * 1.9; // out toward the street
+      const f = lit ? 0.45 + 0.35 * Math.sin(this.time * 13) * Math.sin(this.time * 4.1 + 1) : 0; // a torch moving about in there
+      d.hole.material.color.setRGB(0.02 + f * 0.75, 0.016 + f * 0.62, 0.012 + f * 0.38);
+    };
+    if (w && h) {
+      if (!this.entry || this.entry.id !== h.id) this.entry = { id: h.id, out: -1 };
+      const D = doorOf(h.id), k = Math.min(1, w.progress / 0.22);
+      swing(h.id, Math.min(1, w.progress / 0.12), k >= 1);
+      const dx = D.x - p.x, dy = D.y - p.y;
+      return { x: p.x + dx * k, y: p.y + dy * k, heading: Math.hypot(dx, dy) > 0.3 ? Math.atan2(dy, dx) : into, walking: k < 1, inside: k >= 1 };
+    }
+    const e = this.entry;
+    if (!e) return null;
+    if (e.out < 0) {
+      if (!s.houses.find((x) => x.id === e.id)?.searched) { swing(e.id, 0, false); this.entry = null; return null; } // walked off before it was done
+      e.out = DOOR_OUT;
+    }
+    e.out -= dt;
+    if (e.out <= 0) { swing(e.id, 0, false); this.entry = null; return null; }
+    const D = doorOf(e.id), k = 1 - e.out / DOOR_OUT;
+    swing(e.id, Math.min(1, e.out / (DOOR_OUT * 0.5)), false);
+    const dx = p.x - D.x, dy = p.y - D.y;
+    return { x: D.x + dx * k, y: D.y + dy * k, heading: Math.hypot(dx, dy) > 0.3 ? Math.atan2(dy, dx) : -into, walking: true, inside: false };
+  }
+
   static turns(s: GameState): boolean {
     return s.phase === 'lost' && s.mode !== 'room' && s.lossReason !== 'carrier' && s.lossReason !== null && !playerVehicle(s);
   }

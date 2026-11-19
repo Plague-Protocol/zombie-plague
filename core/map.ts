@@ -157,7 +157,7 @@ function climbAndHide(seed: number, obstacles: Building[], reach: Uint8Array, co
   const open = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < cols && reach[Math.floor(y) * cols + Math.floor(x)] === 1;
   const ladders: Ladder[] = [];
   const flat = obstacles.map((b, i) => [b, i] as const)
-    .filter(([b]) => (b.kind === 'shop' || b.kind === 'warehouse' || b.kind === 'container' || b.kind === 'bus') && b.w >= 2.2 && b.h >= 2.2 && b.height >= 2.4 && b.height <= 10);
+    .filter(([b]) => (b.kind === 'shop' || b.kind === 'warehouse' || b.kind === 'container' || b.kind === 'bus' || b.kind === 'building') && b.w >= 2.2 && b.h >= 2.2 && b.height >= 2.4 && b.height <= 10);
   for (const [b, i] of shuffle(rng, flat)) {
     if (ladders.length >= LADDERS) break;
     const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
@@ -165,7 +165,7 @@ function climbAndHide(seed: number, obstacles: Building[], reach: Uint8Array, co
       const ex = cx + (nx * b.w) / 2, ey = cy + (ny * b.h) / 2; // the middle of this side
       const foot = { x: ex + nx * 0.9, y: ey + ny * 0.9 };
       if (!open(foot.x, foot.y) || !open(foot.x + nx * 0.8, foot.y + ny * 0.8)) continue;
-      if (ladders.some((l) => dhypot(l.foot.x - foot.x, l.foot.y - foot.y) < 25)) continue; // spread out
+      if (ladders.some((l) => dhypot(l.foot.x - foot.x, l.foot.y - foot.y) < 16)) continue; // spread out
       const inset = Math.min(0.45, b.w / 4, b.h / 4);
       ladders.push({
         id: ladders.length, building: i, foot, top: { x: ex - nx * 0.9, y: ey - ny * 0.9 }, out: { x: nx, y: ny },
@@ -284,6 +284,7 @@ function streetDamage(seed: number, obstacles: Building[], decor: Decor[], label
  */
 export function generateMap(seed: number, theme: Theme = 'downtown'): MapData {
   const rng = createRng(seed);
+  const xr = createRng(seed ^ 0xb111d5); // the buildings added later have their own stream, so the rest of the city does not move
   const districts = assignDistricts(rng, theme);
   const storeBlocks = chooseStorefronts(seed, districts);
   const special = chooseSpecialBlocks(seed, districts, storeBlocks);
@@ -354,11 +355,15 @@ export function generateMap(seed: number, theme: Theme = 'downtown'): MapData {
             const x0 = bx + lx! * 15.5 + 0.8, y0 = by + ly! * 15.5 + 0.8;
             if (chance(rng, 0.82)) {
               const w = range(rng, 10, 12.8), h = range(rng, 10, 12.8);
-              tryAdd({ kind: 'tower', x: x0 + range(rng, 0, 12.8 - w), y: y0 + range(rng, 0, 12.8 - h), w, h, height: range(rng, 12, 24), tone: range(rng, 0, 1) });
+              const t: Building = { kind: 'tower', x: x0 + range(rng, 0, 12.8 - w), y: y0 + range(rng, 0, 12.8 - h), w, h, height: range(rng, 12, 24), tone: range(rng, 0, 1) };
+              if (chance(xr, 0.35)) { t.kind = 'building'; t.height = range(xr, 6.5, 9.5); } // an older, lower block among the towers: a flat roof you can get up on
+              tryAdd(t);
             } else {
               decor.push({ kind: 'plaza', x: x0, y: y0, w: 12.8, h: 12.8 });
-              tryAdd(prop('bench', x0 + 3, y0 + 6, false, rng));
-              tryAdd(prop('tree', x0 + 9, y0 + 3, false, rng));
+              const kiosk = chance(xr, 0.5);
+              if (kiosk) tryAdd({ kind: 'shop', x: x0 + 1, y: y0 + 1, w: range(xr, 5, 7), h: range(xr, 4.5, 6), height: range(xr, 3.4, 4.4), tone: range(xr, 0, 1) }); // a kiosk
+              tryAdd(prop('bench', x0 + 3, y0 + (kiosk ? 8.5 : 6), false, rng));
+              tryAdd(prop('tree', x0 + (kiosk ? 10 : 9), y0 + 3, false, rng));
             }
           }
           scatter(['dumpster', 'barricade', 'wreck'], int(rng, 0, 2));
@@ -376,6 +381,9 @@ export function generateMap(seed: number, theme: Theme = 'downtown'): MapData {
             if (chance(rng, 0.8)) {
               const w = range(rng, 5.5, 7.2), h = range(rng, 5.5, 7.2);
               tryAdd({ kind: 'house', x: lx + range(rng, 1.2, 8.8 - w), y: ly + range(rng, 1.2, 8.8 - h), w, h, height: range(rng, 3.6, 6), tone: range(rng, 0, 1) });
+            } else if (chance(xr, 0.5)) { // a corner shop, flat roofed
+              const w = range(xr, 6, 7.6), h = range(xr, 5.5, 7.2);
+              tryAdd({ kind: 'shop', x: lx + range(xr, 0.8, 8.8 - w), y: ly + range(xr, 0.8, 8.8 - h), w, h, height: range(xr, 3.6, 4.6), tone: range(xr, 0, 1) });
             } else {
               decor.push({ kind: 'weeds', x: lx + 0.8, y: ly + 0.8, w: 8.4, h: 8.4 }); // an overgrown empty lot
             }
@@ -445,6 +453,10 @@ export function generateMap(seed: number, theme: Theme = 'downtown'): MapData {
             if (chance(rng, 0.45)) {
               const w = range(rng, 5, 8), h = range(rng, 5, 7);
               tryAdd({ kind: 'shop', x: bx + range(rng, 1, BLOCK - w - 1), y: by + range(rng, 1, BLOCK - h - 1), w, h, height: range(rng, 3.2, 4.5), tone: range(rng, 0, 1) });
+            }
+            if (chance(xr, 0.6)) { // a shed, a lock-up, a roadside shop
+              const w = range(xr, 5, 8), h = range(xr, 5, 7);
+              tryAdd({ kind: 'shop', x: bx + range(xr, 1, BLOCK - w - 1), y: by + range(xr, 1, BLOCK - h - 1), w, h, height: range(xr, 3.2, 4.5), tone: range(xr, 0, 1) }, 3);
             }
             scatter(['deadtree', 'deadtree', 'wreck', 'barrel', 'barricade'], int(rng, 2, 5));
           }

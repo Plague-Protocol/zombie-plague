@@ -57,7 +57,7 @@ export function makeEncoder(): (v: PlayerView) => WireSnap {
     };
     for (const [k, val] of Object.entries(v.you)) if (!(HOT_YOU as readonly string[]).includes(k)) put(`y.${k}`, val);
     put('phase', v.phase);
-    put('taken', v.taken); put('opened', v.opened); put('searched', v.searched); put('tasks', v.tasks);
+    put('taken', v.taken); put('drops', v.drops); put('opened', v.opened); put('searched', v.searched); put('tasks', v.tasks);
     put('safehouseKnown', v.safehouseKnown); put('flare', v.flare); put('fallen', v.fallen); put('tier', v.tier);
     put('roomRemaining', v.roomRemaining); put('seatsLeft', v.seatsLeft); put('placements', v.placements); put('corpses', v.corpses);
     const w: WireSnap = {
@@ -96,7 +96,7 @@ export function makeDecoder(): (w: WireSnap) => PlayerView {
     const get = <T>(k: string, d: T) => (cold.has(k) ? (cold.get(k) as T) : d);
     return {
       seat: w.s, tick: w.k, phase: PHASE.includes(get('phase', 'playing')) ? get('phase', 'playing') : 'playing', you: you as unknown as YouView, others, zombies,
-      corpses: get('corpses', []), taken: get('taken', []), opened: get('opened', []), searched: get('searched', []), tasks: get('tasks', []),
+      corpses: get('corpses', []), taken: get('taken', []), drops: get('drops', []), opened: get('opened', []), searched: get('searched', []), tasks: get('tasks', []),
       safehouseKnown: get('safehouseKnown', false), flare: get('flare', null), fallen: get('fallen', 0), tier: get('tier', 0), events: w.e ?? [],
       roomRemaining: get('roomRemaining', 0), seatsLeft: get('seatsLeft', 0), placements: get('placements', null),
     };

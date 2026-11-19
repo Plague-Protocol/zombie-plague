@@ -8,7 +8,7 @@ import {
 import { cellOf, reachable } from '../../core/map';
 import {
   AMMO_PRICES, ATTACK_DAMAGE, CHAPTERS, ATTACK_WINDUP, GUNS, MEDKIT_HEAL, MELEE, PLAYER_HEALTH, SAFE_AFTER, SPAWNS_BY_TIER, STORE_COUNT,
-  LATCH_DRAG, TASK_HOLD_SECONDS, UPGRADE_LEVELS, VEHICLES, WEAPON_PRICES, ZOMBIE_CAP, ZOMBIE_HEALTH,
+  LATCH_DRAG, MERCY_DAMAGE, MERCY_HEALTH, TASK_HOLD_SECONDS, UPGRADE_LEVELS, VEHICLES, WEAPON_PRICES, ZOMBIE_CAP, ZOMBIE_HEALTH,
 } from '../../core/config';
 import type { Zombie } from '../../core/types';
 import type { Input, Vec2 } from '../../core/types';
@@ -181,7 +181,7 @@ describe('vehicles', () => {
     for (let i = 0; i < 60; i++) step(g, IDLE, DT); // coast to a stop
     step(g, USE, DT);
     expect(playerVehicle(g)).toBeNull();
-    expect(Math.hypot(g.player.pos.x - v.pos.x, g.player.pos.y - v.pos.y)).toBeGreaterThan(1.5);
+    expect(Math.hypot(g.player.pos.x - v.pos.x, g.player.pos.y - v.pos.y)).toBeGreaterThan(VEHICLES[v.kind].width / 2 + 0.5); // beside it, clear of it
   });
 
   it('pushing back against the nose reverses', () => {
@@ -436,7 +436,7 @@ describe('win and lose', () => {
     expect(g.phase).toBe('won');
   });
 
-  it('a lunge hurts and shoves; the third one kills', () => {
+  it('a lunge hurts and shoves; the third leaves you barely standing (a close call: they ease off), the fourth kills', () => {
     const g = createGame(3);
     const z = g.zombies[0]!;
     g.zombies = [z];
@@ -456,6 +456,10 @@ describe('win and lose', () => {
     expect(g.player.invuln).toBeGreaterThan(0);
     lunge();
     expect(g.player.health).toBe(PLAYER_HEALTH - 2 * ATTACK_DAMAGE);
+    expect(g.player.health).toBeLessThan(PLAYER_HEALTH * MERCY_HEALTH);
+    lunge();
+    expect(g.phase).toBe('playing');
+    expect(g.player.health).toBeCloseTo(PLAYER_HEALTH - 2 * ATTACK_DAMAGE - ATTACK_DAMAGE * MERCY_DAMAGE);
     lunge();
     expect(g.phase).toBe('lost');
     expect(g.lossReason).toBe('caught');

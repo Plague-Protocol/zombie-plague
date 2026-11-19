@@ -463,6 +463,12 @@ function narrate(events: readonly GameEvent[]): void {
       case 'vehicle-breached': hud.toast('The glass is gone. They can reach you! Shake them off or get out.'); view.shake(0.6); break;
       case 'out-of-fuel': hud.toast('Out of fuel. It rolls to a stop.'); break;
       case 'refueled': hud.toast(e.from === 'pump' ? 'Filling up at the pump...' : 'Refuelled.'); break;
+      case 'seat-unearned': hud.toast('The exit is open, but not to you: you did none of the steps. Do one, or take a seat some other way.', 5000); break;
+      case 'loot-taken': {
+        const what = [...e.items, ...(e.funds ? [`${e.funds} funds`] : [])];
+        hud.toast(what.length ? `What they had on them when they turned: ${what.join(', ')}` : 'Their bag: nothing you could use');
+        break;
+      }
       case 'house-searched':
         hud.toast(`${e.loot === 'antiviral' ? 'An antiviral dose: the infection held back' : e.loot === 'medkit' ? 'First aid: +health' : e.loot === 'supplies' ? 'Scrap in a drawer: +25' : e.loot === 'ammo' ? 'A box of rounds' : e.loot === 'bottles' ? 'Empty bottles' : e.loot === 'vest' || e.loot === 'helmet' ? `A ${GEAR[e.loot].name.toLowerCase()}, still good` : 'Nothing worth taking'}${e.ambush ? '. Something moves inside!' : ''}`);
         if (e.ambush) view.shake(0.4);

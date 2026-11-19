@@ -117,10 +117,13 @@ Caveat: exact across the same JavaScript engine only, until the trig calls are m
 
 Free rooms of 2 to 8 players in one district at once, run by a server. Tap **Multiplayer** on the title
 screen, make a room (a five-letter code) or join one, and the host starts it. The steps are shared (anyone
-doing one does it for everyone); the exit has seats for half of those who started; the dose of each player
-ticks down separately and a player who runs out, or is shot down, **turns** and hunts the rest as one of
-them. A bullet or a swing does half damage to a living player (none in the first 20 seconds or near the
-exit). Rooms have no vehicles and nobody to escort.
+doing one does it for everyone), but the exit only seats a player who did at least one required step or
+picked up a piece of one, and it has seats for half of those who started. The living cannot hurt each
+other. The dose of each player ticks down separately, and a player who runs out, or is bitten down, **turns**:
+what they carried is left in a bag where they fell (the first to walk over it takes it all), and they hunt
+the rest with a bite (nowhere near the exit). The infected ignore the turned and follow them: any living
+player a turned one closes in on is hunted by the infected round them too. The living can put the turned
+down. Nobody sees anyone else on the map. Rooms have no vehicles and nobody to escort.
 
 What a browser is told is what its player could see (`core/view.ts`): other players and infected out
 of sight, other players' health and clocks, and noises too far to hear never leave the server. Snapshots go

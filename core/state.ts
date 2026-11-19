@@ -23,8 +23,8 @@ import {
   SCREAMER_SIGHT, SCREAMERS, STALKER_SENSE, STALKER_SPEED, STALKERS,
   CRAWL_DAMAGE, CRAWLER_SIGHT, CRAWLER_SPEED, CRAWLERS, GRAB_SECONDS, GRAB_SLOW, HALVE_CHANCE, LASH_DAMAGE, LASH_PULL, LASH_RANGE,
   LASH_REACH, LASHERS,
-  DOWN_SECONDS, EXIT_SEATS_SHARE, LUNGE_ARC, LUNGE_COOLDOWN, PVP_DAMAGE, PVP_GRACE, PVP_KILL_REWARD, ROOM_PLAYERS_MAX, ROOM_SECONDS, SAFE_RADIUS,
-  SPAWN_APART, SPAWN_FROM_EXIT, TARGET_HOLD, TURNED_HEALTH,
+  DOWN_SECONDS, EXIT_SEATS_SHARE, LUNGE_ARC, LUNGE_COOLDOWN, PVP_KILL_REWARD, HORDE_PREY, HORDE_RADIUS, ROOM_PLAYERS_MAX, ROOM_SECONDS, SAFE_RADIUS,
+  SPAWN_APART, SPAWN_FROM_EXIT, TARGET_HOLD, TARGET_SWITCH, TURNED_HEALTH, MERCY_DAMAGE, MERCY_HEALTH, MERCY_INVULN, MERCY_SPEED,
 } from './config';
 import { nearbyObstacles } from './collision';
 import { lineClear, resolve } from './collision';
@@ -33,7 +33,7 @@ import { cellOf, distanceField, onStreets, STREET, UNREACHABLE } from './map';
 import { createRng, fork, next, pick, range, shuffle, type Rng } from './rng';
 import type {
   Ladder,
-  Abandoned, Alarm, Arsenal, Player, Work, House, Husk, Loot, PickupKind, Survivor, Thrown,
+  Abandoned, Alarm, Arsenal, Drop, Player, Work, House, Husk, Loot, PickupKind, Survivor, Thrown,
   Crate, Escort, GameEvent, Placement, GearKind, GunKind, Input, Interaction, LossReason, MapData, MeleeKind, Phase, Pickup, Store, StoreItem, Task,
   TaskId, Vec2, Vehicle, WeaponKind, Zombie, ZombieKind,
 } from './types';
@@ -133,6 +133,8 @@ export interface GameState extends Forwarded {
   roomLimit: number;
   placements: Placement[] | null;
   pickups: Pickup[];
+  /** Rooms: bags of what turned players had on them. */
+  drops: Drop[];
   stores: Store[];
   houses: House[];
   survivors: Survivor[];
@@ -188,7 +190,7 @@ function newPlayer(id: number, at: Vec2, carry: Carry, cells: number, limit: num
     arsenal: cloneArsenal(carry.arsenal), funds: carry.funds, kills: carry.kills, remaining: limit, light: true, crouched: false, hide: null, roof: null, coughT: 3,
     hold: { taskId: null, progress: 0 }, work: null, safeT: 0, speedMul: 1, inFallen: false, storeLatch: null, lockedNotice: null,
     killerId: null, flow: new Int16Array(cells), flowCell: -1, escort: null, escortLost: false, pumping: false, dangerT: 0, engineT: 0,
-    swarmT: 0, downT: 0, lungeCd: 0, bitten: false, checks: {}, exposed: false, escapedAt: null,
+    swarmT: 0, downT: 0, lungeCd: 0, bitten: false, checks: {}, exposed: false, escapedAt: null, helped: 0,
   };
 }
 
@@ -241,6 +243,7 @@ export function createGame(
     guarded: [],
     corpses: [],
     pickups: level.pickups.map((p) => ({ ...p, pos: { ...p.pos } })),
+    drops: [],
     stores: level.stores.map((st) => ({ ...st, pos: { ...st.pos } })),
     houses: level.houses.map((h) => ({ ...h, pos: { ...h.pos } })),
     survivors: level.survivors.map((v) => ({ ...v, pos: { ...v.pos }, fetchPos: { ...v.fetchPos }, targets: [] })),
@@ -693,6 +696,25 @@ function spread(s: GameState): void {
 }
 
 /** Quiet, then one sound, then they come up out of the ground around you, then quiet again. */
+/** A zombie walking along with a turned player (a few steps behind, not on top of them). */
+function followLeader(s: GameState, z: Zombie, at: Vec2, dt: number): void {
+  if (z.staggerT > 0) { z.staggerT -= dt; z.speed = 0; return; }
+  const dx = at.x - z.pos.x, dy = at.y - z.pos.y, d = dhypot(dx, dy);
+  const before = { x: z.pos.x, y: z.pos.y };
+  if (d > 3) {
+    const v = WALKER_SPEED_BY_TIER[s.tier]! * (z.kind === 'runner' ? 1.6 : 1.15) * s.zombieMul;
+    z.pos.x += (dx / d) * v * dt;
+    z.pos.y += (dy / d) * v * dt;
+    z.heading = datan2(dy, dx);
+    z.action = 'wander';
+  } else z.action = 'idle';
+  resolve(s.map, z.pos, ZOMBIE_RADIUS);
+  z.speed = dt > 0 ? dhypot(z.pos.x - before.x, z.pos.y - before.y) / dt : 0;
+}
+
+/** Badly hurt: the night eases off a little (see MERCY_* in the config). */
+const closeCall = (s: GameState): boolean => s.player.health < PLAYER_HEALTH * MERCY_HEALTH;
+
 function updateDirector(s: GameState, dt: number): void {
   const d = s.director, p = s.player.pos;
   d.t -= dt * (d.phase === 'quiet' && s.inFallen ? 1 / FALLEN_QUIET : 1);
@@ -704,7 +726,7 @@ function updateDirector(s: GameState, dt: number): void {
   if (d.phase === 'quiet') {
     // not while you are busy, driving (the engine brings its own), or already being hunted by a pack
     const hunted = s.zombies.filter((z) => z.action === 'chase' && dist(z.pos, p) < 22).length;
-    d.at = isBusy(s) || s.player.vehicleId !== null || hunted >= 4 ? null : near(11, 18);
+    d.at = isBusy(s) || s.player.vehicleId !== null || hunted >= 4 || closeCall(s) ? null : near(11, 18); // nor when you are barely standing
     if (!d.at) { d.t = 8; return; }
     d.phase = 'dread';
     d.t = DREAD_SECONDS;
@@ -939,7 +961,7 @@ export function nearestPlayerDist(s: GameState, at: Vec2): number {
 const PERSONAL = new Set<GameEvent['type']>([
   'player-hit', 'gear-hit', 'gear-broken', 'bitten', 'grabbed', 'pickup', 'purchase', 'healed', 'equip', 'reload', 'empty', 'light', 'cough',
   'crate-opened', 'house-searched', 'checked', 'work-started', 'store-open', 'task-started', 'task-locked', 'safehouse-locked', 'puzzle-open', 'puzzle-wrong',
-  'part-taken', 'down', 'turned', 'escaped', 'lunge', 'antiviral', 'throw', 'survivor-asked', 'survivor-ready', 'survivor-done', 'fetched',
+  'part-taken', 'seat-unearned', 'loot-taken', 'down', 'turned', 'escaped', 'lunge', 'antiviral', 'throw', 'survivor-asked', 'survivor-ready', 'survivor-done', 'fetched',
 ]);
 function tagEvent(e: GameEvent, seat: number): void {
   if (PERSONAL.has(e.type) && (e as { seat?: number }).seat === undefined) (e as { seat?: number }).seat = seat;
@@ -947,29 +969,36 @@ function tagEvent(e: GameEvent, seat: number): void {
 /** Whose a personal event is (rooms), or undefined for the district's. */
 export const eventSeat = (e: GameEvent): number | undefined => (e as { seat?: number }).seat;
 
-/** The living player a zombie goes for: the nearest it can reach, kept for a couple of seconds so it does not dither. */
+/**
+ * The living player a zombie goes for: the nearest it can reach, kept for a couple of seconds so it does not dither
+ * between two at much the same distance. But not past someone standing right in front of it: when another is
+ * clearly nearer (a player standing still that the crowd chasing you walks up to), it turns on them.
+ */
 function pickTarget(s: GameState, z: Zombie, dt: number): Player | null {
   z.targetT = (z.targetT ?? 0) - dt;
-  let t = z.targetId !== undefined && z.targetT > 0 ? s.players[z.targetId] : undefined;
-  if (t && (t.status !== 'alive' || dist(z.pos, t.pos) > ZOMBIE_ACTIVE_RADIUS)) t = undefined;
-  if (!t) {
-    let best = ZOMBIE_ACTIVE_RADIUS;
-    for (const q of s.players) {
-      if (q.status !== 'alive') continue;
-      const d = dist(z.pos, q.pos) + (q.roof !== null && !climbs(z) ? 15 : 0) + (q.hide !== null ? 10 : 0); // out of reach, or out of sight
-      if (d < best) { best = d; t = q; }
-    }
-    if (t) { z.targetId = t.id; z.targetT = TARGET_HOLD; }
+  const cost = (q: Player) => dist(z.pos, q.pos) + (q.roof !== null && !climbs(z) ? 15 : 0) + (q.hide !== null ? 10 : 0); // out of reach, or out of sight
+  let held = z.targetId !== undefined && z.targetT > 0 ? s.players[z.targetId] : undefined;
+  if (held && (held.status !== 'alive' || dist(z.pos, held.pos) > ZOMBIE_ACTIVE_RADIUS)) held = undefined;
+  let t: Player | undefined, best = ZOMBIE_ACTIVE_RADIUS;
+  for (const q of s.players) {
+    if (q.status !== 'alive') continue;
+    const d = cost(q);
+    if (d < best) { best = d; t = q; }
   }
+  if (held && (!t || cost(held) <= best + TARGET_SWITCH)) return held;
+  if (t) { z.targetId = t.id; z.targetT = TARGET_HOLD; }
   return t ?? null;
 }
 
-/** Can `a` hurt `b` right now? The living are safe at the start and near the exit; the turned never are. */
+/**
+ * Can `a` hurt `b` right now? The living never hurt each other (they race for the seats, they do not fight for
+ * them); the living can always put down the turned; the turned can bite the living anywhere but near the exit.
+ */
 function canHurt(s: GameState, a: Player, b: Player): boolean {
   if (a === b || (b.status !== 'alive' && b.status !== 'turned')) return false;
   if (a.status !== 'alive' && a.status !== 'turned') return false;
+  if (a.status === b.status) return false;
   if (b.status === 'turned') return true;
-  if (a.status === 'alive' && s.elapsed < PVP_GRACE) return false;
   return dist(a.pos, s.safehouse) > SAFE_RADIUS && dist(b.pos, s.safehouse) > SAFE_RADIUS;
 }
 
@@ -986,11 +1015,11 @@ function playerOnRay(s: GameState, from: Vec2, dx: number, dy: number, maxT: num
   return best;
 }
 
-/** One player hurts another: half damage to the living (their gear takes its share first), full to the turned. */
-function hurtOther(s: GameState, by: Player, victim: Player, amount: number, full = false): void {
+/** One player hurts another: a living one shooting a turned one, or a turned one's bite (gear takes its share first). */
+function hurtOther(s: GameState, by: Player, victim: Player, amount: number): void {
   const was = s.cur;
   s.cur = victim;
-  const took = hurtPlayer(s, victim.status === 'turned' || full ? amount : amount * PVP_DAMAGE);
+  const took = hurtPlayer(s, amount);
   s.events.push({ type: 'player-hit', damage: took, by: -1 - by.id, seat: victim.id });
   if (victim.health <= 0) {
     victim.health = 0;
@@ -1024,7 +1053,39 @@ function turnPlayer(s: GameState, pl: Player): void {
   pl.hold = { taskId: null, progress: 0 };
   pl.work = null;
   pl.lungeCd = 0;
+  dropKit(s, pl);
   s.events.push({ type: 'turned', seat: pl.id, pos: { ...pl.pos } });
+}
+
+/** What a player had on them is left in a bag where they turned, for whoever gets there first; they keep none of it. */
+function dropKit(s: GameState, pl: Player): void {
+  const a = pl.arsenal;
+  const ammo: Partial<Record<GunKind, number>> = {};
+  for (const g of Object.keys(a.ammo) as GunKind[]) { const n = a.ammo[g] + (a.owned.includes(g) ? a.mag[g] : 0); if (n > 0) ammo[g] = n; a.ammo[g] = 0; a.mag[g] = 0; }
+  const gear: Partial<Record<GearKind, number>> = {};
+  for (const g of Object.keys(a.gear) as GearKind[]) { if (a.gear[g] > 0) gear[g] = a.gear[g]; a.gear[g] = 0; }
+  const loot = { weapons: [...a.owned], ammo, bottles: a.bottles, cans: a.cans, gear, funds: pl.funds };
+  a.owned = []; a.weapon = null; a.bottles = 0; a.cans = 0; a.reloadT = 0; pl.funds = 0;
+  if (!loot.weapons.length && !Object.keys(ammo).length && !loot.bottles && !loot.cans && !Object.keys(gear).length && !loot.funds) return;
+  s.drops.push({ id: s.drops.length, pos: { ...pl.pos }, from: pl.id, taken: false, loot });
+}
+
+/** Walk over a bag someone left when they turned: everything in it is yours. */
+function takeDrops(s: GameState): void {
+  const a = s.arsenal;
+  for (const d of s.drops) {
+    if (d.taken || !d.loot || d.from === s.cur.id || dist(d.pos, s.player.pos) > PICKUP_RADIUS + 0.3) continue;
+    d.taken = true;
+    const L = d.loot, items: string[] = [];
+    for (const w of L.weapons) if (!a.owned.includes(w)) { a.owned.push(w); if (isGun(w)) a.mag[w] = 0; items.push(w); }
+    for (const [g, n] of Object.entries(L.ammo) as Array<[GunKind, number]>) { a.ammo[g] += n; items.push(`${n} ${g} rounds`); }
+    if (L.bottles) { a.bottles += L.bottles; items.push(`${L.bottles} bottles`); }
+    if (L.cans) { a.cans += L.cans; items.push(`${L.cans} fuel`); }
+    for (const [g, n] of Object.entries(L.gear) as Array<[GearKind, number]>) if (n > a.gear[g]) { a.gear[g] = n; items.push(g); }
+    s.funds += L.funds;
+    if (!a.weapon && a.owned.length) a.weapon = a.owned[0]!;
+    s.events.push({ type: 'loot-taken', from: d.from, items, funds: L.funds });
+  }
 }
 
 /** A turned player's lunge: everything living in front of them, close, is hit at full strength. */
@@ -1035,7 +1096,7 @@ function lunge(s: GameState, pl: Player): void {
     if (o.status !== 'alive' || !canHurt(s, pl, o)) continue;
     const d = dist(o.pos, pl.pos);
     if (d > ATTACK_REACH || (d > 0.8 && Math.abs(wrap(datan2(o.pos.y - pl.pos.y, o.pos.x - pl.pos.x) - pl.heading)) > LUNGE_ARC)) continue;
-    hurtOther(s, pl, o, ATTACK_DAMAGE, true);
+    hurtOther(s, pl, o, ATTACK_DAMAGE);
     hits++;
   }
   s.events.push({ type: 'lunge', seat: pl.id, pos: { ...pl.pos }, hits });
@@ -1048,6 +1109,10 @@ function updateExit(s: GameState): void {
   if (dist(s.safehouse, pl.pos) >= SAFEHOUSE_RADIUS) { pl.lockedNotice = null; return; }
   if (requiredDone(s)) {
     if (s.seatsLeft <= 0) return;
+    if (pl.helped <= 0) { // you let the others do it all: no seat for you
+      if (pl.lockedNotice !== 'seat') { pl.lockedNotice = 'seat'; s.events.push({ type: 'seat-unearned' }); }
+      return;
+    }
     pl.status = 'escaped';
     pl.escapedAt = s.elapsed;
     pl.vel = { x: 0, y: 0 };
@@ -1136,7 +1201,7 @@ function playerTurn(s: GameState, pl: Player, input: Input, dt: number): void {
     updateWeapons(s, input, dt);
     if (input.throw) throwBottle(s);
   }
-  if (pl.roof === null && pl.hide === null) { takePickups(s); takeParts(s); }
+  if (pl.roof === null && pl.hide === null) { takePickups(s); takeParts(s); takeDrops(s); }
   guardCurrent(s);
   movePlayer(s, input, dt);
   if (pl.roof === null) enterStores(s);
@@ -1938,17 +2003,18 @@ function exitVehicle(s: GameState): void {
   const v = playerVehicle(s);
   if (!v) return;
   const spec = VEHICLES[v.kind];
-  // step out on the driver's side, or the other side if that is blocked
+  // step out on the driver's side, or the other side if that is blocked; both blocked, whichever has more room
+  let best: Vec2 | null = null, pushed = Infinity;
   for (const side of [1, -1]) {
     const nx = -dsin(v.heading) * side, ny = dcos(v.heading) * side;
     const p = { x: v.pos.x + nx * (spec.width / 2 + 0.9), y: v.pos.y + ny * (spec.width / 2 + 0.9) };
     const before = { ...p };
     resolve(s.map, p, PLAYER_RADIUS);
-    if (dist(p, before) < 0.3 || side === -1) {
-      s.player.pos = p;
-      break;
-    }
+    const d = dist(p, before);
+    if (d < pushed) { best = p; pushed = d; }
+    if (d < 0.3) break;
   }
+  s.player.pos = best!;
   s.player.vel = { x: 0, y: 0 };
   s.player.vehicleId = null;
   s.events.push({ type: 'vehicle-exit', id: v.id });
@@ -2232,6 +2298,7 @@ function updateTasks(s: GameState, dt: number): void {
 function completeTask(s: GameState, t: Task): void {
   t.done = true;
   s.safeT = SAFE_AFTER;
+  if (t.required) s.cur.helped++;
   s.events.push({ type: 'task-done', id: t.id });
   stepDone(s, t);
   if (t.timeCost > 0) {
@@ -2335,6 +2402,7 @@ function takeParts(s: GameState): void {
     const reach = PICKUP_RADIUS + 0.4 + (v ? VEHICLES[v.kind].length / 2 : 0); // lean out and grab it
     if (t.got![i] || dist(q, s.player.pos) > reach) return;
     t.got![i] = true;
+    if (t.required) s.cur.helped++;
     const n = partsOf(t)!;
     s.events.push({ type: 'part-taken', id: t.id, got: n.got, of: n.of });
   });
@@ -2424,12 +2492,24 @@ function updateZombies(s: GameState, dt: number): void {
   let tagFrom = s.events.length, tagSeat = first.id; // rooms: which player each event of this pass belongs to
   const tag = () => { for (let i = tagFrom; i < s.events.length; i++) tagEvent(s.events[i]!, tagSeat); tagFrom = s.events.length; };
 
+  // rooms: the turned lead the dead. Each turned player's prey, if they are on someone (the nearest living player close by)
+  const leaders = room ? s.players.filter((p) => p.status === 'turned').map((p) => {
+    let prey: Player | null = null, best = HORDE_PREY;
+    for (const q of s.players) if (q.status === 'alive' && q.hide === null) { const d = dist(p.pos, q.pos); if (d < best) { best = d; prey = q; } }
+    return { p, prey };
+  }) : [];
+
   for (const z of s.zombies) {
     if (z.action === 'dead') { z.actionT -= dt; continue; }
     if (z.latch != null) { updateLatched(s, z, dt); if (s.phase !== 'playing') return; continue; }
     if (room) { // each one goes for the nearest living player it can reach; their rules are those of whoever it chose
+      // ...unless one of the turned is close and on someone: then it goes for them too, knowing just where they are
+      let lead: (typeof leaders)[number] | null = null, ld = HORDE_RADIUS;
+      if (z.action !== 'dormant' && z.action !== 'rise' && (z.lureT ?? 0) < 1e8) for (const L of leaders) { const d = dist(z.pos, L.p.pos); if (d < ld) { ld = d; lead = L; } }
+      if (lead?.prey) { z.targetId = lead.prey.id; z.targetT = TARGET_HOLD; z.alertT = Math.max(z.alertT, 1); }
       const t = pickTarget(s, z, dt);
       tag();
+      if (lead && !lead.prey && (!t || dist(z.pos, t.pos) > HORDE_RADIUS)) { followLeader(s, z, lead.p.pos, dt); continue; } // nobody near: it walks with them
       if (!t) continue;
       s.cur = t;
       tagSeat = t.id;
@@ -2532,13 +2612,14 @@ function updateZombies(s: GameState, dt: number): void {
         continue;
       }
       if (s.player.invuln > 0) continue;
-      const took = hurtPlayer(s, lash ? LASH_DAMAGE : z.kind === 'crawler' ? CRAWL_DAMAGE : ATTACK_DAMAGE);
+      const mercy = closeCall(s);
+      const took = hurtPlayer(s, (lash ? LASH_DAMAGE : z.kind === 'crawler' ? CRAWL_DAMAGE : ATTACK_DAMAGE) * (mercy ? MERCY_DAMAGE : 1));
       // every bite feeds the infection: the clock jumps ahead (less through gear)
       const lost = Math.min(s.remaining, BITE_COST * (took / ATTACK_DAMAGE) * (1 - (s.arsenal.perks?.bite ?? 0)));
       s.remaining -= lost;
       s.events.push({ type: 'bitten', seconds: lost });
       s.player.bitten = true;
-      s.player.invuln = HIT_INVULNERABLE;
+      s.player.invuln = HIT_INVULNERABLE * (mercy ? MERCY_INVULN : 1);
       if (z.kind === 'crawler') { // it does not knock you back: it holds on
         s.player.slowT = GRAB_SECONDS;
         s.events.push({ type: 'grabbed', seconds: GRAB_SECONDS });
@@ -2588,7 +2669,7 @@ function updateZombies(s: GameState, dt: number): void {
       : z.kind === 'stalker' ? STALKER_SENSE
         : (z.kind === 'runner' ? RUNNER_SIGHT : z.kind === 'screamer' ? SCREAMER_SIGHT : z.kind === 'crawler' ? CRAWLER_SIGHT : WALKER_SIGHT_BY_TIER[s.tier]!) * seen;
     const own = z.kind === 'runner' ? RUNNER_SPEED : z.kind === 'stalker' ? STALKER_SPEED : z.kind === 'crawler' ? CRAWLER_SPEED : walk;
-    const chaseSpeed = (ride && z.alertT > 0 && z.kind !== 'crawler' ? (z.kind === 'runner' ? SWARM_SPEED : Math.max(own, walk * 1.5)) : own) * s.zombieMul;
+    const chaseSpeed = (ride && z.alertT > 0 && z.kind !== 'crawler' ? (z.kind === 'runner' ? SWARM_SPEED : Math.max(own, walk * 1.5)) : own) * s.zombieMul * (closeCall(s) ? MERCY_SPEED : 1);
 
     if (rt.reach && d < aRange && z.cooldown <= 0 && !(ride && Math.abs(ride.speed) > (car ? 8 : 3))) {
       z.action = 'attack';
@@ -2708,6 +2789,16 @@ function separate(s: GameState): void {
         }
       }
       z.pos.x = pl.pos.x + ux * touch; z.pos.y = pl.pos.y + uy * touch;
+      // you are up against the edge of the district: it goes beside you along it, not back inside you
+      const lo = ZOMBIE_RADIUS, hi = s.map.size - ZOMBIE_RADIUS;
+      if (z.pos.x < lo || z.pos.x > hi) {
+        z.pos.x = z.pos.x < lo ? lo : hi;
+        z.pos.y = pl.pos.y + (uy < 0 ? -1 : 1) * Math.sqrt(Math.max(0, touch * touch - (z.pos.x - pl.pos.x) ** 2));
+      }
+      if (z.pos.y < lo || z.pos.y > hi) {
+        z.pos.y = z.pos.y < lo ? lo : hi;
+        z.pos.x = pl.pos.x + (ux < 0 ? -1 : 1) * Math.sqrt(Math.max(0, touch * touch - (z.pos.y - pl.pos.y) ** 2));
+      }
     }
   }
   for (const z of zs) { if (z.roof != null) onRoof(s.map.ladders[z.roof]!, z.pos); else resolve(s.map, z.pos, ZOMBIE_RADIUS); }

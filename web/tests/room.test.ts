@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { createRoom, eventSeat, step, type GameState } from '../../core/state';
 import { command, hashState, quantize, replayRoom, RoomRecorder } from '../../core/replay';
 import type { Loadout } from '../../core/loadout';
-import { viewFor } from '../../core/view';
+import { sightClear, viewFor } from '../../core/view';
 import { lineClear } from '../../core/collision';
 import { createRng, next } from '../../core/rng';
-import { ATTACK_DAMAGE, EXIT_SEATS_SHARE, PLAYER_HEALTH, PVP_DAMAGE, PVP_GRACE, ROOM_SECONDS, SAFE_RADIUS, TURNED_HEALTH } from '../../core/config';
+import { ATTACK_DAMAGE, EXIT_SEATS_SHARE, HORDE_PREY, PLAYER_HEALTH, ROOM_SECONDS, SAFE_RADIUS, TURNED_HEALTH } from '../../core/config';
 import type { Input, Vec2 } from '../../core/types';
 import { addZ, DT, IDLE, openSpot, put, quietRoom, runRoom } from './helpers-room';
 
@@ -18,7 +18,7 @@ function duel(gap = 5, seed = 5): GameState {
   const a = openSpot(g, { x: 160, y: 160 });
   put(g, 0, a, 0);
   put(g, 1, { x: a.x + gap, y: a.y }, Math.PI);
-  g.elapsed = PVP_GRACE + 5;
+  g.elapsed = 25;
   return g;
 }
 
@@ -80,41 +80,92 @@ describe('zombies in a room', () => {
 });
 
 describe('players hurting each other', () => {
-  it('a bullet does half damage to a living player', () => {
+  /** Seat 1 turned (and the zombies' rule for the turned). */
+  const turn = (g: GameState) => { const p = g.players[1]!; p.status = 'turned'; p.health = TURNED_HEALTH; p.light = false; };
+
+  it('the living never hurt each other: they race for the seats, they do not fight for them', () => {
     const g = duel();
-    step(g, [fire, IDLE], DT);
-    expect(g.players[1]!.health).toBeCloseTo(PLAYER_HEALTH - 34 * PVP_DAMAGE, 5);
-    expect(g.events.some((e) => e.type === 'player-hit' && eventSeat(e) === 1)).toBe(true);
+    for (let i = 0; i < 20; i++) step(g, [fire, fire], DT);
+    expect(g.players[0]!.health).toBe(PLAYER_HEALTH);
+    expect(g.players[1]!.health).toBe(PLAYER_HEALTH);
+    expect(g.events.some((e) => e.type === 'player-hit')).toBe(false);
   });
 
-  it('none in the first seconds, and none near the exit', () => {
-    const early = duel();
-    early.elapsed = 1;
-    step(early, [fire, IDLE], DT);
-    expect(early.players[1]!.health).toBe(PLAYER_HEALTH);
-    const near = duel();
-    const e = openSpot(near, near.safehouse, 3);
-    put(near, 0, { x: near.safehouse.x - 4, y: near.safehouse.y }, 0);
-    put(near, 1, { x: near.safehouse.x + 1, y: near.safehouse.y }, Math.PI);
-    void e;
-    expect(Math.hypot(near.players[0]!.pos.x - near.safehouse.x, near.players[0]!.pos.y - near.safehouse.y)).toBeLessThan(SAFE_RADIUS);
-    step(near, [fire, IDLE], DT);
-    expect(near.players[1]!.health).toBe(PLAYER_HEALTH);
-  });
-
-  it('a living player who is shot down lies still, then turns; a turned one is put down for good', () => {
+  it('the living can put down a turned player; a turned one cannot bite near the exit', () => {
     const g = duel(3);
-    g.players[1]!.health = 10;
-    step(g, [fire, IDLE], DT);
-    expect(g.players[1]!.status).toBe('down');
-    expect(g.players[0]!.kills).toBe(1);
-    runRoom(g, 3.2);
-    expect(g.players[1]!.status).toBe('turned');
-    expect(g.players[1]!.health).toBe(TURNED_HEALTH);
+    turn(g);
     g.players[1]!.health = 5;
-    g.players[0]!.arsenal.fireCd = 0;
     step(g, [fire, IDLE], DT);
     expect(g.players[1]!.status).toBe('dead');
+    expect(g.players[0]!.kills).toBe(1);
+    const near = duel(1.2);
+    turn(near);
+    put(near, 0, { x: near.safehouse.x - 0.6, y: near.safehouse.y }, 0);
+    put(near, 1, { x: near.safehouse.x + 0.6, y: near.safehouse.y }, Math.PI);
+    expect(Math.hypot(near.players[0]!.pos.x - near.safehouse.x, near.players[0]!.pos.y - near.safehouse.y)).toBeLessThan(SAFE_RADIUS);
+    step(near, [IDLE, fire], DT);
+    expect(near.players[0]!.health).toBe(PLAYER_HEALTH);
+  });
+
+  it('bitten down by a turned player: you lie still, then turn', () => {
+    const g = duel(1.2);
+    turn(g);
+    g.players[0]!.health = 10;
+    step(g, [IDLE, fire], DT);
+    expect(g.players[0]!.status).toBe('down');
+    expect(g.players[1]!.kills).toBe(1);
+    runRoom(g, 3.2);
+    expect(g.players[0]!.status).toBe('turned');
+  });
+});
+
+describe('what the turned leave behind', () => {
+  it('a player who turns drops what they had in a bag; whoever walks over it takes it all', () => {
+    const g = duel(6);
+    const a = g.players[1]!.arsenal;
+    a.owned = ['pistol', 'bat']; a.weapon = 'pistol'; a.mag.pistol = 5; a.ammo.pistol = 12; a.bottles = 2; a.gear.vest = 40;
+    g.players[1]!.funds = 80;
+    g.players[1]!.remaining = 0.01;
+    step(g, [IDLE, IDLE], DT);
+    expect(g.players[1]!.status).toBe('turned');
+    expect(g.players[1]!.arsenal.owned).toEqual([]);
+    expect(g.players[1]!.funds).toBe(0);
+    expect(g.drops.length).toBe(1);
+    expect(viewFor(g, 0).drops.map((d) => d.id)).toEqual([0]);
+    const mine = g.players[0]!;
+    const funds = mine.funds, ammo = mine.arsenal.ammo.pistol + mine.arsenal.mag.pistol, had = mine.arsenal.owned.includes('pistol');
+    put(g, 0, { ...g.drops[0]!.pos });
+    step(g, [IDLE, IDLE], DT);
+    expect(g.drops[0]!.taken).toBe(true);
+    expect(mine.funds).toBe(funds + 80);
+    expect(mine.arsenal.owned).toContain('bat');
+    expect(mine.arsenal.ammo.pistol + mine.arsenal.mag.pistol).toBe(ammo + 17 + (had ? 0 : 0));
+    expect(mine.arsenal.bottles).toBeGreaterThanOrEqual(2);
+    expect(g.events.some((e) => e.type === 'loot-taken' && eventSeat(e) === 0)).toBe(true);
+    expect(viewFor(g, 0).drops).toEqual([]);
+  });
+});
+
+describe('the turned lead the dead', () => {
+  it('a walker near a turned player goes for the living player the turned one is on, wherever it is looking', () => {
+    const g = duel(HORDE_PREY - 2);
+    g.players[1]!.status = 'turned';
+    const z = addZ(g, 'walker', { x: g.players[1]!.pos.x + 6, y: g.players[1]!.pos.y + 6 });
+    step(g, [IDLE, IDLE], DT);
+    expect(z.targetId).toBe(0);
+    expect(z.alertT).toBeGreaterThan(0);
+  });
+
+  it('with nobody about, it walks along with them', () => {
+    const g = quietRoom(2);
+    const a = openSpot(g, { x: 160, y: 160 });
+    put(g, 0, { x: 10, y: 10 });
+    put(g, 1, a);
+    g.players[1]!.status = 'turned';
+    const z = addZ(g, 'walker', { x: a.x + 10, y: a.y });
+    const d0 = Math.hypot(z.pos.x - a.x, z.pos.y - a.y);
+    runRoom(g, 2);
+    expect(Math.hypot(z.pos.x - a.x, z.pos.y - a.y)).toBeLessThan(d0 - 2);
   });
 });
 
@@ -189,9 +240,19 @@ describe('the exit', () => {
     const g = quietRoom(n);
     for (const t of g.tasks) if (t.required) t.done = true;
     g.safehouseKnown = true;
-    g.players.forEach((_p, i) => put(g, i, { x: g.safehouse.x + (i - n / 2) * 0.4, y: g.safehouse.y }));
+    g.players.forEach((p, i) => { put(g, i, { x: g.safehouse.x + (i - n / 2) * 0.4, y: g.safehouse.y }); p.helped = 1; });
     return g;
   }
+
+  it('has no seat for a player who did none of the steps', () => {
+    const g = atExit(4);
+    for (const i of [1, 2, 3]) g.players[i]!.helped = 0;
+    step(g, [IDLE, IDLE, IDLE, IDLE], DT);
+    expect(g.players[0]!.status).toBe('escaped');
+    expect(g.players[1]!.status).toBe('alive');
+    expect(g.seatsLeft).toBe(1); // still free, for someone who earns it
+    expect(g.events.some((e) => e.type === 'seat-unearned' && eventSeat(e) === 1)).toBe(true);
+  });
 
   it('holds seats for half the players: the rest are left, and the round ends', () => {
     const g = atExit(4);
@@ -237,10 +298,21 @@ describe('what each seat is told', () => {
   function walled(g: GameState): [Vec2, Vec2] {
     for (const a of g.map.points) for (const b of g.map.points) {
       const d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (d > 15 && d < 24 && !lineClear(g.map, a, b, 0.3)) return [a, b];
+      if (d > 15 && d < 24 && !sightClear(g.map, a, b)) return [a, b];
     }
     throw new Error('no walled pair');
   }
+
+  it('a lamp post or a tree hides nobody: only walls do', () => {
+    const g = quietRoom(2);
+    const lamp = g.map.buildings.find((o) => o.kind === 'lamp' || o.kind === 'tree')!;
+    const c = { x: lamp.x + lamp.w / 2, y: lamp.y + lamp.h / 2 };
+    put(g, 0, { x: c.x - 9, y: c.y });
+    put(g, 1, { x: 10, y: 10 });
+    expect(lineClear(g.map, g.players[0]!.pos, { x: c.x + 9, y: c.y }, 0.3)).toBe(false); // (the walking grid goes round it)
+    const z = addZ(g, 'walker', { x: c.x + 9, y: c.y }, 1003);
+    if (sightClear(g.map, g.players[0]!.pos, z.pos)) expect(viewFor(g, 0).zombies.map((x) => x.id)).toContain(z.id);
+  });
 
   it('leaves out a zombie behind a wall and keeps one in the open', () => {
     const g = quietRoom(2);

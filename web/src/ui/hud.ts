@@ -18,7 +18,7 @@ function useLabel(s: GameState, it: Interaction | null): string | null {
     case 'enter': return 'GET IN';
     case 'crate': return 'SEARCH';
     case 'store': return 'ENTER';
-    case 'house': return 'SEARCH';
+    case 'house': return 'ENTER'; // only if you choose to: walking past does nothing
     case 'talk': return 'TALK';
     case 'refuel': return 'REFUEL';
     case 'alarm': return 'ALARM';
@@ -212,6 +212,16 @@ export class Hud {
     const use = useLabel(s, interactionFor(s));
     this.useBtn.style.display = use ? 'flex' : 'none';
     if (use && this.useBtn.textContent !== use) this.useBtn.textContent = use;
+
+    // turned (rooms): one of them now. No gun, no light, nothing to use: one button, BITE, dim while you gather for the next
+    const turned = s.mode === 'room' && s.player.status === 'turned';
+    if (document.body.classList.contains('zombie-hud') !== turned) document.body.classList.toggle('zombie-hud', turned);
+    if (turned) {
+      if (this.fireBtn.textContent !== 'BITE') this.fireBtn.textContent = 'BITE';
+      this.fireBtn.classList.toggle('cool', s.player.lungeCd > 0);
+      this.ammo.textContent = 'HUNT';
+      this.weaponName.textContent = 'Teeth and nails';
+    }
 
     // compass arrow to the current objective when it is off screen
     const target = ready ? (s.safehouseKnown ? s.safehouse : null) : cur ? taskTarget(s, cur) : null;

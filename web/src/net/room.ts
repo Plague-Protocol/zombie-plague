@@ -128,6 +128,8 @@ const CSS = `
 #names span.turned { color: #e0483a; }
 #roomend { position: fixed; inset: 0; z-index: 31; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 12px;
   background: rgba(4,6,10,.88); font-family: 'VT323', monospace; color: #d4c9b2; text-align: center; }
+#roomend.turned { background: radial-gradient(ellipse at 50% 45%, rgba(0,0,0,.35), rgba(0,0,0,.88) 75%), url(/ending/end.webp) center 30%/cover #050505; }
+#roomend.turned h2, #roomend.turned li, #roomend.turned p { text-shadow: 0 2px 12px #000, 0 0 3px #000; }
 #roomend h2 { margin: 0; font-family: 'Eater', system-ui, sans-serif; font-weight: 400; font-size: clamp(34px, 8vw, 64px); }
 #roomend ol { list-style: none; margin: 0; padding: 0; font-size: 24px; min-width: 18em; text-align: left; }
 #roomend li { padding: 4px 12px; border-bottom: 1px solid #1c2a18; display: flex; justify-content: space-between; gap: 24px; }
@@ -608,7 +610,13 @@ class Session implements Driver {
     const p = this.local, s = this.shadow;
     const { pos, vel, heading, ...rest } = v.you as unknown as Record<string, unknown> & { pos: { x: number; y: number }; vel: { x: number; y: number }; heading: number };
     const was = { x: this.truth.x + this.off.x, y: this.truth.y + this.off.y }; // where it was drawn
+    const before = p.status;
     Object.assign(p, rest);
+    // bitten down or out of time: you get up as one of them, and are told plainly what that means now
+    if (!this.firstSnap && before !== p.status) {
+      if (p.status === 'down') this.host.toast('You are down. You are getting back up, but not as yourself.');
+      else if (p.status === 'turned') this.host.toast('You have turned. Hunt the living: get to them and BITE. The dead near you follow you, and go for whoever you go for.');
+    }
     p.pos = { x: pos.x, y: pos.y };
     p.vel = { x: vel.x, y: vel.y };
     p.heading = heading;
@@ -623,6 +631,7 @@ class Session implements Driver {
     // the district's changing parts
     s.phase = v.phase;
     v.taken.forEach((t, i) => { const k = s.pickups[i]; if (k) k.taken = t; });
+    s.drops = v.drops.map((d) => ({ id: d.id, pos: d.pos, from: -1, taken: false }));
     v.opened.forEach((t, i) => { const k = s.crates[i]; if (k) k.opened = t; });
     v.searched.forEach((t, i) => { const k = s.houses[i]; if (k) k.searched = t; });
     for (const t of v.tasks) { const k = s.tasks.find((x) => x.id === t.id); if (k) { k.done = t.done; if (t.got) k.got = t.got; if (t.targets) k.targets = t.targets; } }
@@ -743,9 +752,9 @@ class Session implements Driver {
       else if (o.status === 'turned') { act.play(sp > 0.5 ? 'Sprint' : 'ZIdle', { fade: 0.15 }); }
       else if (o.hidden || (o.crouched && sp < 0.3)) act.play('Kneel', { startAt: 0.12, timeScale: 0.0001, fade: 0.25 }); // down low
       else act.locomote(Math.min(5.5, sp));
+      act.crouch(o.status === 'alive' && o.crouched && !o.hidden && sp >= 0.3); // a low creep, knees bent
       act.update(p.pos.x, p.pos.y, p.heading, dt, true);
       act.root.position.y = o.roof !== null ? s.map.ladders[o.roof]?.height ?? 0 : 0; // up on a roof
-      act.root.rotation.x = o.crouched && sp >= 0.3 ? 0.32 : 0;
     }
     for (const [id, act] of this.actors) if (!seen.has(id)) act.root.visible = false; // out of sight: not drawn
   }
@@ -755,11 +764,13 @@ class Session implements Driver {
     const s = this.shadow;
     const spans = Array.from(this.names.children) as HTMLElement[];
     let n = 0;
+    // names only over players in plain view on screen, and never over the map
+    const mapOpen = document.getElementById('map-screen')?.style.display === 'flex';
     for (const [id, act] of this.actors) {
-      if (!act.root.visible) continue;
+      if (mapOpen || !act.root.visible) continue;
       const p = s.players[id]!;
       const at = this.host.view.projectPx(p.pos, 3.4);
-      if (!at) continue;
+      if (!at || at.x < 0 || at.y < 0 || at.x > innerWidth || at.y > innerHeight) continue;
       const sp = spans[n] ?? this.names.appendChild(el('span'));
       sp.textContent = `${this.roomNames[id] ?? `Player ${id + 1}`}${p.status === 'turned' ? ' (turned)' : p.status === 'down' ? ' (down)' : p.exposed ? ' (bitten)' : ''}`;
       sp.className = p.status === 'turned' ? 'turned' : '';
@@ -792,6 +803,7 @@ class Session implements Driver {
     box.replaceChildren();
     const status = (st: string) => ({ escaped: 'got out', turned: 'turned', dead: 'put down', missed: 'left behind', alive: 'left behind', down: 'left behind' } as Record<string, string>)[st] ?? st;
     const out = m?.placements.find((p) => p.seat === this.local.id)?.status === 'escaped';
+    box.classList.toggle('turned', !!m && !out); // the ending's picture behind it, as in a night alone
     box.append(el('h2', {}, m ? (out ? 'You got out' : 'You did not get out') : 'Disconnected'));
     if (m) {
       const list = el('ol');

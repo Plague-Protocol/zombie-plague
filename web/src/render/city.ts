@@ -444,6 +444,62 @@ export function buildCity(map: MapData, seed: number, lampColor = 0xffcf8a): Cit
     if (!dead) lights.push({ pos: new Vector3(ax, b.height - 0.5, az), color: lampColor, kind: 'lamp', broken });
   }
 
+  quarantineLine();
+
+  /**
+   * The edge of the district: the cordon the army put round it when it pulled out. Concrete barriers, a wire fence
+   * twice a man's height topped with razor wire, hazard boards, and floodlight towers (half of them dead) looking in.
+   * Drawn just outside the line nobody can cross; along the water the harbour is the edge.
+   */
+  function quarantineLine(): void {
+    const size = map.size;
+    const water = map.buildings.filter((b) => b.kind === 'water').reduce((m, b) => Math.min(m, b.y), size);
+    const CONCRETE = 0x5f5e5a, CONCRETE_TOP = 0x75736e, STEEL = 0x2b2d31, WIRE = 0x575b61, RAZOR = 0x8a8e94;
+    // one side: `along` runs from a to b at `at` across, with `out` the way out of the district (-1 or +1)
+    const side = (alongX: boolean, at: number, a: number, b: number, out: number) => {
+      const P = (u: number, v: number): [number, number] => (alongX ? [u, at + v * out] : [at + v * out, u]);
+      const box = (u: number, y: number, v: number, len: number, h: number, thick: number, col: number, top = col) => {
+        const [x, z] = P(u, v);
+        S(x, z).box(x, y, z, alongX ? len : thick, h, alongX ? thick : len, col, top);
+      };
+      // jersey barriers, end to end with a hand's gap
+      for (let u = a; u < b - 0.5; u += 3.8) {
+        const len = Math.min(3.6, b - u);
+        box(u + len / 2, 0.35, 0.55, len, 0.7, 0.8, CONCRETE, CONCRETE_TOP);
+        box(u + len / 2, 0.9, 0.55, len, 0.45, 0.4, CONCRETE, CONCRETE_TOP);
+      }
+      // the fence behind them: posts, and the wire in runs between every few posts
+      const FENCE = 1.15, H = 5.6;
+      for (let u = a; u <= b; u += 4) box(u, H / 2, FENCE, 0.14, H, 0.14, STEEL);
+      for (let u = a; u < b; u += 16) {
+        const len = Math.min(16, b - u);
+        for (let y = 1.4; y < H - 0.2; y += 0.55) box(u + len / 2, y, FENCE, len, 0.035, 0.035, WIRE);
+        for (let k = 0.5; k < len; k += 1.0) box(u + k, (1.2 + H) / 2, FENCE, 0.03, H - 1.2, 0.03, WIRE); // the mesh's uprights
+        // razor wire along the top: two strands and the barbs between them
+        box(u + len / 2, H + 0.15, FENCE - 0.25, len, 0.05, 0.05, RAZOR);
+        box(u + len / 2, H + 0.45, FENCE + 0.1, len, 0.05, 0.05, RAZOR);
+        for (let k = 0.3; k < len; k += 0.6) box(u + k, H + 0.3, FENCE - 0.07, 0.05, 0.42, 0.4, RAZOR);
+      }
+      // hazard boards on the wire, black and yellow
+      for (let u = a + 10; u < b - 4; u += 28) {
+        box(u, 2.6, FENCE - 0.12, 2.4, 1.3, 0.05, 0x1a1a1a);
+        for (let k = 0; k < 5; k++) box(u - 1.0 + k * 0.5, 2.6, FENCE - 0.15, 0.24, 1.1, 0.04, 0xd8b020);
+      }
+      // floodlight towers outside the wire, lamps facing in; some still burning
+      for (let u = a + 22; u < b - 10; u += 56) {
+        box(u, 4.5, 2.4, 0.3, 9, 0.3, STEEL);
+        box(u, 9, 2.4, 2.2, 0.6, 0.5, STEEL);
+        const live = chance(rng, 0.55);
+        const [lx, lz] = P(u, 2.4 - 0.32);
+        G(lx, lz).box(lx, 8.95, lz, alongX ? 1.8 : 0.06, 0.4, alongX ? 0.06 : 1.8, live ? 0xf4f7ff : 0x2a2a2a);
+        if (live) { const [x, z] = P(u, 0.5 - 6); lights.push({ pos: new Vector3(x, 8, z), color: 0xe8f0ff, kind: 'flood', broken: chance(rng, 0.4) }); }
+      }
+    };
+    side(true, 0, 0, size, -1); // along the near edge
+    side(false, 0, 0, water, -1); // the two ends, down to the water
+    side(false, size, 0, water, 1);
+  }
+
   const solidMat = weather(new MeshLambertMaterial({
     vertexColors: true,
     // mark pixels for the player's x-ray silhouette (drawn only where the city hides them)

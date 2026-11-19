@@ -414,6 +414,10 @@ export type GameEvent =
   /** A dose: the infection is held back by this many seconds. */
   | { type: 'antiviral'; seconds: number }
   | { type: 'crouch'; on: boolean }
+  /** Rooms: the exit is open, but you did none of the steps, so it has no seat for you. */
+  | { type: 'seat-unearned' }
+  /** Rooms: you took what someone who turned had on them. */
+  | { type: 'loot-taken'; from: number; items: string[]; funds: number }
   | { type: 'hide'; on: boolean; spot: number }
   | { type: 'climbed'; ladder: number; up: boolean }
   | { type: 'zombie-climbed'; id: number; up: boolean }
@@ -525,7 +529,7 @@ export interface Player {
   inFallen: boolean;
   /** The store whose doorway you are standing in after leaving it (no re-entry until you step out). */
   storeLatch: number | null;
-  lockedNotice: 'safehouse' | null;
+  lockedNotice: 'safehouse' | 'seat' | null;
   /** Zombie that caught the player, if any (the renderer stages the ending around it). */
   killerId: number | null;
   /** The path field to this player, and the cell it was made for. */
@@ -554,6 +558,19 @@ export interface Player {
   exposed: boolean;
   /** When (room time) they went through the exit, if they did. */
   escapedAt: number | null;
+  /** Rooms: required steps done, and pieces of one picked up, by this player. Without one, the exit has no seat for them. */
+  helped: number;
+}
+
+/** Rooms: what a player who turned was carrying, in a bag where they fell. Walk over it to take it all. */
+export interface Drop {
+  id: number;
+  pos: Vec2;
+  /** Whose it was. */
+  from: number;
+  taken: boolean;
+  /** What is in it (the server's copy; a client is told only where it is). */
+  loot?: { weapons: WeaponKind[]; ammo: Partial<Record<GunKind, number>>; bottles: number; cans: number; gear: Partial<Record<GearKind, number>>; funds: number };
 }
 
 export interface Input {

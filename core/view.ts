@@ -8,7 +8,7 @@ import {
 import { lineClear } from './collision';
 import { dhypot, datan2, dsin, dcos } from './dmath';
 import { eventSeat, type GameState } from './state';
-import type { GameEvent, Placement, Player, PlayerStatus, Vec2, WeaponKind, ZombieAction, ZombieKind } from './types';
+import type { GameEvent, MapData, ObstacleKind, Placement, Player, PlayerStatus, Vec2, WeaponKind, ZombieAction, ZombieKind } from './types';
 
 /** How far you can see something that is in the open (the camera shows about this much). */
 export const VIEW_RANGE = 34;
@@ -63,6 +63,8 @@ export interface PlayerView {
   /** The district's changing parts, by index into what the level gives: a client that has built the level from
    * the seed knows where everything is, and is told only what has been taken, opened, done. */
   taken: boolean[];
+  /** Bags left by players who turned, not yet taken: where they lie (what is in them stays on the server). */
+  drops: Array<{ id: number; pos: Vec2 }>;
   opened: boolean[];
   searched: boolean[];
   tasks: Array<{ id: string; done: boolean; got?: boolean[]; targets?: number[] }>;
@@ -89,11 +91,46 @@ function lit(s: GameState, p: Player, at: Vec2): boolean {
   return lineClear(s.map, p.pos, at, 0.2);
 }
 
-/** Can the viewer see a point? Close by, or in the open within range. */
+/** What blocks sight: the walls of things taller than a person, cell by cell, with no clearance round them. */
+const SIGHT_WALLS = new Set<ObstacleKind>(['building', 'tower', 'house', 'warehouse', 'shop', 'store', 'hospital', 'container', 'bus', 'truck']);
+const wallGrids = new WeakMap<MapData, Uint8Array>();
+function wallsOf(map: MapData): Uint8Array {
+  let g = wallGrids.get(map);
+  if (g) return g;
+  const cols = map.cols;
+  g = new Uint8Array(cols * cols);
+  for (const b of map.buildings) {
+    if (!SIGHT_WALLS.has(b.kind)) continue;
+    for (let y = Math.max(0, Math.ceil(b.y - 0.5)); y + 0.5 < b.y + b.h && y < cols; y++)
+      for (let x = Math.max(0, Math.ceil(b.x - 0.5)); x + 0.5 < b.x + b.w && x < cols; x++) g[y * cols + x] = 1;
+  }
+  wallGrids.set(map, g);
+  return g;
+}
+
+/**
+ * Nothing solid and tall between the two points. Lamp posts, trees, benches, barrels and cars do not hide what is
+ * behind them (the walking grid treats them, and a margin round them, as walls, and things behind a row of trees
+ * kept dropping out of sight and back as they moved). The last stretch is not checked: someone on a roof or
+ * against a wall is seen.
+ */
+export function sightClear(map: MapData, a: Vec2, b: Vec2): boolean {
+  const g = wallsOf(map), cols = map.cols;
+  const dx = b.x - a.x, dy = b.y - a.y, len = dhypot(dx, dy);
+  const steps = Math.max(1, Math.ceil(len / 0.5)), last = Math.max(1, steps - Math.ceil(1.2 / 0.5));
+  for (let i = 1; i < last; i++) {
+    const t = i / steps, cx = Math.floor(a.x + dx * t), cy = Math.floor(a.y + dy * t);
+    if (cx < 0 || cy < 0 || cx >= cols || cy >= cols) continue;
+    if (g[cy * cols + cx] === 1) return false;
+  }
+  return true;
+}
+
+/** Can the viewer see a point? Close by, or in the open within range (from a roof, over the walls). */
 export function sees(s: GameState, viewer: Player, at: Vec2): boolean {
   const d = dhypot(at.x - viewer.pos.x, at.y - viewer.pos.y);
   if (d <= NEAR) return true;
-  return d <= VIEW_RANGE && lineClear(s.map, viewer.pos, at, 0.3);
+  return d <= VIEW_RANGE && (viewer.roof !== null || sightClear(s.map, viewer.pos, at));
 }
 
 /** How far a noise carries, for the events that make one (0 if it is not a noise). */
@@ -169,6 +206,7 @@ export function viewFor(s: GameState, seat: number): PlayerView {
     zombies,
     corpses: s.corpses.filter((c) => sees(s, me, c.pos)),
     taken: s.pickups.map((p) => p.taken),
+    drops: s.drops.filter((d) => !d.taken).map((d) => ({ id: d.id, pos: d.pos })),
     opened: s.crates.map((c) => c.opened),
     searched: s.houses.map((h) => h.searched),
     tasks: s.tasks.map((t) => ({ id: t.id, done: t.done, ...(t.got ? { got: t.got.slice() } : {}), ...(t.targets ? { targets: t.targets.slice() } : {}) })),

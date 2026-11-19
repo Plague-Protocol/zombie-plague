@@ -66,8 +66,9 @@ never the reason to play. Where earning is possible it is a small bonus, not the
 3. A task chain unlocks the way out. Map → key is one example, not a fixed script; the
    chain is built per run from a pool of tasks (see below), with extra tasks in between.
 4. Zombie types (and later animals) hunt the player. The longer the run, the more the
-   city escalates (more zombies, louder, tougher types). In multiplayer, other players
-   can kill you until you are inside a safe zone.
+   city escalates (more zombies, louder, tougher types). In multiplayer the living cannot
+   hurt each other; the ones who turn hunt them, leading the infected, and an exit seat
+   goes only to a player who did one of the steps.
 5. Reach a safehouse in time with what it requires → saved, advance. Out of time or dead
    → eliminated.
 6. Tasks also earn in-game funds, spent at a weapon shop.

@@ -22,6 +22,7 @@ const UPPER_BONES = /^(Spine|Chest|UpperChest|Neck|Head|Left(Shoulder|Arm|ForeAr
 export type Mount = 'chest' | 'head' | 'hips';
 export const HEIGHT = 2.8; // world units; must match the core's scale (about 1.75 m)
 const TURN_RATE = 10; // rad/s: characters turn, they do not snap
+const TMP_V = new Vector3(), TMP_P = new Vector3(), TMP_Q1 = new Quaternion(), TMP_Q2 = new Quaternion(), TMP_Q3 = new Quaternion();
 
 interface ClipMeta { duration: number; loop: boolean; groundSpeed: number }
 
@@ -94,6 +95,11 @@ export class Actor {
   /** Where worn gear hangs: a frame on the bone, lined up with the body at rest, in world units. */
   private mounts = new Map<Mount, Object3D>();
   private body: SkinnedMesh | null = null;
+  /** Crouched on the move: knees bent, low over them (laid over the walk), and how far into it (eased). */
+  private crouchOn = false;
+  private crouchW = 0;
+  private legs: { hips: Object3D; spine: Object3D | null; neck: Object3D | null; sides: Array<[Object3D, Object3D, Object3D]> } | null = null;
+  private footRest = 0;
 
   constructor(private assets: CharacterAssets, skin: SkinName, withXray = false) {
     this.root = clone(assets.template);
@@ -128,7 +134,17 @@ export class Actor {
       bone.add(mount);
       this.mounts.set(slot, mount);
     }
+    const get = (n: string) => this.root.getObjectByName(n) ?? null;
+    const hips = get('Hips');
+    const sides = (['Left', 'Right'] as const).map((sd) => [get(`${sd}UpLeg`), get(`${sd}Leg`), get(`${sd}Foot`)]);
+    if (hips && sides.every((b) => b.every((x) => x))) {
+      this.legs = { hips, spine: get('Spine'), neck: get('Neck'), sides: sides as Array<[Object3D, Object3D, Object3D]> };
+      this.footRest = new Vector3().setFromMatrixPosition(sides[0]![2]!.matrixWorld).y - this.root.position.y;
+    }
   }
+
+  /** Crouch-walk (true) or upright (false); eased in and out over a few frames. */
+  crouch(on: boolean): void { this.crouchOn = on; }
 
   /** Wear something on the chest, head or hips (null takes it off). Built in world units around the
    * middle of that part, +z forward, +x to the character's left. `tag` names it, so a part can carry several things. */
@@ -274,7 +290,41 @@ export class Actor {
     this.yaw += Math.abs(d) <= maxTurn ? d : Math.sign(d) * maxTurn;
     this.root.position.set(x, 0, z);
     this.root.rotation.y = this.yaw;
-    if (animate) this.mixer.update(dt);
+    if (animate) { this.mixer.update(dt); this.bendLow(dt); }
+  }
+
+  /**
+   * Lay a crouch over whatever the legs are playing (the walk): thighs forward, knees bent, feet kept flat, the
+   * back leaning over them, and the hips let down until the lower foot is back on the ground. Rotations are about
+   * the character's own left-right axis, in world space, so they hold whatever the bones' own axes are.
+   */
+  private bendLow(dt: number): void {
+    this.crouchW += Math.max(-dt * 5, Math.min(dt * 5, (this.crouchOn ? 1 : 0) - this.crouchW));
+    const L = this.legs;
+    if (!L || this.crouchW < 0.01) return;
+    const w = this.crouchW;
+    const thigh = -0.95 * w, knee = 1.6 * w, lean = 0.3 * w; // radians: hip flexion, knee bend, back
+    this.root.updateMatrixWorld(true);
+    const rootQ = this.root.getWorldQuaternion(TMP_Q1);
+    const axis = TMP_V.set(1, 0, 0).applyQuaternion(rootQ); // the character's left
+    const turn = (b: Object3D, a: number) => {
+      const pq = b.parent!.getWorldQuaternion(TMP_Q2);
+      const r = TMP_Q3.setFromAxisAngle(axis, a);
+      b.quaternion.premultiply(pq.clone().invert().multiply(r).multiply(pq));
+      b.updateMatrixWorld(true);
+    };
+    if (L.spine) turn(L.spine, lean);
+    if (L.neck) turn(L.neck, -lean * 0.8); // eyes up, ahead
+    for (const [up, leg, foot] of L.sides) { turn(up, thigh); turn(leg, knee); turn(foot, -(thigh + knee)); }
+    let low = Infinity;
+    for (const [, , foot] of L.sides) low = Math.min(low, TMP_P.setFromMatrixPosition(foot.matrixWorld).y);
+    const drop = low - this.root.position.y - this.footRest;
+    if (drop > 0) {
+      const at = TMP_P.setFromMatrixPosition(L.hips.matrixWorld);
+      at.y -= drop;
+      L.hips.position.copy(L.hips.parent!.worldToLocal(at));
+      L.hips.updateMatrixWorld(true);
+    }
   }
 
   /** Swap the skin (pooled actors are reused for different zombies). */

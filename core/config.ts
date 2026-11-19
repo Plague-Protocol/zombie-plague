@@ -34,7 +34,7 @@ export const ATTACK_RANGE = 1.35; // starts a lunge
 export const ATTACK_REACH = 1.75; // the lunge lands if the player is still this close when it ends
 export const ATTACK_WINDUP = { walker: 0.6, runner: 0.4, screamer: 0.7, stalker: 0.45, crawler: 0.5, lasher: 0.85 } as const; // time to dodge
 export const ATTACK_COOLDOWN = 1.0;
-export const ATTACK_DAMAGE = 34; // three lunges and you are down
+export const ATTACK_DAMAGE = 34; // three lunges and you are barely standing (a close call), a fourth and you are down
 export const PLAYER_HEALTH = 100;
 export const HIT_INVULNERABLE = 1.2; // seconds after a hit
 export const KNOCKBACK = 7; // units/s shove away from the attacker
@@ -266,11 +266,17 @@ export const FALLEN_QUIET = 0.6; // and the quiet is shorter
 export const ROOM_PLAYERS_MAX = 8;
 export const ROOM_SECONDS = 420; // the round ends here whatever has happened
 export const EXIT_SEATS_SHARE = 0.5; // the exit has room for this share of the players who started (at least one)
-export const PVP_DAMAGE = 0.5; // what a bullet or a swing does to another living player, against what it does to a zombie
 export const SAFE_RADIUS = 12; // nobody can hurt anybody this close to the exit
-export const PVP_GRACE = 20; // seconds at the start with no friendly fire
 export const PVP_KILL_REWARD = 25;
 export const TARGET_HOLD = 2; // a zombie keeps to the player it chose for this long
+export const TARGET_SWITCH = 2; // ...unless another is this much nearer
+export const HORDE_RADIUS = 16; // zombies this close to a turned player follow them
+export const HORDE_PREY = 12; // and go for any living player the turned one gets this close to
+// ---- close calls: badly hurt, the night eases off a little (unsaid), so a chase ends in a near thing more often than a death
+export const MERCY_HEALTH = 0.35; // below this share of your health
+export const MERCY_DAMAGE = 0.6; // bites do this share (and cost the clock that much less)
+export const MERCY_INVULN = 1.6; // the moment after a bite lasts this much longer
+export const MERCY_SPEED = 0.9; // and they come on a touch slower
 export const TURNED_HEALTH = 100;
 export const TURNED_SIGHT = 30; // a turned player sees the living this far
 export const DOWN_SECONDS = 3; // out of health: lying still this long before turning
@@ -300,4 +306,4 @@ export const ZOMBIE_CLIMB_SECONDS = 2.6;
 /** From a roof your guns carry this much further. */
 export const ROOF_RANGE = 1.25;
 /** Ladders per district (on flat-roofed buildings, one each). */
-export const LADDERS = 10;
+export const LADDERS = 22;

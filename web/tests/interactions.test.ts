@@ -123,8 +123,9 @@ describe('searching houses', () => {
     g.player.pos = { ...h.pos };
     step(g, USE, DT);
     run(g, SEARCH_SECONDS + 0.2);
-    expect(g.zombies.length).toBe(1);
-    expect(g.zombies[0]!.action).not.toBe('dead');
+    const out = g.zombies.filter((z) => Math.hypot(z.pos.x - h.pos.x, z.pos.y - h.pos.y) < 6); // (not the guards an objective may get, far off)
+    expect(out.length).toBe(1);
+    expect(out[0]!.action).not.toBe('dead');
   });
 
   it('walking away calls the search off', () => {

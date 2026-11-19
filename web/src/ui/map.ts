@@ -72,8 +72,8 @@ export function markers(s: GameState): Marker[] {
   for (const st of s.stores) out.push({ pos: st.pos, color: '#ff4b4b', size: 6, shape: 'cash', label: 'Weapons' });
   for (const v of s.survivors) {
     if (v.status === 'done') continue;
-    out.push({ pos: v.pos, color: '#7fe08a', size: 6, shape: 'ring', label: v.name });
-    if (v.request === 'fetch' && v.status === 'asked' && !v.carrying) out.push({ pos: v.fetchPos, color: '#7fe08a', size: 4, shape: 'dot', label: `${v.name}'s bag` });
+    out.push({ pos: v.pos, color: '#7fe08a', size: 6, shape: 'ring', label: s.mode === 'room' ? 'Survivor' : v.name }); // (in a room a name would read as another player's)
+    if (v.request === 'fetch' && v.status === 'asked' && !v.carrying) out.push({ pos: v.fetchPos, color: '#7fe08a', size: 4, shape: 'dot', label: s.mode === 'room' ? 'Their bag' : `${v.name}'s bag` });
   }
   for (const h of s.houses) if (!h.searched) out.push({ pos: h.pos, color: h.mark === 'infected' ? '#e0483a' : h.mark === 'clear' ? '#f2f2ee' : '#8f9ab0', size: h.mark ? 2.6 : 2.2, shape: 'dot' });
   for (const a of s.abandoned) out.push({ pos: a.pos, color: '#c06a50', size: 3.5, shape: 'dot', label: a.name });
@@ -85,6 +85,7 @@ export function markers(s: GameState): Marker[] {
   for (const p of s.pickups) if (!p.taken && p.kind === 'jerrycan') out.push({ pos: p.pos, color: '#e05030', size: 3, shape: 'square' });
   for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan' && p.kind !== 'antiviral') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : p.kind === 'vest' || p.kind === 'helmet' ? '#8cc4ff' : '#f2d060', size: 3.5, shape: 'dot' });
   for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
+  for (const d of s.drops) if (!d.taken) out.push({ pos: d.pos, color: '#ffb347', size: 4.5, shape: 'square', label: 'Dropped kit' }); // rooms: what a turned player left
   for (const l of s.map.ladders) out.push({ pos: l.foot, color: '#d8b030', size: 3.4, shape: 'ladder', label: 'Ladder' }); // a way up
   return out;
 }
