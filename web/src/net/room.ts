@@ -213,6 +213,8 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
 
   /** The ZP stake picked for Join a public room and New private room (null: a free room), your balance, and the last refund. */
   let stake: number | null = null, zpHave: number | null = null, zpNote = '';
+  /** Which button the site's card asked for (it is drawn first, filled in): nothing is joined until it is pressed. */
+  const wanted = opts.act ?? 'quick';
   /** A ZP room joined by its code, waiting for the player to agree to its stake. */
   let joinAsk: Extract<ServerMsg, { t: 'confirm' }> | null = null;
   /** Players waiting in public rooms, by stake ('free' for none), refreshed while the menu is open. */
@@ -300,9 +302,9 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
           pick.append(b);
         }
         const tail = stake ? ` · ${stake} ZP` : '';
-        const quick = el('button', {}, `Join a public room${tail}`);
+        const quick = el('button', wanted === 'quick' ? {} : { class: 'ghost' }, `Join a public room${tail}`);
         quick.onclick = () => connect(() => send(stake ? { t: 'quick', zp: stake } : { t: 'quick' }));
-        const mk = el('button', { class: 'ghost' }, `New private room${tail}`);
+        const mk = el('button', wanted === 'create' ? {} : { class: 'ghost' }, `New private room${tail}`);
         mk.onclick = () => connect(() => send(stake ? { t: 'create', zp: stake } : { t: 'create' }));
         const code = el('input', { class: 'code', placeholder: 'CODE', maxlength: '5', value: invite ?? '' });
         const jn = el('button', { class: 'ghost' }, 'Join');
@@ -438,7 +440,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
 
   draw();
   if (invite && me) connect(() => send({ t: 'join', code: invite }));
-  else if (me && opts.act) { const t = opts.act; connect(() => send({ t })); } // the site's Quick play / Private room
+  // the site's Join a public room / Private room cards open the menu with that button first: the player picks a stake, then presses it
 }
 
 // ---------------------------------------------------------------- the round

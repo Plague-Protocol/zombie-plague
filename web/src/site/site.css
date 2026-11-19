@@ -4,6 +4,8 @@
   touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 72px); user-select: text; -webkit-user-select: text; }
 html.playing #app { display: none; }
+/* `hidden` always hides on the site, whatever display a class gives (the loading bar is flex, and stayed up after the game loaded) */
+#app [hidden] { display: none !important; }
 #app a { color: inherit; }
 #app button { touch-action: manipulation; }
 .wrap { width: min(1120px, 100%); margin: 0 auto; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); box-sizing: border-box; }
