@@ -219,7 +219,7 @@ const roomHost: Host = {
   },
 };
 /** The multiplayer lobby, over the site (it reads fine upright): straight into quick play or a new room if asked, or a room by its code. */
-export function openRooms(opts: { join?: string; act?: 'quick' | 'create' } = {}): void {
+export function openRooms(opts: { join?: string; act?: 'quick' | 'create' | 'staked' } = {}): void {
   startSound();
   void import('./net/room').then((m) => m.openLobby(roomHost, opts));
 }
@@ -501,7 +501,7 @@ function narrate(events: readonly GameEvent[]): void {
     const p = state.player.pos, close = (q: { x: number; y: number }, r: number) => Math.hypot(q.x - p.x, q.y - p.y) < r;
     if (!told.has('mark') && state.houses.some((h) => h.mark === 'infected' && !h.searched && close(h.pos, 6))) once('mark');
     if (!told.has('fallen') && state.inFallen) { hud.toast('This block has fallen.'); once('fallen'); }
-    if (!told.has('stalker') && state.zombies.some((z) => z.frozen && close(z.pos, 13))) once('stalker');
+    if (!told.has('stalker') && state.zombies.some((z) => z.frozen && close(z.pos, 13))) { hud.toast('Stalker: frozen in your light. Keep it lit, or put it down', 5000); once('stalker'); }
     for (const k of ['crawler', 'lasher'] as const) if (!told.has(k) && state.zombies.some((z) => z.kind === k && z.action !== 'dead' && close(z.pos, 9))) once(k);
     if (!told.has('husk') && state.zombies.some((z) => z.husk && z.action !== 'dead' && close(z.pos, 14))) once('husk');
   }

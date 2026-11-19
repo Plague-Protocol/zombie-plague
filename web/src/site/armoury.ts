@@ -55,7 +55,7 @@ export function mountArmoury(root: HTMLElement): void {
       <span class="muted">Earned today <b style="font-size:20px">${fmt(v.earnedToday)}</b> of ${fmt(v.dailyCap)}</span>
       ${v.cash < 0 ? '<span class="tag r">You owe from a loan: your next nights pay it back</span>' : ''}
     </div>
-    <p class="sub" style="margin-top:-8px">Every verified night banks a share of its score (practice nights half), the first night of the day adds ${DAILY_RATION}, and a multiplayer round pays ${ROUND_PAY.played}, plus ${ROUND_PAY.escaped} if you get out.</p>
+    <p class="sub" style="margin-top:-8px">Every verified night banks a share of its score (random cities half), the first night of the day adds ${DAILY_RATION}, and a multiplayer round pays ${ROUND_PAY.played}, plus ${ROUND_PAY.escaped} if you get out.</p>
 
     <div class="split">
       <div class="card">
@@ -63,11 +63,11 @@ export function mountArmoury(root: HTMLElement): void {
         <h3>What you carry in</h3>
         <div class="seg" style="grid-template-columns:1fr 1fr;margin:10px 0 14px">
           <button type="button" data-a="slot:ranked" class="${slot === 'ranked' ? 'on' : ''}">Ranked &middot; ${loadoutPoints(draft.ranked)}/${RANKED_POINTS} pts</button>
-          <button type="button" data-a="slot:open" class="${slot === 'open' ? 'on' : ''}">Practice &middot; no limit</button>
+          <button type="button" data-a="slot:open" class="${slot === 'open' ? 'on' : ''}">Random city &middot; no limit</button>
         </div>
         <p class="slotnote">${slot === 'ranked'
           ? `<b>Used for today's city and multiplayer rooms</b>, the nights that count on the leaderboard. To keep it fair, everyone gets the same ${RANKED_POINTS} points to spend on what they own: owning more gives you choice, not more power.`
-          : '<b>Used for practice nights</b>: a random city that is not on the leaderboard. Bring anything you own, with no points limit, to try kit out or learn the streets. Practice nights bank half the ZP.'}</p>
+          : '<b>Used for random cities</b>: a new city every time, not on the leaderboard. Bring anything you own, with no points limit, to try kit out or learn the streets. Random cities bank half the ZP.'}</p>
         <div class="ph">Survivor</div>
         <div class="who">${mine.map((id) => `<button type="button" class="face${who === id ? ' on' : ''}" data-a="sv:${id}" title="${esc(ROSTER[id].perk)}"><img src="/survivors/${id}.webp" alt="" width="60" height="72" /><span>${SURVIVORS[id].name}</span></button>`).join('')}</div>
         <label class="ups" style="margin:8px 0 14px">${SURVIVORS[who].name}'s perk<select data-a="grit">${Array.from({ length: svLevel(v.owned, who) }, (_, k) => `<option value="${k}"${grit === k ? ' selected' : ''}>${k ? `Level ${k}: ${perkAt(who, k)} (${k} pt${k > 1 ? 's' : ''})` : `Base: ${perkAt(who, 0)}`}</option>`).join('')}</select></label>

@@ -69,7 +69,7 @@ export const home: Page = {
   <div class="wrap page">
     ${me ? `<div class="status" data-k="status"><span class="k">Your night</span><span class="muted">Loading your standing&hellip;</span></div>` : ''}
     <div class="tiles" style="margin-top:${me ? 18 : 0}px">
-      <a class="tile" href="/play"><span class="ico">${ICON.play}</span><h3>Play</h3><p>Today's city &middot; Public rooms &middot; Private rooms &middot; Practice</p><span class="go">${ICON.chev}</span></a>
+      <a class="tile" href="/play"><span class="ico">${ICON.play}</span><h3>Play</h3><p>Today's city &middot; Public rooms &middot; Private rooms &middot; Random city</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/ranks"><span class="ico a">${ICON.trophy}</span><h3>Ranks</h3><p>Today &middot; This week &middot; Streaks &middot; Rooms</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/profile"><span class="ico b">${ICON.user}</span><h3>Profile</h3><p>${me ? 'Your name, your standing, your last nights' : 'Sign in to keep a record'}</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/how-to-play"><span class="ico g">${ICON.book}</span><h3>How to play</h3><p>The night &middot; The controls &middot; Scoring &middot; Questions</p><span class="go">${ICON.chev}</span></a>
@@ -151,7 +151,7 @@ export const play: Page = {
       <button class="mode" type="button" data-play="create" disabled><span class="ico p">${ICON.door}</span><span class="body"><h3>Private room ${needsSignIn()}</h3><p>Multiplayer, friends only: make a room, then share its five-letter code or an invite link</p></span>${ICON.chev}</button>
       <div class="mode" style="cursor:default"><span class="ico b">${ICON.key}</span><span class="body"><h3>Join with a code</h3><p>A friend read out their room's code? Type it here.</p>
         <form data-join><input name="code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" aria-label="Room code" /><button class="btn sm" type="submit" disabled data-play="join">Join</button></form></span></div>
-      <button class="mode" type="button" data-play="practice" disabled><span class="ico g">${ICON.dice}</span><span class="body"><h3>Practice night <span class="tag m">Not ranked</span></h3><p>A city nobody else has, with your open loadout. Learn the streets without it counting.</p>${carrying('open')}</span>${ICON.chev}</button>
+      <button class="mode" type="button" data-play="practice" disabled><span class="ico g">${ICON.dice}</span><span class="body"><h3>Random city <span class="tag m">Not ranked</span></h3><p>A new city every time, with everything you own and no points limit. Pays half the ZP, and is not on the board.</p>${carrying('open')}</span>${ICON.chev}</button>
       <button class="mode" type="button" data-play="rooms" disabled data-k="staked"><span class="ico a">${ICON.coin}</span><span class="body"><h3>Staked rooms ${needsSignIn()}<span class="tag g">ZP</span>${stakingOn ? '<span class="tag">USDm &middot; USDT</span>' : ''}</h3><p>Everyone stakes the same and those who get out split the pot. Stake ZP from 50 a seat${stakingOn ? ', or real USDm and USDT on Celo from a wallet' : ''}.</p></span>${ICON.chev}</button>
     </div>
     <div class="sec grid">
@@ -333,7 +333,7 @@ export const how: Page = {
     <div class="split">
       <div class="card"><div class="ph">The goal</div><h3>Get out before you turn</h3>
         <ol class="steps"><li><b>Do the district's jobs.</b> The yellow arrow and the ring on your map show the next one.</li><li><b>Find the way out.</b> It opens once the required jobs are done: the subway, the barricade gate, the landing zone.</li><li><b>Watch the clock.</b> It is your infection. Bites take time off; antiviral doses put it back.</li></ol></div>
-      <div class="card"><div class="ph">Every day</div><h3>A new city, the same for everyone</h3><p>Today's streets, houses and stores are laid out the same for every player, so the board is a fair fight. Practice nights are random and do not count.</p></div>
+      <div class="card"><div class="ph">Every day</div><h3>A new city, the same for everyone</h3><p>Today's streets, houses and stores are laid out the same for every player, so the board is a fair fight. A random city is new every time and does not count.</p></div>
     </div>
     <div class="sec"><div class="kicker">The night</div><h2 class="ph2">Three districts</h2><div class="grid three">${DISTRICTS}</div></div>
     <div class="sec"><div class="kicker">What is out there</div><h2 class="ph2">The city plays back</h2><div class="grid three">${THREATS}</div></div>
@@ -356,7 +356,7 @@ export const how: Page = {
       <details><summary>Is it free?</summary><p>Yes. Guests get about three minutes before the game asks for a (free) sign-in. Scrap (what you find and spend during a night) and ZP (what you bank between nights) are game currencies: neither is money and neither can be withdrawn. Crypto staked rooms, when they open, are the only part that uses real money, and they are optional.</p></details>
       <details><summary>Why do I have to turn my phone?</summary><p>The streets need the width, and the controls need both thumbs. The site itself works upright; only the game asks you to turn.</p></details>
       <details><summary>How do I get full screen on iPhone?</summary><p>Safari will not let a web page hide its bars. Tap Share, then Add to Home Screen, and play from the new icon: it opens full screen.</p></details>
-      <details><summary>What is the Armoury?</summary><p>Where you spend the ZP your nights and rounds bank: weapons, gear and supplies you keep, upgrades, and survivors with perks. You choose a loadout for ranked nights (everyone gets the same 8 points, so it is choice, not power) and one for practice. Rooms use your ranked loadout. You can borrow kit for a night, and top up with USDm where it is open. ZP stays in the game: it is never paid out.</p></details>
+      <details><summary>What is the Armoury?</summary><p>Where you spend the ZP your nights and rounds bank: weapons, gear and supplies you keep, upgrades, and survivors with perks. You choose a loadout for ranked nights (everyone gets the same 8 points, so it is choice, not power) and one for random cities. Rooms use your ranked loadout. You can borrow kit for a night, and top up with USDm where it is open. ZP stays in the game: it is never paid out.</p></details>
       <details><summary>Can someone fake a score?</summary><p>Every run is sent as the inputs that made it, and the server plays it again before it counts. A run that does not replay to the same result is not on the board.</p></details>
       <details><summary>Where is my progress kept?</summary><p>Signed in, on the server: your runs, your standing and your last self. As a guest, only on this device.</p></details>
     </div>

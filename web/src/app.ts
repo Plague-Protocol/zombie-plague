@@ -132,7 +132,7 @@ app.addEventListener('click', (e) => {
   const k = btn.dataset.play;
   if (k === 'solo' || k === 'practice') game.playSolo(k === 'practice');
   else if (k === 'quick' || k === 'create') game.openRooms({ act: k });
-  else game.openRooms();
+  else game.openRooms({ act: 'staked' });
 });
 app.addEventListener('submit', (e) => {
   const form = (e.target as HTMLElement).closest<HTMLFormElement>('[data-join]');

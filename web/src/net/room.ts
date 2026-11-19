@@ -58,28 +58,62 @@ const httpUrl = (ws: string) => ws.replace(/^ws/, 'http');
 // ---------------------------------------------------------------- the lobby
 
 const CSS = `
-#mp { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px;
-  background: rgba(4,6,10,.94); font-family: 'VT323', monospace; color: #d4c9b2; text-align: center; padding: 24px; }
-#mp h2 { margin: 0; font-family: 'Eater', system-ui, sans-serif; font-weight: 400; font-size: clamp(30px, 7vw, 56px); letter-spacing: .06em; text-shadow: 0 0 24px rgba(230,51,41,.45); }
-#mp p { margin: 0; color: #7d9a72; letter-spacing: .12em; text-transform: uppercase; font-size: 18px; }
-#mp .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center; }
-#mp input { font: inherit; font-size: 22px; background: #0b0f0b; color: #d4c9b2; border: 2px solid #3d5a2a; border-radius: 6px; padding: 6px 10px; width: 9em; text-align: center; text-transform: none; }
-#mp input.link { width: min(30em, 92vw); font-size: 15px; text-align: left; }
-#mp input.code { text-transform: uppercase; letter-spacing: .3em; width: 5.5em; }
-#mp button { font: inherit; font-size: 22px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; padding: 7px 24px; border: 2px solid #6b8e23; border-radius: 6px;
-  background: #6b8e23; color: #060b06; cursor: pointer; }
-#mp button.ghost { background: transparent; color: #a8c46a; }
-#mp button:disabled { opacity: .4; cursor: default; }
-#mp .code-big { font-size: clamp(40px, 10vw, 72px); letter-spacing: .35em; text-indent: .35em; color: #e8e0cc; }
-#mp ul { list-style: none; margin: 0; padding: 0; min-width: 16em; text-align: left; font-size: 22px; }
-#mp li { padding: 3px 10px; border-bottom: 1px solid #1c2a18; }
-#mp li.off { opacity: .4; }
-#mp li b { color: #e0483a; font-weight: 400; }
-#mp .err { color: #e0483a; min-height: 1.2em; }
-#mp small { color: #7a8a72; font-size: 16px; }
-#mp .stakes button { font-size: 17px; padding: 4px 12px; letter-spacing: .08em; }
-#mp .stakes button.on { background: #6b8e23; color: #0b0f0b; }
-#mp p.pot { color: #e8c86a; }
+#mp { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; padding: 20px 16px;
+  background: radial-gradient(ellipse at 50% 30%, rgba(40,10,8,.55), rgba(4,6,4,.96) 70%); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  font: 16px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif; color: #d4c9b2; overflow-y: auto; }
+#mp .mp-card { width: min(520px, 100%); margin: auto; display: flex; flex-direction: column; gap: 16px; padding: 26px 24px 20px; border-radius: 16px;
+  background: linear-gradient(180deg, #0e160d, #070b07); border: 1px solid rgba(107,142,35,.3); box-shadow: 0 24px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(0,0,0,.4) inset; }
+#mp .mp-kicker { font: 15px 'VT323', monospace; letter-spacing: .28em; text-transform: uppercase; color: #e0483a; }
+#mp h2 { margin: -6px 0 0; font: 400 clamp(28px, 6vw, 38px)/1.1 'Eater', system-ui, sans-serif; letter-spacing: .03em; color: #efe6d2; text-shadow: 0 0 18px rgba(230,51,41,.35); }
+#mp .mp-lead { margin: -6px 0 0; color: #a0b294; }
+#mp .mp-label { font: 15px 'VT323', monospace; letter-spacing: .2em; text-transform: uppercase; color: #6b8e23; margin-bottom: 8px; }
+#mp .mp-chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+#mp .mp-chip { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 9px 6px; border-radius: 10px; cursor: pointer; font: inherit;
+  background: #0b110a; border: 1px solid rgba(107,142,35,.35); color: #d4c9b2; }
+#mp .mp-chip b { font: 22px/1 'VT323', monospace; letter-spacing: .06em; color: #efe6d2; }
+#mp .mp-chip small { font-size: 12px; color: #7d9a72; }
+#mp .mp-chip.on { background: rgba(107,142,35,.22); border-color: #9bd34a; box-shadow: 0 0 0 1px #9bd34a inset; }
+#mp .mp-chip.on small { color: #c8e07a; }
+#mp .mp-chip:disabled { opacity: .35; cursor: default; }
+#mp .mp-note { padding: 11px 13px; border-radius: 10px; background: rgba(107,142,35,.07); border: 1px solid rgba(107,142,35,.18); color: #b5c4a8; font-size: 14px; }
+#mp .mp-note b { color: #efe6d2; font-weight: 600; }
+#mp .mp-note.gold { background: rgba(242,182,48,.07); border-color: rgba(242,182,48,.25); }
+#mp .mp-btn { font: 700 22px 'VT323', monospace; letter-spacing: .16em; text-transform: uppercase; padding: 11px 18px; border-radius: 10px; cursor: pointer;
+  border: 2px solid #6b8e23; background: #6b8e23; color: #060b06; width: 100%; }
+#mp .mp-btn:not(:disabled):hover { filter: brightness(1.1); }
+#mp .mp-btn.ghost { background: transparent; color: #b5d07a; }
+#mp .mp-btn:disabled { opacity: .4; cursor: default; }
+#mp .mp-row { display: flex; gap: 10px; } #mp .mp-row > * { flex: 1; }
+#mp .mp-row .mp-btn { font-size: 19px; letter-spacing: .1em; padding: 11px 10px; white-space: nowrap; }
+#mp .mp-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 4px; border-top: 1px solid rgba(107,142,35,.15); }
+#mp .mp-link { background: none; border: 0; padding: 6px 0; font: 17px 'VT323', monospace; letter-spacing: .12em; text-transform: uppercase; color: #a0bb94; cursor: pointer; }
+#mp .mp-link:hover { color: #efe6d2; }
+#mp .mp-bal { font: 17px 'VT323', monospace; letter-spacing: .08em; color: #7d9a72; } #mp .mp-bal b { color: #e8c86a; font-weight: 400; }
+#mp .mp-tabs { display: flex; gap: 6px; padding: 4px; border-radius: 10px; background: #0a0f09; border: 1px solid rgba(107,142,35,.2); }
+#mp .mp-tabs button { flex: 1; font: 18px 'VT323', monospace; letter-spacing: .14em; text-transform: uppercase; padding: 6px; border: 0; border-radius: 7px; background: none; color: #8fa785; cursor: pointer; }
+#mp .mp-tabs button.on { background: #6b8e23; color: #060b06; }
+#mp input { font: inherit; background: #0b0f0b; color: #efe6d2; border: 1px solid rgba(107,142,35,.45); border-radius: 8px; padding: 9px 11px; width: 100%; min-width: 0; }
+#mp input.link { font-size: 13px; }
+#mp input.code { text-transform: uppercase; letter-spacing: .3em; font-family: 'VT323', monospace; font-size: 22px; text-align: center; }
+#mp .mp-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #8fa785; }
+#mp .mp-code { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+#mp .mp-code b { font: 400 clamp(40px, 11vw, 60px)/1 'VT323', monospace; letter-spacing: .3em; color: #efe6d2; }
+#mp .mp-status { font: 18px 'VT323', monospace; letter-spacing: .1em; color: #c8e07a; text-align: right; }
+#mp .mp-status.wait { color: #e8c86a; }
+#mp .mp-seats { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+#mp .mp-seats li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px; background: #0b110a; border: 1px solid rgba(107,142,35,.15); }
+#mp .mp-seats li.off { opacity: .45; }
+#mp .mp-seats .av { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font: 600 13px system-ui; color: #060b06; background: #8fb34a; }
+#mp .mp-seats .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #efe6d2; }
+#mp .mp-seats .tg { font: 14px 'VT323', monospace; letter-spacing: .14em; text-transform: uppercase; color: #8fa785; }
+#mp .mp-seats li.empty { justify-content: center; color: #5d6f55; border-style: dashed; font-size: 13px; }
+#mp .err { color: #ff7a6b; font-size: 14px; } #mp .err:empty { display: none; }
+#mp .ok { color: #c8e07a; font-size: 14px; }
+#mp .quiet { border: 1px dashed rgba(107,142,35,.4); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+#mp .quiet b { color: #efe6d2; }
+#mp .mp-spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(155,211,74,.3); border-top-color: #9bd34a; border-radius: 50%; animation: mp-spin .8s linear infinite; vertical-align: -2px; margin-right: 8px; }
+@keyframes mp-spin { to { transform: rotate(360deg); } }
+@media (max-width: 420px) { #mp .mp-card { padding: 20px 16px 16px; } #mp .mp-row { flex-direction: column; } }
 #roomend p.won { color: #9bd34a; }
 #mp .quiet { border: 1px dashed #3d5a2a; border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: min(34em, 92vw); text-align: center; }
 #mp-wait { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 45; display: flex; gap: 12px; align-items: center; padding: 8px 10px 8px 16px;
@@ -123,7 +157,7 @@ const ZP_STAKES = [50, 100, 250, 500, 1000] as const;
 const RETRY = new Set(['not-staked', 'no-room', 'no-chain']);
 
 /** The lobby: choose a name, make or join a room, wait for the others, go. Resolves when the round begins. */
-export function openLobby(host: Host, opts: { join?: string; staked?: string; act?: 'quick' | 'create' } = {}): void {
+export function openLobby(host: Host, opts: { join?: string; staked?: string; act?: 'quick' | 'create' | 'staked' } = {}): void {
   if (!document.getElementById('mp-css')) document.head.appendChild(el('style', { id: 'mp-css' }, CSS));
   const root = el('div', { id: 'mp' });
   document.body.appendChild(root);
@@ -213,8 +247,10 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
 
   /** The ZP stake picked for Join a public room and New private room (null: a free room), your balance, and the last refund. */
   let stake: number | null = null, zpHave: number | null = null, zpNote = '';
-  /** Which button the site's card asked for (it is drawn first, filled in): nothing is joined until it is pressed. */
-  const wanted = opts.act ?? 'quick';
+  /** Which card opened the lobby: its screen shows only that way to play (Back returns to the Play page for another). */
+  const mode: 'quick' | 'create' | 'staked' | 'join' = invite || opts.join ? 'join' : opts.act ?? (stakedInvite ? 'staked' : 'quick');
+  /** On Staked rooms: ZP, or the crypto stakes (when the server and this browser can do them). */
+  let tab: 'zp' | 'crypto' = stakedInvite ? 'crypto' : 'zp';
   /** A ZP room joined by its code, waiting for the player to agree to its stake. */
   let joinAsk: Extract<ServerMsg, { t: 'confirm' }> | null = null;
   /** Players waiting in public rooms, by stake ('free' for none), refreshed while the menu is open. */
@@ -253,162 +289,232 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
     if (joined && n > 1) host.toast('Someone joined your room');
   }
 
+  /** A panel: what the screen is about, then its parts. */
+  function card(kicker: string, title: string, lead?: string): HTMLDivElement {
+    const c = el('div', { class: 'mp-card' });
+    c.append(el('div', { class: 'mp-kicker' }, kicker), el('h2', {}, title));
+    if (lead) c.append(el('p', { class: 'mp-lead' }, lead));
+    root.append(c);
+    return c;
+  }
+  const btn = (text: string, ghost = false) => el('button', { class: ghost ? 'mp-btn ghost' : 'mp-btn' }, text);
+  /** Back to the site's Play page, to choose a different way to play. */
+  const backTo = () => { const b = el('button', { class: 'mp-link' }, '← Back to Play'); b.onclick = () => { ws?.close(); root.remove(); if (soloOn) host.holdSolo(false); }; return b; };
+  function foot(c: HTMLElement): void {
+    const f = el('div', { class: 'mp-foot' });
+    const b = el('span', { class: 'mp-bal' });
+    if (zpHave !== null) { b.textContent = 'You have '; b.append(el('b', {}, `${zpHave.toLocaleString()} ZP`)); }
+    f.append(backTo(), b);
+    c.append(el('div', { class: 'err' }, err), f);
+  }
+  /** The stakes, as chips: free (unless `zpOnly`) and each ZP stake, with how many wait at it; the ones you cannot cover are off. */
+  function stakeChips(c: HTMLElement, zpOnly: boolean): void {
+    const sec = el('div');
+    sec.append(el('div', { class: 'mp-label' }, 'Stake'));
+    const grid = el('div', { class: 'mp-chips' });
+    for (const v of zpOnly ? ZP_STAKES : [null, ...ZP_STAKES]) {
+      const n = waitingBy[v === null ? 'free' : String(v)] ?? 0;
+      const short = v !== null && zpHave !== null && zpHave < v;
+      const b = el('button', { class: `mp-chip${stake === v ? ' on' : ''}` });
+      b.append(el('b', {}, v === null ? 'Free' : `${v} ZP`), el('small', {}, short ? `need ${(v! - zpHave!).toLocaleString()} more` : v === null ? 'nothing at stake' : mode === 'create' ? 'a seat' : n ? `${n} waiting` : 'open a room'));
+      if (short) b.disabled = true;
+      b.onclick = () => { stake = v; zpNote = ''; draw(); };
+      grid.append(b);
+    }
+    sec.append(grid);
+    c.append(sec);
+  }
+  const stakeNote = (c: HTMLElement) => {
+    const n = el('div', { class: `mp-note${stake ? ' gold' : ''}` });
+    n.innerHTML = stake
+      ? `Everyone stakes <b>${stake} ZP</b>. Those who get out split the pot, less 5%. If nobody gets out, every stake comes back, and leaving before the start gives yours back.`
+      : 'A <b>free room</b>: nothing at stake, just the night. 2 to 8 players, and the way out has seats for half of you.';
+    c.append(n);
+    if (zpNote) c.append(el('div', { class: 'ok' }, zpNote));
+  };
+  /** Rooms are for signed-in players: the ways to sign in this browser has. */
+  function signInPanel(c: HTMLElement): void {
+    c.append(el('div', { class: 'mp-note' }, invite ? `You were invited to room ${invite}. Sign in to join it: it is free.` : 'Rooms are for signed-in players, so your name is on the board and your seat waits if you drop. It is free.'));
+    const signedIn = (a: Account) => { me = a; ws?.close(); ws = null; if (invite) { const code = invite; connect(() => send({ t: 'join', code })); } void import('../site/kit').then((k) => k.armoury()).then((x) => { if (x) zpHave = x.cash; draw(); }); draw(); };
+    if ((window as unknown as { ethereum?: unknown }).ethereum) {
+      const si = btn('Sign in with wallet');
+      si.onclick = async () => { si.disabled = true; try { signedIn(await signIn(httpUrl(url))); } catch (e) { err = e instanceof Error ? e.message : 'Sign-in failed.'; draw(); } };
+      c.append(si);
+    }
+    if (socialAvailable()) {
+      for (const how of ['google', 'passkey'] as const) {
+        const b = btn(how === 'google' ? 'Sign in with Google' : 'Sign in with a passkey', true);
+        b.onclick = async () => { b.disabled = true; try { signedIn(await signInSocial(httpUrl(url), how)); } catch (e) { err = e instanceof Error ? e.message : 'Sign-in failed.'; draw(); } };
+        c.append(b);
+      }
+    }
+  }
+
   function draw(): void {
     root.replaceChildren();
-    root.append(el('h2', {}, 'Multiplayer'));
     if (!roomInfo && joinAsk) {
       // a ZP room by its code: say what it costs before anything is taken
       const a = joinAsk;
-      root.append(el('p', {}, `Room ${a.code} is a ZP room`), el('div', { class: 'code-big' }, `${a.zp} ZP`),
-        el('small', {}, `Everyone stakes ${a.zp} ZP. ${a.seats} in it now, pot ${a.pot.toLocaleString()} ZP. Those who get out split the pot, less 5%; if nobody gets out, every stake comes back. Leaving before the start gives yours back.${zpHave !== null ? ` You have ${zpHave.toLocaleString()} ZP.` : ''}`));
-      const yes = el('button', {}, `Stake ${a.zp} ZP and join`);
-      if (zpHave !== null && zpHave < a.zp) yes.disabled = true;
+      const c = card(`Room ${a.code}`, `Stake ${a.zp} ZP to join`, `${a.seats} ${a.seats === 1 ? 'player is' : 'players are'} in it now. The pot is ${a.pot.toLocaleString()} ZP and grows with every seat.`);
+      const n = el('div', { class: 'mp-note gold' });
+      n.innerHTML = `Everyone stakes <b>${a.zp} ZP</b>. Those who get out split the pot, less 5%. If nobody gets out, every stake comes back. Leaving before the start gives yours back.`;
+      c.append(n);
+      const yes = btn(`Stake ${a.zp} ZP and join`);
+      if (zpHave !== null && zpHave < a.zp) { yes.disabled = true; yes.textContent = `You need ${a.zp - zpHave} more ZP`; }
       yes.onclick = () => { joinAsk = null; connect(() => send({ t: 'join', code: a.code, zp: a.zp })); draw(); };
-      const no = el('button', { class: 'ghost' }, 'Not now');
-      no.onclick = () => { joinAsk = null; draw(); };
-      root.append(yes, no, el('div', { class: 'err' }, err));
+      c.append(yes);
+      foot(c);
       return;
     }
     if (!roomInfo) {
-      root.append(el('p', {}, 'Survive together. Not everyone gets out.'));
-      if (!me) {
-        // rooms are for signed-in players only (the server refuses guests too): a name on the board, a seat to come back to
-        root.append(el('small', {}, invite ? `You were invited to room ${invite}. Sign in to join it.` : 'Sign in to play with others. It is free.'));
-        const signedIn = (a: Account) => { me = a; ws?.close(); ws = null; if (invite) { const c = invite; connect(() => send({ t: 'join', code: c })); } draw(); };
-        if ((window as unknown as { ethereum?: unknown }).ethereum) {
-          const si = el('button', {}, 'Sign in with wallet');
-          si.onclick = async () => { si.disabled = true; try { signedIn(await signIn(httpUrl(url))); } catch (e) { err = e instanceof Error ? e.message : 'Sign-in failed.'; draw(); } };
-          root.append(si);
-        }
-        if (socialAvailable()) {
-          for (const how of ['google', 'passkey'] as const) {
-            const b = el('button', { class: 'ghost' }, how === 'google' ? 'Sign in with Google' : 'Sign in with a passkey');
-            b.onclick = async () => { b.disabled = true; try { signedIn(await signInSocial(httpUrl(url), how)); } catch (e) { err = e instanceof Error ? e.message : 'Sign-in failed.'; draw(); } };
-            root.append(b);
-          }
-        }
-      } else {
-        // the server seats you under your username when you have one: only an account without one is asked
-        const nm = me.name ? null : el('input', { placeholder: 'Your name', maxlength: '20', value: name() });
-        nm?.addEventListener('input', () => localStorage.setItem(KEY_NAME, nm.value.trim()));
-        // what to stake: nothing (a free room) or ZP, the game's currency; those who get out split the pot
-        const pick = el('div', { class: 'row stakes' });
-        pick.append(el('small', {}, 'Stake'));
-        for (const v of [null, ...ZP_STAKES]) {
-          const n = waitingBy[v === null ? 'free' : String(v)] ?? 0;
-          const b = el('button', { class: stake === v ? 'on' : 'ghost' }, `${v === null ? 'Free' : `${v} ZP`}${n ? ` · ${n} waiting` : ''}`);
-          if (v !== null && zpHave !== null && zpHave < v) b.disabled = true;
-          b.onclick = () => { stake = v; zpNote = ''; draw(); };
-          pick.append(b);
-        }
-        const tail = stake ? ` · ${stake} ZP` : '';
-        const quick = el('button', wanted === 'quick' ? {} : { class: 'ghost' }, `Join a public room${tail}`);
-        quick.onclick = () => connect(() => send(stake ? { t: 'quick', zp: stake } : { t: 'quick' }));
-        const mk = el('button', wanted === 'create' ? {} : { class: 'ghost' }, `New private room${tail}`);
-        mk.onclick = () => connect(() => send(stake ? { t: 'create', zp: stake } : { t: 'create' }));
-        const code = el('input', { class: 'code', placeholder: 'CODE', maxlength: '5', value: invite ?? '' });
-        const jn = el('button', { class: 'ghost' }, 'Join');
-        jn.onclick = () => { if (code.value.trim().length === 5) connect(() => send({ t: 'join', code: code.value.trim() })); };
-        const row = el('div', { class: 'row' });
-        row.append(code, jn);
-        if (nm) root.append(nm);
-        root.append(pick, el('small', {}, stake
-          ? `Everyone stakes ${stake} ZP. Those who get out split the pot, less 5%. If nobody gets out, everyone gets their stake back.${zpHave !== null ? ` You have ${zpHave.toLocaleString()} ZP.` : ''}`
-          : `A free room: nothing at stake.${zpHave !== null ? ` You have ${zpHave.toLocaleString()} ZP to stake.` : ''}`));
-        if (zpNote) root.append(el('p', {}, zpNote));
-        root.append(quick, mk, row, el('small', {}, `Signed in${me.name ? ` as ${me.name}` : ''}. A public room puts you with whoever is waiting; a private room is joined by its code or your invite link.`));
+      if (mode === 'join') {
+        // a code typed on the Play page, or an invite link: on the way in (or the reason it did not work)
+        const c = card('Join with a code', invite ? `Room ${invite}` : 'Join a room');
+        if (!me) signInPanel(c);
+        else if (!err) { const w = el('div', { class: 'mp-note' }); w.append(el('span', { class: 'mp-spin' }), document.createTextNode('Joining…')); c.append(w); }
+        foot(c);
+        return;
       }
-      root.append(el('small', {}, 'Free rooms. 2 to 8 players, one exit with seats for half of you.'));
-      if (stacks.length && me && (window as unknown as { ethereum?: unknown }).ethereum) {
-        const cur = stacks[pick]!, unit = cur.symbol;
-        root.append(el('p', {}, 'Staked rooms'));
-        if (stacks.length > 1) { // USDm or USDT: each has its own contract, and its own room numbers
-          const tok = el('div', { class: 'row' });
-          stacks.forEach((c, i) => { const b = el('button', { class: i === pick ? '' : 'ghost' }, c.symbol); b.onclick = () => { pick = i; draw(); }; tok.append(b); });
-          root.append(tok);
-        }
-        const amt = el('input', { placeholder: 'Stake', value: '0.05', inputmode: 'decimal' });
-        const size = el('input', { placeholder: 'Players', value: '4', inputmode: 'numeric', maxlength: '1' });
-        const mkS = el('button', {}, 'New staked room');
-        mkS.disabled = note !== '';
-        mkS.onclick = () => void chainStep('Confirm in your wallet…', async (m, cfg) => {
-          const n = Number(size.value);
-          if (!(n >= 2 && n <= 8)) throw new Error('2 to 8 players.');
-          const id = await m.createStaked(cfg, n, m.parseAmount(amt.value, cfg.decimals));
-          note = 'Taking your seat…'; seatIn(cfg.symbol, id);
-        });
-        const idIn = el('input', { class: 'code', placeholder: 'ROOM #', maxlength: '12', inputmode: 'numeric', value: stakedInvite && stakedInvite.symbol === unit ? stakedInvite.id : '' });
-        const jnS = el('button', { class: 'ghost' }, 'Join');
-        jnS.disabled = note !== '';
-        jnS.onclick = () => void chainStep('Confirm in your wallet…', async (m, cfg) => {
-          if (!/^\d{1,12}$/.test(idIn.value.trim())) throw new Error('Enter the room number.');
-          const id = BigInt(idIn.value.trim());
-          await m.joinStaked(cfg, id);
-          note = 'Taking your seat…'; seatIn(cfg.symbol, id);
-        });
-        const r3 = el('div', { class: 'row' });
-        r3.append(idIn, jnS);
-        const sizes = el('div', { class: 'row' });
-        sizes.append(el('small', {}, `Stake (${unit})`), amt, el('small', {}, 'Players'), size);
-        root.append(sizes, mkS, r3, el('small', {}, 'You can lose your stake. Players who get out split the pot less a 1.5% fee; if nobody gets out, everyone is refunded. The server plays the round, not a person, and the whole round is kept so it can be checked.'));
-        if (note) root.append(el('p', {}, note));
-      }
-    } else {
-      const r = roomInfo;
-      root.append(el('p', {}, r.onChain ? `Staked room (${r.stack ?? ''})` : r.public ? 'Public room · code' : 'Private room · code'), el('div', { class: 'code-big' }, r.onChain ? `#${r.onChain}` : r.code));
-      if (!r.onChain && r.state === 'lobby') root.append(el('small', {}, `${r.seats.length} of ${ROOM_PLAYERS_MAX} · ${r.seats.length < 2 ? 'waiting for players' : 'ready when the host is'}`));
-      if (r.zp) root.append(el('p', { class: 'pot' }, `${r.zp} ZP each · pot ${(r.pot ?? 0).toLocaleString()} ZP`), el('small', {}, 'Those who get out split the pot, less 5%. Nobody out: every stake back. Leaving before the start gives yours back.'));
-      const list = el('ul');
-      for (const s of r.seats as SeatInfo[]) {
-        const li = el('li', s.connected ? {} : { class: 'off' }, `${s.name}${s.signedIn ? ' ✓' : ''}${s.seat === r.you ? ' (you)' : ''}${s.seat === r.host ? ' — host' : ''}`);
-        list.append(li);
-      }
-      root.append(list);
-      if (r.startsIn !== null) root.append(el('p', {}, `Starting in ${r.startsIn}…`));
-      const host_ = r.you === r.host;
-      const start = el('button', {}, host_ ? 'Start' : 'Waiting for the host');
-      start.disabled = !host_ || r.seats.length < 2 || note !== '';
-      start.onclick = () => { if (r.onChain) void chainStep('Confirm in your wallet…', (m, cfg) => m.startStaked(cfg, BigInt(r.onChain!)), r.stack); else send({ t: 'start' }); };
-      const leave = el('button', { class: 'ghost' }, 'Leave');
-      leave.onclick = () => {
-        send({ t: 'leave' }); roomInfo = null; watchQuiet();
-        if (r.onChain) { // a waiting room hands the stake back: the host cancels it, anyone else leaves it
-          void chainStep('Getting your stake back…', (m, cfg) => (host_ ? m.cancelStaked(cfg, BigInt(r.onChain!)) : m.leaveStaked(cfg, BigInt(r.onChain!))), r.stack);
-        } else draw();
+      const titles: Record<typeof mode, [string, string]> = {
+        quick: ['Join a public room', 'We put you with whoever is waiting at your stake, or open a room anyone can join.'],
+        create: ['New private room', 'A room only your friends can join, by its code or your invite link.'],
+        staked: ['Staked rooms', 'Everyone stakes the same. Those who get out split the pot.'],
       };
-      const alone = r.seats.length < 2;
-      if (alone) start.className = 'ghost'; // nothing to start yet: bringing someone in is the next step
-      const share = el('button', alone ? {} : { class: 'ghost' }, 'Share invite');
-      share.onclick = () => void shareInvite(r.onChain ? { staked: `${r.stack}:${r.onChain}` } : { join: r.code });
-      root.append(start, share, leave, el('small', {}, r.onChain
-        ? 'Staked: the host closes the doors on the chain, and the round starts when the chain says so. Leaving gets your stake back while the room is waiting.'
-        : r.public
-          ? 'Anyone who picks Join a public room lands here. The round starts when the host says, or 20 seconds after four are in.'
-          : 'Only people with the code or your invite can join. The round starts when the host says, or 20 seconds after four are in.'));
-      if (quiet && alone && !r.onChain) {
-        const box = el('div', { class: 'quiet' });
-        const go = el('button', {}, 'Play while I wait');
-        go.onclick = () => {
-          away = true; soloOn = true;
-          root.style.display = 'none';
-          host.soloWhileWaiting();
-          banner(false);
-        };
-        box.append(el('p', {}, 'Quiet right now'), el('small', {}, 'Play today\'s city while you wait. You keep your seat, and we call you back the moment someone joins.'), go);
-        root.append(box);
+      const c = card('Multiplayer', titles[mode][0], titles[mode][1]);
+      if (!me) { signInPanel(c); foot(c); return; }
+      // the server seats you under your username when you have one: only an account without one is asked
+      if (!me.name) {
+        const f = el('label', { class: 'mp-field' }, 'Your name in the room');
+        const nm = el('input', { placeholder: 'Your name', maxlength: '20', value: name() });
+        nm.addEventListener('input', () => localStorage.setItem(KEY_NAME, nm.value.trim()));
+        f.append(nm); c.append(f);
       }
-      if (note) root.append(el('p', {}, note));
-      if (linkShown) { // shown as typed (the lobby's capitals would break it), selected on a tap
-        root.append(el('p', {}, shareNote));
-        const box = el('input', { class: 'link', readonly: '', value: linkShown });
-        box.addEventListener('focus', () => box.select());
-        root.append(box);
+      const crypto = stacks.length > 0 && (window as unknown as { ethereum?: unknown }).ethereum;
+      if (mode === 'staked' && crypto) {
+        const tabs = el('div', { class: 'mp-tabs' });
+        for (const [k, label] of [['zp', 'ZP'], ['crypto', stacks.map((x) => x.symbol).join(' · ')]] as const) {
+          const b = el('button', k === tab ? { class: 'on' } : {}, label);
+          b.onclick = () => { tab = k; draw(); };
+          tabs.append(b);
+        }
+        c.append(tabs);
       }
+      if (mode === 'staked' && crypto && tab === 'crypto') { cryptoPanel(c); foot(c); return; }
+      if (mode === 'staked' && stake === null) stake = ZP_STAKES[1]; // staked rooms are for staking: 100 ZP picked to start
+      stakeChips(c, mode === 'staked');
+      stakeNote(c);
+      const tail = stake ? ` · ${stake} ZP` : '';
+      const short = stake !== null && zpHave !== null && zpHave < stake; // the stake picked is more than you have
+      const guard = (b: HTMLButtonElement) => { if (short) { b.disabled = true; b.textContent = 'Not enough ZP for this stake'; } return b; };
+      const quick = () => connect(() => send(stake ? { t: 'quick', zp: stake } : { t: 'quick' }));
+      const create = () => connect(() => send(stake ? { t: 'create', zp: stake } : { t: 'create' }));
+      if (mode === 'quick') { const b = btn(`Find a room${tail}`); b.onclick = quick; c.append(guard(b)); }
+      else if (mode === 'create') { const b = btn(`Create room${tail}`); b.onclick = create; c.append(guard(b)); }
+      else {
+        const row = el('div', { class: 'mp-row' });
+        const a = btn('Public room'); a.onclick = quick;
+        const b = btn('Private room', true); b.onclick = create;
+        if (short) c.append(guard(btn(''))); else { row.append(a, b); c.append(row); }
+      }
+      foot(c);
+      return;
     }
-    root.append(el('div', { class: 'err' }, err));
-    const back = el('button', { class: 'ghost' }, 'Back');
-    back.onclick = () => { ws?.close(); root.remove(); if (soloOn) host.holdSolo(false); };
-    if (!roomInfo) root.append(back);
+    // ---- in a room
+    const r = roomInfo;
+    const host_ = r.you === r.host, alone = r.seats.length < 2;
+    const kind = r.onChain ? `Staked room · ${r.stack ?? ''}` : `${r.public ? 'Public room' : 'Private room'}${r.zp ? ` · ${r.zp} ZP` : ' · free'}`;
+    const c = card(kind, r.state === 'lobby' ? 'The waiting room' : 'In the round');
+    const head = el('div', { class: 'mp-code' });
+    const code = el('div');
+    code.append(el('div', { class: 'mp-label' }, r.onChain ? 'Room number' : 'Room code'), el('b', {}, r.onChain ? `#${r.onChain}` : r.code));
+    const status = el('div', { class: `mp-status${alone ? ' wait' : ''}` },
+      r.startsIn !== null ? `Starting in ${r.startsIn}…` : r.onChain ? `${r.seats.length} staked` : `${r.seats.length} of ${ROOM_PLAYERS_MAX}${alone ? ' · waiting' : ' · ready'}`);
+    head.append(code, status);
+    c.append(head);
+    if (r.zp) {
+      const n = el('div', { class: 'mp-note gold' });
+      n.innerHTML = `Pot <b>${(r.pot ?? 0).toLocaleString()} ZP</b> (${r.zp} ZP a seat). Those who get out split it, less 5%; nobody out, every stake back. Leaving before the start gives yours back.`;
+      c.append(n);
+    }
+    const list = el('ul', { class: 'mp-seats' });
+    for (const st of r.seats as SeatInfo[]) {
+      const li = el('li', st.connected ? {} : { class: 'off' });
+      li.append(el('span', { class: 'av' }, (st.name.trim()[0] ?? '?').toUpperCase()), el('span', { class: 'nm' }, `${st.name}${st.seat === r.you ? ' (you)' : ''}`),
+        el('span', { class: 'tg' }, st.seat === r.host ? 'host' : st.connected ? '' : 'dropped'));
+      list.append(li);
+    }
+    if (!r.onChain && r.state === 'lobby' && r.seats.length < ROOM_PLAYERS_MAX) list.append(el('li', { class: 'empty' }, alone ? 'Waiting for players: share the invite' : `${ROOM_PLAYERS_MAX - r.seats.length} seats open`));
+    c.append(list);
+    const start = btn(host_ ? (alone ? 'Start' : 'Start the round') : 'Waiting for host', alone || !host_);
+    start.disabled = !host_ || alone || note !== '';
+    start.onclick = () => { if (r.onChain) void chainStep('Confirm in your wallet…', (m, cfg) => m.startStaked(cfg, BigInt(r.onChain!)), r.stack); else send({ t: 'start' }); };
+    const share = btn('Share invite', !alone);
+    share.onclick = () => void shareInvite(r.onChain ? { staked: `${r.stack}:${r.onChain}` } : { join: r.code });
+    const row = el('div', { class: 'mp-row' });
+    if (alone) row.append(share, start); else row.append(start, share);
+    c.append(row);
+    if (linkShown) { // shown as typed (capitals would break it), selected on a tap
+      const f = el('label', { class: 'mp-field' }, shareNote);
+      const box = el('input', { class: 'link', readonly: '', value: linkShown });
+      box.addEventListener('focus', () => box.select());
+      f.append(box); c.append(f);
+    }
+    if (quiet && alone && !r.onChain) {
+      const box = el('div', { class: 'quiet' });
+      const go = btn('Play while I wait', true);
+      go.onclick = () => { away = true; soloOn = true; root.style.display = 'none'; host.soloWhileWaiting(); banner(false); };
+      box.append(el('b', {}, 'Quiet right now'), el('span', {}, 'Play today\'s city while you wait. You keep your seat, and we call you back the moment someone joins.'), go);
+      c.append(box);
+    }
+    c.append(el('p', { class: 'mp-lead' }, r.onChain
+      ? 'The host closes the doors on the chain, and the round starts when the chain says so. Leaving gets your stake back while the room is waiting.'
+      : r.public ? 'Anyone who picks this stake in Join a public room lands here. The round starts when the host says, or 20 seconds after four are in.'
+        : 'Only people with the code or your invite can join. The round starts when the host says, or 20 seconds after four are in.'));
+    if (note) c.append(el('div', { class: 'ok' }, note));
+    const f = el('div', { class: 'mp-foot' });
+    const leave = el('button', { class: 'mp-link' }, '← Leave room');
+    leave.onclick = () => {
+      send({ t: 'leave' }); roomInfo = null; watchQuiet();
+      if (r.onChain) void chainStep('Getting your stake back…', (m, cfg) => (host_ ? m.cancelStaked(cfg, BigInt(r.onChain!)) : m.leaveStaked(cfg, BigInt(r.onChain!))), r.stack);
+      else draw();
+    };
+    f.append(leave, el('span', { class: 'mp-bal' }, me?.name ? `Signed in as ${me.name}` : ''));
+    c.append(el('div', { class: 'err' }, err), f);
+  }
+
+  /** Crypto staked rooms (USDm, USDT): made and joined from the wallet, on the chain. */
+  function cryptoPanel(c: HTMLElement): void {
+    const cur = stacks[pick]!, unit = cur.symbol;
+    if (stacks.length > 1) { // each token has its own contract, and its own room numbers
+      const tok = el('div', { class: 'mp-tabs' });
+      stacks.forEach((x, i) => { const b = el('button', i === pick ? { class: 'on' } : {}, x.symbol); b.onclick = () => { pick = i; draw(); }; tok.append(b); });
+      c.append(tok);
+    }
+    const amtF = el('label', { class: 'mp-field' }, `Stake (${unit})`), amt = el('input', { value: '0.05', inputmode: 'decimal' });
+    const sizeF = el('label', { class: 'mp-field' }, 'Players (2 to 8)'), size = el('input', { value: '4', inputmode: 'numeric', maxlength: '1' });
+    amtF.append(amt); sizeF.append(size);
+    const fields = el('div', { class: 'mp-row' }); fields.append(amtF, sizeF);
+    const mkS = btn('Create a staked room');
+    mkS.disabled = note !== '';
+    mkS.onclick = () => void chainStep('Confirm in your wallet…', async (m, cfg) => {
+      const n = Number(size.value);
+      if (!(n >= 2 && n <= 8)) throw new Error('2 to 8 players.');
+      const id = await m.createStaked(cfg, n, m.parseAmount(amt.value, cfg.decimals));
+      note = 'Taking your seat…'; seatIn(cfg.symbol, id);
+    });
+    const idIn = el('input', { class: 'code', placeholder: 'ROOM #', maxlength: '12', inputmode: 'numeric', value: stakedInvite && stakedInvite.symbol === unit ? stakedInvite.id : '' });
+    const jnS = btn('Join', true);
+    jnS.disabled = note !== '';
+    jnS.onclick = () => void chainStep('Confirm in your wallet…', async (m, cfg) => {
+      if (!/^\d{1,12}$/.test(idIn.value.trim())) throw new Error('Enter the room number.');
+      const id = BigInt(idIn.value.trim());
+      await m.joinStaked(cfg, id);
+      note = 'Taking your seat…'; seatIn(cfg.symbol, id);
+    });
+    const jr = el('div', { class: 'mp-row' }); jr.append(idIn, jnS);
+    c.append(fields, mkS, el('div', { class: 'mp-label' }, 'Or join one by its number'), jr,
+      el('div', { class: 'mp-note gold' }, 'Real money: you can lose your stake. Players who get out split the pot less a 1.5% fee; if nobody gets out, everyone is refunded. The server plays the round, and the whole round is kept so it can be checked.'));
+    if (note) c.append(el('div', { class: 'ok' }, note));
   }
   let linkShown: string | null = null;
   let shareNote = ''; // apart from `note`, which locks the buttons while a wallet step runs

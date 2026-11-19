@@ -2684,5 +2684,31 @@ function separate(s: GameState): void {
       b.x += (dx / d) * push; b.y += (dy / d) * push;
     }
   }
+  // and out of the living: a zombie stands against you, not inside you (its lunge reaches past this, so bites still land).
+  // Only the zombie gives way, so a crowd cannot shove you about; one feeding, latched on or a turned player is let be.
+  const touch = (PLAYER_RADIUS + ZOMBIE_RADIUS) * 0.8; // the bodies drawn are slimmer than their circles: shoulder to shoulder, not inside
+  for (const pl of s.players) {
+    if (pl.status !== 'alive' || pl.vehicleId !== null || pl.hide !== null) continue;
+    for (const z of zs) {
+      if (z.action === 'feed' || level(z) !== (pl.roof ?? -1)) continue;
+      const dx = z.pos.x - pl.pos.x, dy = z.pos.y - pl.pos.y, d = dhypot(dx, dy);
+      if (d >= touch) continue;
+      let ux = d > 1e-6 ? dx / d : -dcos(z.heading), uy = d > 1e-6 ? dy / d : -dsin(z.heading); // right on top: back off the way it faces
+      // walking into one, you brush past it: it is put to the side of your path, not shoved along in front of you
+      const sp = dhypot(pl.vel.x, pl.vel.y);
+      if (sp > 0.5) {
+        const mx = pl.vel.x / sp, my = pl.vel.y / sp, ahead = ux * mx + uy * my;
+        if (ahead > 0) {
+          let sx = ux - mx * ahead, sy = uy - my * ahead; // the part of its offset that is across your path
+          const sl = dhypot(sx, sy);
+          if (sl > 1e-3) { sx /= sl; sy /= sl; } else { sx = -my; sy = mx; } // dead ahead: step it to your left
+          // half across, half along: it gives way, but you still have to shoulder through (it is not swept clear)
+          const bx = ux + sx, by = uy + sy, bl = dhypot(bx, by);
+          if (bl > 1e-6) { ux = bx / bl; uy = by / bl; } else { ux = sx; uy = sy; }
+        }
+      }
+      z.pos.x = pl.pos.x + ux * touch; z.pos.y = pl.pos.y + uy * touch;
+    }
+  }
   for (const z of zs) { if (z.roof != null) onRoof(s.map.ladders[z.roof]!, z.pos); else resolve(s.map, z.pos, ZOMBIE_RADIUS); }
 }
