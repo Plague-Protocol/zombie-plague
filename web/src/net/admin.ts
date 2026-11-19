@@ -391,10 +391,10 @@ export function openAdmin(parent?: HTMLElement): void {
     if (!tp.config && !tp.count) tc.append(el('div', 'Top-ups are off on this server.', 'ad-none'));
     else {
       const tokens = tp.config ? (tp.cash / tp.config.rate).toFixed(2) : '?';
-      tc.append(kv('Top-ups', String(tp.count)), kv('Cash credited', tp.cash.toLocaleString()), kv('Paid in', `≈ ${tokens} ${tp.config?.symbol ?? ''}`, 'good'));
+      tc.append(kv('Top-ups', String(tp.count)), kv('ZP credited', tp.cash.toLocaleString()), kv('Paid in', `≈ ${tokens} ${tp.config?.symbol ?? ''}`, 'good'));
       if (tp.config) tc.append(kv('Treasury', tp.config.treasury));
       if (tp.recent.length) {
-        const tb = el('table'); tb.innerHTML = '<tr><th>When</th><th>Account</th><th>Cash</th><th>Transaction</th></tr>';
+        const tb = el('table'); tb.innerHTML = '<tr><th>When</th><th>Account</th><th>ZP</th><th>Transaction</th></tr>';
         for (const x of tp.recent) {
           const tr = el('tr'); const who = el('td'); if (x.name) who.append(el('b', x.name), document.createTextNode(' ')); who.append(el('code', x.address));
           const txd = el('td'); txd.append(txLink(x.tx));

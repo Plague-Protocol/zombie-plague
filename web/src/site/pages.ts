@@ -37,7 +37,7 @@ const THREATS = `
   <div class="card"><div class="ph">The clock</div><h3>It is your infection</h3><p>Every bite jumps it forward. Antiviral doses hold it back. When it runs out, you are one of them.</p></div>
   <div class="card"><div class="ph">People</div><h3>Survivors, and who is bitten</h3><p>People ask for help and some will follow you. Someone coughing may already be bitten: check them, and decide whether to leave them.</p></div>
   <div class="card"><div class="ph">Stealth</div><h3>Light and noise</h3><p>Your light shows you the street and shows you to them. Kill it, throw a bottle to pull them away, and listen for screamers.</p></div>
-  <div class="card"><div class="ph">Loot</div><h3>Houses and stores</h3><p>Search houses for doses, cash and rounds, but a red X means something is inside. Spend what you find at weapon stores.</p></div>
+  <div class="card"><div class="ph">Loot</div><h3>Houses and stores</h3><p>Search houses for doses, scrap and rounds, but a red X means something is inside. Spend what you find at weapon stores.</p></div>
   <div class="card"><div class="ph">Wheels</div><h3>Cars and bikes</h3><p>Faster than running, with seats for the people you saved. Watch the fuel, and shake off what grabs on.</p></div>
   <div class="card"><div class="ph">Memory</div><h3>Your last self</h3><p>Where you fell, you wait, still carrying what you carried. Put it down to take your gear back.</p></div>`;
 
@@ -77,7 +77,7 @@ export const home: Page = {
     <div class="sec">
       <div class="kicker">How a night goes</div>
       <h2 class="ph2">Three districts. One clock.</h2>
-      <p class="sub">Every chapter is a district with jobs to do before the way out opens. Leave one with time to spare and it pays, in cash for the stores ahead.</p>
+      <p class="sub">Every chapter is a district with jobs to do before the way out opens. Leave one with time to spare and it pays, in scrap for the stores ahead.</p>
       <div class="grid districts">${DISTRICTS}</div>
     </div>
     <div class="split sec" style="align-items:stretch">
@@ -304,7 +304,7 @@ export const profile: Page = {
     }
     void import('./kit').then((k) => k.armoury()).then((a) => {
       const b = root.querySelector('[data-k=bank] .muted');
-      if (b && a) b.innerHTML = `<b style="color:#e8e0cc">${fmt(a.cash)}</b> cash &middot; ${a.owned.kit.length} items owned &middot; ${a.loans.length} on loan`;
+      if (b && a) b.innerHTML = `<b style="color:#e8e0cc">${fmt(a.cash)}</b> ZP &middot; ${a.owned.kit.length} items owned &middot; ${a.loans.length} on loan`;
       const card = root.querySelector<HTMLElement>('.pcard');
       if (card && a) card.style.backgroundImage = `linear-gradient(180deg, rgba(6,11,6,0) 35%, #060b06 80%), radial-gradient(ellipse at 50% 30%, rgba(132,204,22,.16), transparent 60%), url(/survivors/${a.loadouts.ranked.survivor ?? 'sam'}.webp)`;
     });
@@ -353,10 +353,10 @@ export const how: Page = {
     </div>
     <div class="sec faq"><div class="kicker">Questions</div><h2 class="ph2">Before you ask</h2>
       <details><summary>Do I need a wallet?</summary><p>No. Sign in with Google or a passkey, and a wallet is made for you. MiniPay and other wallet browsers can sign in with the wallet they already have.</p></details>
-      <details><summary>Is it free?</summary><p>Yes. Guests get about three minutes before the game asks for a (free) sign-in. Staked rooms, when they open, are the only part that uses money, and they are optional.</p></details>
+      <details><summary>Is it free?</summary><p>Yes. Guests get about three minutes before the game asks for a (free) sign-in. Scrap (what you find and spend during a night) and ZP (what you bank between nights) are game currencies: neither is money and neither can be withdrawn. Crypto staked rooms, when they open, are the only part that uses real money, and they are optional.</p></details>
       <details><summary>Why do I have to turn my phone?</summary><p>The streets need the width, and the controls need both thumbs. The site itself works upright; only the game asks you to turn.</p></details>
       <details><summary>How do I get full screen on iPhone?</summary><p>Safari will not let a web page hide its bars. Tap Share, then Add to Home Screen, and play from the new icon: it opens full screen.</p></details>
-      <details><summary>What is the Armoury?</summary><p>Where you spend the cash your nights and rounds bank: weapons, gear and supplies you keep, upgrades, and survivors with perks. You choose a loadout for ranked nights (everyone gets the same 8 points, so it is choice, not power) and one for practice. Rooms use your ranked loadout. You can borrow kit for a night, and top up with USDm where it is open.</p></details>
+      <details><summary>What is the Armoury?</summary><p>Where you spend the ZP your nights and rounds bank: weapons, gear and supplies you keep, upgrades, and survivors with perks. You choose a loadout for ranked nights (everyone gets the same 8 points, so it is choice, not power) and one for practice. Rooms use your ranked loadout. You can borrow kit for a night, and top up with USDm where it is open. ZP stays in the game: it is never paid out.</p></details>
       <details><summary>Can someone fake a score?</summary><p>Every run is sent as the inputs that made it, and the server plays it again before it counts. A run that does not replay to the same result is not on the board.</p></details>
       <details><summary>Where is my progress kept?</summary><p>Signed in, on the server: your runs, your standing and your last self. As a guest, only on this device.</p></details>
     </div>
@@ -376,12 +376,12 @@ export const armouryPage: Page = {
   title: 'Armoury',
   html: () => account() ? `
   <div class="wrap page">
-    ${head('Between nights', 'Armoury', 'Earn cash by playing, buy weapons, gear and supplies to keep, upgrade what you own, or borrow kit for a night. Then choose what you carry in.')}
+    ${head('Between nights', 'Armoury', 'Earn ZP by playing, buy weapons, gear and supplies to keep, upgrade what you own, or borrow kit for a night. Then choose what you carry in.')}
     <div data-k="armoury"><div class="loading"><i></i>Opening the armoury&hellip;</div></div>
   </div>` : `
   <div class="wrap page">
     ${head('Between nights', 'Armoury')}
-    <div class="card" style="max-width:640px"><h3>Sign in to arm yourself</h3><p>Signed in, every verified night banks cash. Spend it on weapons, gear and upgrades you keep, or borrow kit for a night, and choose the loadout you carry in.</p><p style="margin-top:16px"><button class="btn" type="button" data-signin>Sign in</button></p></div>
+    <div class="card" style="max-width:640px"><h3>Sign in to arm yourself</h3><p>Signed in, every verified night banks ZP. Spend it on weapons, gear and upgrades you keep, or borrow kit for a night, and choose the loadout you carry in.</p><p style="margin-top:16px"><button class="btn" type="button" data-signin>Sign in</button></p></div>
   </div>`,
   mount(root) {
     const into = root.querySelector<HTMLElement>('[data-k=armoury]');

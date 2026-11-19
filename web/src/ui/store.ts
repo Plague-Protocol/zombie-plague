@@ -134,7 +134,7 @@ export class StorePage {
     const b = document.createElement('button');
     b.className = 'buy';
     if (price === null) { b.textContent = soldOut; b.disabled = true; return b; }
-    b.textContent = `$${price}`;
+    b.textContent = `${price} scrap`;
     b.disabled = s.funds < price;
     b.addEventListener('click', () => this.buy(item, what));
     return b;
@@ -144,7 +144,7 @@ export class StorePage {
     const s = this.s;
     if (!s) return;
     const a = s.arsenal;
-    $('store-cash').textContent = `$${s.funds}`;
+    $('store-cash').textContent = `Scrap ${s.funds}`;
     $('store-hand').textContent = `In hand: ${a.weapon ? WEAPON_NAMES[a.weapon] : 'nothing'}`;
     for (const b of $('store-tabs').querySelectorAll('button')) b.classList.toggle('on', b.dataset.tab === this.tab);
     const list = $('store-list');

@@ -48,7 +48,7 @@ export function mountArmoury(root: HTMLElement): void {
     const upRows = brings.flatMap((w) => upgradable(w).map((u) => [w, u, v!.owned.ups[`${w}.${u}` as UpId] ?? 0] as const)).filter(([, , n]) => n > 0);
     root.innerHTML = `
     <div class="status" style="margin-bottom:22px">
-      <span class="k">Bank</span><span><b style="${v.cash < 0 ? 'color:#ff7a6b' : ''}">${fmt(v.cash)}</b> <span class="muted">cash</span></span>
+      <span class="k">Bank</span><span><b style="${v.cash < 0 ? 'color:#ff7a6b' : ''}">${fmt(v.cash)}</b> <span class="muted">ZP</span></span>
       <span class="muted">Earned today <b style="font-size:20px">${fmt(v.earnedToday)}</b> of ${fmt(v.dailyCap)}</span>
       ${v.cash < 0 ? '<span class="tag r">You owe from a loan: your next nights pay it back</span>' : ''}
     </div>
@@ -64,7 +64,7 @@ export function mountArmoury(root: HTMLElement): void {
         </div>
         <p class="slotnote">${slot === 'ranked'
           ? `<b>Used for today's city and multiplayer rooms</b>, the nights that count on the leaderboard. To keep it fair, everyone gets the same ${RANKED_POINTS} points to spend on what they own: owning more gives you choice, not more power.`
-          : '<b>Used for practice nights</b>: a random city that is not on the leaderboard. Bring anything you own, with no points limit, to try kit out or learn the streets. Practice nights bank half the cash.'}</p>
+          : '<b>Used for practice nights</b>: a random city that is not on the leaderboard. Bring anything you own, with no points limit, to try kit out or learn the streets. Practice nights bank half the ZP.'}</p>
         <div class="ph">Survivor</div>
         <div class="who">${mine.map((id) => `<button type="button" class="face${who === id ? ' on' : ''}" data-a="sv:${id}" title="${esc(ROSTER[id].perk)}"><img src="/survivors/${id}.webp" alt="" width="60" height="72" /><span>${SURVIVORS[id].name}</span></button>`).join('')}</div>
         <label class="ups" style="margin:8px 0 14px">${SURVIVORS[who].name}'s perk<select data-a="grit">${Array.from({ length: svLevel(v.owned, who) }, (_, k) => `<option value="${k}"${grit === k ? ' selected' : ''}>${k ? `Level ${k}: ${perkAt(who, k)} (${k} pt${k > 1 ? 's' : ''})` : `Base: ${perkAt(who, 0)}`}</option>`).join('')}</select></label>
@@ -141,22 +141,24 @@ export function mountArmoury(root: HTMLElement): void {
   }
 
   /** The stablecoin top-up: packs, paid from the signed-in wallet; a paid transaction is kept until the server has counted it. */
+  /** Small amounts first: a first top-up should cost a few hundred naira. */
+  const TOPUPS = [0.2, 0.5, 1, 3];
   function topupCard(): string {
     const t = v!.topup;
-    if (!t) return '<div class="card" style="margin-top:16px;border-style:dashed"><div class="ph">USDm</div><h3>Top up with USDm <span class="tag">Coming soon</span></h3><p>Buy cash with USDm on Celo, for players who would rather not wait. Earning by playing stays the main way in.</p></div>';
+    if (!t) return '<div class="card" style="margin-top:16px;border-style:dashed"><div class="ph">USDm</div><h3>Top up with USDm <span class="tag">Coming soon</span></h3><p>Buy ZP with USDm on Celo, for players who would rather not wait. Earning by playing stays the main way in.</p></div>';
     const wallet = !!(window as unknown as { ethereum?: unknown }).ethereum;
     const owed = pendingTx();
     return `<div class="card" style="margin-top:16px"><div class="ph">${esc(t.symbol)} on Celo</div><h3>Top up</h3>
-      <p>${fmt(t.rate)} cash for each ${esc(t.symbol)}, sent from the wallet you signed in with. The server checks the payment on the chain before it adds the cash.</p>
+      <p>${fmt(t.rate)} ZP for each ${esc(t.symbol)}, sent from the wallet you signed in with. The server checks the payment on the chain before it adds the ZP. ZP is for the armoury and ZP rooms: it cannot be turned back into ${esc(t.symbol)}.</p>
       ${owed ? `<p class="err" style="margin-top:10px">A payment is waiting to be counted.</p><div class="buy"><button class="btn sm" type="button" data-a="topup-retry"${busy ? ' disabled' : ''}>Count my payment</button></div>` : ''}
-      <div class="buy">${[1, 5, 10].map((n) => `<button class="btn ghost sm" type="button" data-a="topup:${n}"${!wallet || busy || owed ? ' disabled' : ''}>${n} ${esc(t.symbol)} &rarr; ${fmt(n * t.rate)}</button>`).join('')}</div>
+      <div class="buy">${TOPUPS.map((n) => `<button class="btn ghost sm" type="button" data-a="topup:${n}"${!wallet || busy || owed ? ' disabled' : ''}>${n} ${esc(t.symbol)} &rarr; ${fmt(Math.floor(n * t.rate))} ZP</button>`).join('')}</div>
       ${wallet ? '' : '<p class="muted" style="font-size:14px;margin-top:8px">Paying needs a wallet in the browser: open the game in MiniPay or a wallet app.</p>'}</div>`;
   }
   const PENDING = 'zp.topup.pending';
   const pendingTx = (): string | null => { try { return localStorage.getItem(PENDING); } catch { return null; } };
   async function count(tx: string): Promise<void> {
     const r = await armouryPost('topup', { tx });
-    if (r.view) { take(r.view, true); try { localStorage.removeItem(PENDING); } catch { /* fine */ } msg = `Paid. ${fmt(r.view.credited ?? 0)} cash added.`; err = ''; }
+    if (r.view) { take(r.view, true); try { localStorage.removeItem(PENDING); } catch { /* fine */ } msg = `Paid. ${fmt(r.view.credited ?? 0)} ZP added.`; err = ''; }
     else if (/already been counted/.test(r.error ?? '')) { try { localStorage.removeItem(PENDING); } catch { /* fine */ } msg = 'That payment was already counted.'; }
     else err = `${r.error ?? 'The server did not count it yet.'} Your payment is safe: try "Count my payment" again in a moment.`;
   }
@@ -165,7 +167,7 @@ export function mountArmoury(root: HTMLElement): void {
     busy = true; err = ''; msg = 'Confirm the payment in your wallet…'; draw();
     try {
       const m = await import('../net/stake');
-      const tx = await m.payToken({ token: t.token, chainId: t.chainId }, t.treasury, BigInt(n) * 10n ** BigInt(t.decimals));
+      const tx = await m.payToken({ token: t.token, chainId: t.chainId }, t.treasury, BigInt(Math.round(n * 100)) * 10n ** BigInt(t.decimals) / 100n);
       try { localStorage.setItem(PENDING, tx); } catch { /* counted now or never shown */ }
       msg = 'Paid. Counting it…'; draw();
       await count(tx);

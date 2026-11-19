@@ -189,9 +189,9 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
       if (bank.owned.kit.includes(item as KitId)) return reply.code(409).send({ error: 'already yours' });
       price = kitDef(item as KitId).price;
     }
-    if (bank.cash < price) return reply.code(402).send({ error: 'not enough cash' });
+    if (bank.cash < price) return reply.code(402).send({ error: 'not enough ZP' });
     const ok = await d.store.purchase(id, item, level, price, `${item}:${level}`);
-    if (!ok) return reply.code(402).send({ error: 'not enough cash' });
+    if (!ok) return reply.code(402).send({ error: 'not enough ZP' });
     return view(id);
   });
 
@@ -217,7 +217,7 @@ export function registerArmoury(app: FastifyInstance, d: { store: Store; auth: A
       if (x.ownerId === id) return reply.code(409).send({ error: 'that is your own' });
       const fee = lendFee(item, days, x.rate as LendRate);
       if (!(await d.store.takeListing(x.id, loanId))) return reply.code(409).send({ error: 'someone borrowed it first' });
-      if (!(await d.store.ledger(id, -fee, 'borrow', loanId)).ok) { await d.store.reopenListing(x.id); return reply.code(402).send({ error: 'not enough cash for that offer' }); }
+      if (!(await d.store.ledger(id, -fee, 'borrow', loanId)).ok) { await d.store.reopenListing(x.id); return reply.code(402).send({ error: 'not enough ZP for that offer' }); }
       await d.store.ledger(x.ownerId, lenderCut(fee), 'lend', loanId);
       await d.store.addLoan({ id: loanId, accountId: id, item, fee, dueAt, lenderId: x.ownerId, listingId: x.id });
     } else {

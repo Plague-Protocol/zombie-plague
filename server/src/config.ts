@@ -25,8 +25,8 @@ const schema = z.object({
   TOPUP_TOKEN: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional().or(z.literal('').transform(() => undefined)),
   TOPUP_TREASURY: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional().or(z.literal('').transform(() => undefined)),
   TOPUP_DECIMALS: z.coerce.number().int().min(0).max(36).default(18),
-  /** Armoury cash per whole token. */
-  TOPUP_RATE: z.coerce.number().int().min(1).default(500),
+  /** ZP per whole token (1 USDm = 1,000 ZP). */
+  TOPUP_RATE: z.coerce.number().int().min(1).default(1000),
   TOPUP_SYMBOL: z.string().default('USDm'),
 }).refine((c) => !c.STAKED || ((c.ROOMS_ADDRESS || c.STAKE_STACKS) && c.BACKEND_KEY && c.CELO_RPC), { message: 'STAKED=true needs STAKE_STACKS (or ROOMS_ADDRESS), BACKEND_KEY and CELO_RPC' })
   .refine((c) => !c.TOPUP_TOKEN || (c.TOPUP_TREASURY && c.CELO_RPC), { message: 'TOPUP_TOKEN needs TOPUP_TREASURY and CELO_RPC' });

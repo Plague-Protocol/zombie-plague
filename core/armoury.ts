@@ -16,23 +16,24 @@ export { applyLoadout, ALL_WEAPONS, STANDARD, weaponsOf, type KitId, type Loadou
 
 export interface KitDef { id: KitId; name: string; group: 'weapon' | 'gear' | 'supply'; price: number; points: number; blurb: string }
 export const KIT: readonly KitDef[] = [
-  { id: 'bat', name: 'Baseball bat', group: 'weapon', price: 300, points: 1, blurb: 'Wide swings that hit up to three at once.' },
-  { id: 'machete', name: 'Machete', group: 'weapon', price: 700, points: 2, blurb: 'Quiet and brutal: the hardest-hitting blade.' },
-  { id: 'shotgun', name: 'Shotgun', group: 'weapon', price: 900, points: 4, blurb: 'Six pellets a shot. Clears a doorway, wakes the street.' },
-  { id: 'rifle', name: 'Assault rifle', group: 'weapon', price: 1800, points: 6, blurb: 'Thirty rounds, long reach, very loud.' },
-  { id: 'helmet', name: 'Riot helmet', group: 'gear', price: 450, points: 2, blurb: `Takes ${GEAR.helmet.absorb * 100}% of every hit until it is worn through.` },
-  { id: 'vest', name: 'Kevlar vest', group: 'gear', price: 800, points: 3, blurb: `Takes ${GEAR.vest.absorb * 100}% of every hit until it is worn through.` },
-  { id: 'ammo', name: 'Ammo belt', group: 'supply', price: 250, points: 1, blurb: 'A spare pack of rounds for every gun you bring.' },
-  { id: 'bottles', name: 'Bottle bag', group: 'supply', price: 150, points: 1, blurb: 'Two more bottles to throw.' },
-  { id: 'cash', name: 'Emergency cash', group: 'supply', price: 400, points: 1, blurb: '$50 more to spend at the stores.' },
+  { id: 'bat', name: 'Baseball bat', group: 'weapon', price: 100, points: 1, blurb: 'Wide swings that hit up to three at once.' },
+  { id: 'machete', name: 'Machete', group: 'weapon', price: 300, points: 2, blurb: 'Quiet and brutal: the hardest-hitting blade.' },
+  { id: 'shotgun', name: 'Shotgun', group: 'weapon', price: 800, points: 4, blurb: 'Six pellets a shot. Clears a doorway, wakes the street.' },
+  { id: 'rifle', name: 'Assault rifle', group: 'weapon', price: 1600, points: 6, blurb: 'Thirty rounds, long reach, very loud.' },
+  { id: 'helmet', name: 'Riot helmet', group: 'gear', price: 250, points: 2, blurb: `Takes ${GEAR.helmet.absorb * 100}% of every hit until it is worn through.` },
+  { id: 'vest', name: 'Kevlar vest', group: 'gear', price: 500, points: 3, blurb: `Takes ${GEAR.vest.absorb * 100}% of every hit until it is worn through.` },
+  { id: 'ammo', name: 'Ammo belt', group: 'supply', price: 80, points: 1, blurb: 'A spare pack of rounds for every gun you bring.' },
+  { id: 'bottles', name: 'Bottle bag', group: 'supply', price: 50, points: 1, blurb: 'Two more bottles to throw.' },
+  { id: 'cash', name: 'Scrap stash', group: 'supply', price: 100, points: 1, blurb: '50 more scrap to spend at the stores.' },
 ];
 export const kitDef = (id: KitId): KitDef => KIT.find((k) => k.id === id)!;
 
 export const UPGRADE_NAMES: Record<UpgradeKind, string> = { damage: 'Damage', mag: 'Magazine', reload: 'Reload' };
-/** What an upgrade level costs to own, by weapon (level 2 costs twice level 1). Melee only takes damage. */
-const UP_BASE: Record<WeaponKind, number> = { pistol: 250, baton: 150, bat: 200, machete: 300, shotgun: 350, rifle: 450 };
+/** What an upgrade level costs to own, by weapon, in ZP. Cheap to start, steep to finish: level 2 is 4x level 1 (players in Nigeria first, where a first buy has to cost naira, not dollars). Melee only takes damage. */
+const UP_BASE: Record<WeaponKind, number> = { pistol: 120, baton: 60, bat: 80, machete: 120, shotgun: 180, rifle: 250 };
+const UP_STEP = [0, 1, 4];
 const UP_FACTOR: Record<UpgradeKind, number> = { damage: 1.2, mag: 1, reload: 0.8 };
-export const upgradePrice = (w: WeaponKind, u: UpgradeKind, level: number): number => Math.round(UP_BASE[w] * UP_FACTOR[u] * level / 10) * 10;
+export const upgradePrice = (w: WeaponKind, u: UpgradeKind, level: number): number => Math.round(UP_BASE[w] * UP_FACTOR[u] * (UP_STEP[level] ?? level * 4) / 10) * 10;
 export const UPGRADE_POINTS = 1; // per level brought
 export const upgradable = (w: WeaponKind): UpgradeKind[] => (w in GUNS ? ['damage', 'mag', 'reload'] : ['damage']);
 
@@ -50,25 +51,26 @@ export type SvId = `sv.${SurvivorId}`;
 export const ROSTER: Record<SurvivorId, { price: number; role: string; blurb: string; perk: string }> = {
   sam: { price: 0, role: 'The night porter', blurb: 'Bitten on the clinic stairs. Knows the doses are in the fridge.', perk: 'Reloads faster' },
   ama: { price: 0, role: 'The nurse', blurb: 'Knows where people hide what matters.', perk: 'Searches houses faster' },
-  kola: { price: 700, role: 'The dock worker', blurb: 'Thick-skinned in every sense.', perk: 'A bite costs less of the clock' },
-  zara: { price: 700, role: 'The courier', blurb: 'Ten years of red lights and back alleys.', perk: 'Moves faster' },
-  rook: { price: 1000, role: 'The fence', blurb: 'Never fired a shot anyone heard.', perk: 'Quieter gunfire' },
-  vex: { price: 1000, role: 'The mechanic', blurb: 'Half the arm is hers. The other half is steel.', perk: 'Harder melee hits' },
-  tayo: { price: 500, role: 'The street seller', blurb: 'Always has a little put away.', perk: 'Starts with more money' },
-  mimi: { price: 500, role: 'The skater', blurb: 'Can land a bottle in a bin from forty metres.', perk: 'Starts with more bottles' },
+  kola: { price: 400, role: 'The dock worker', blurb: 'Thick-skinned in every sense.', perk: 'A bite costs less of the clock' },
+  zara: { price: 400, role: 'The courier', blurb: 'Ten years of red lights and back alleys.', perk: 'Moves faster' },
+  rook: { price: 600, role: 'The fence', blurb: 'Never fired a shot anyone heard.', perk: 'Quieter gunfire' },
+  vex: { price: 600, role: 'The mechanic', blurb: 'Half the arm is hers. The other half is steel.', perk: 'Harder melee hits' },
+  tayo: { price: 200, role: 'The street seller', blurb: 'Always has a little put away.', perk: 'Starts with more scrap' },
+  mimi: { price: 200, role: 'The skater', blurb: 'Can land a bottle in a bin from forty metres.', perk: 'Starts with more bottles' },
 };
 const PERK_WORDS: Record<string, string> = { reload: 'faster reloads', search: 'faster searching', bite: 'less lost to a bite', speed: 'faster on foot', quiet: 'quieter shots', melee: 'more melee damage' };
 /** What a survivor's perk does at a level, in words. */
 export function perkAt(id: SurvivorId, level: number): string {
   const sv = SURVIVORS[id], v = sv.at[level]!;
-  if (sv.perk === 'funds') return '+$' + v + ' at the start';
+  if (sv.perk === 'funds') return '+' + v + ' scrap at the start';
   if (sv.perk === 'bottles') return '+' + v + (v === 1 ? ' bottle' : ' bottles');
   return v ? Math.round(v * 100) + '% ' + PERK_WORDS[sv.perk] : 'no perk yet';
 }
 /** A survivor's owned level (1 + perk level; 0 = not owned). Sam and Ama are everyone's. */
 export const svLevel = (owned: Owned, id: SurvivorId): number => Math.max(owned.ups[('sv.' + id) as SvId] ?? 0, ROSTER[id].price === 0 ? 1 : 0);
-/** The price of the next step for a survivor: unlocking, then each perk level. */
-export const svPrice = (id: SurvivorId, nextLevel: number): number => (nextLevel === 1 ? ROSTER[id].price : 400 * (nextLevel - 1));
+/** The price of the next step for a survivor: unlocking, then each perk level (300, 900, 2,500 ZP: the top one is the prize). */
+const PERK_PRICE = [0, 0, 300, 900, 2500];
+export const svPrice = (id: SurvivorId, nextLevel: number): number => (nextLevel === 1 ? ROSTER[id].price : PERK_PRICE[nextLevel] ?? 2500);
 
 export function loadoutPoints(l: Loadout): number {
   let p = 0;
@@ -113,12 +115,12 @@ export function loadoutProblem(l: unknown, owned: Owned, ranked: boolean, borrow
 
 // ---------------------------------------------------------------- earning and borrowing
 
-/** Cash banked for a verified night: a share of its score. Practice nights pay half. */
+/** ZP banked for a verified night: a share of its score. Practice nights pay half. */
 export const earnedFor = (score: number, ranked: boolean): number => Math.floor(score / (ranked ? 25 : 50));
 /** The first verified night of the day pays this on top. */
 export const DAILY_RATION = 100;
 /** At most this much is banked from nights and rounds in one day (so it cannot be farmed without end). */
-export const DAILY_CAP = 1500;
+export const DAILY_CAP = 1000;
 /** A multiplayer round: for taking part, and for getting out. */
 export const ROUND_PAY = { played: 20, escaped: 80 } as const;
 // Loans: an item borrowed for a term, from the armoury or from another player who put theirs up for loan. The fee is

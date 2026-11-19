@@ -174,7 +174,7 @@ export class Hud {
 
     // vitals
     this.healthBar.style.width = `${(s.player.health / PLAYER_HEALTH) * 100}%`;
-    this.funds.textContent = `$${s.funds}${s.arsenal.cans ? `  ·  Fuel can x${s.arsenal.cans}` : ''}`;
+    this.funds.textContent = `Scrap ${s.funds}${s.arsenal.cans ? `  ·  Fuel can x${s.arsenal.cans}` : ''}`;
     // protective gear, as what is left of each piece
     const worn = (['vest', 'helmet'] as const).filter((g) => s.arsenal.gear[g] > 0);
     this.gear.style.display = worn.length ? 'block' : 'none';

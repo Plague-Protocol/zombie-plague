@@ -325,7 +325,7 @@ function openTalk(objectiveChanged: boolean): void {
 function advance(): void {
   const bonus = chapterBonus(state);
   begin(fresh((husk) => nextChapter(state, husk), state.chapter + 1), false);
-  if (bonus > 0) hud.toast(`+$${bonus} for time to spare`);
+  if (bonus > 0) hud.toast(`+${bonus} scrap for time to spare`);
 }
 
 function startPlay(): void {
@@ -349,7 +349,7 @@ function finish(): void {
     replay: rec.log(),
   };
   void noopProgress.saveRun(anonymousSession, result);
-  if (localStorage.getItem('zp.account')) void import('./net/account').then(async (m) => { const up = await m.uploadRun(result); if (up?.score !== undefined) hud.toast(`Score ${up.score.toLocaleString()}${up.bank ? ` · +${up.bank.earned + up.bank.ration} banked${up.bank.fees ? `, ${up.bank.fees} loan fee` : ''}` : ''}`); else if (up && !up.replayOk && up.reason) hud.toast(`Not counted: ${up.reason}`); for (let c = 0; c < 3; c++) serverSelves.set(c, await m.lastSelfFromServer(c)); });
+  if (localStorage.getItem('zp.account')) void import('./net/account').then(async (m) => { const up = await m.uploadRun(result); if (up?.score !== undefined) hud.toast(`Score ${up.score.toLocaleString()}${up.bank ? ` · +${up.bank.earned + up.bank.ration} ZP${up.bank.fees ? `, ${up.bank.fees} ZP loan fee` : ''}` : ''}`); else if (up && !up.replayOk && up.reason) hud.toast(`Not counted: ${up.reason}`); for (let c = 0; c < 3; c++) serverSelves.set(c, await m.lastSelfFromServer(c)); });
   // gone down on foot: the film of what gets up, then the ending over that face
   if (GameView.turns(state)) hud.playFilm(() => hud.showEnd(state), () => sound?.turned());
   else hud.showEnd(state);
@@ -444,7 +444,7 @@ function narrate(events: readonly GameEvent[]): void {
                 : `Picked up: ${WEAPON_NAMES[e.kind]}`);
         break;
       case 'crate-opened':
-        hud.toast(e.loot === 'medkit' ? 'Medkit: +health' : e.loot === 'supplies' ? 'Supplies: +$25' : e.loot === 'ammo' ? 'Ammo' : 'Empty');
+        hud.toast(e.loot === 'medkit' ? 'Medkit: +health' : e.loot === 'supplies' ? 'Supplies: +25 scrap' : e.loot === 'ammo' ? 'Ammo' : 'Empty');
         break;
       case 'vehicle-enter': {
         swarmTold = false;
@@ -464,7 +464,7 @@ function narrate(events: readonly GameEvent[]): void {
       case 'out-of-fuel': hud.toast('Out of fuel. It rolls to a stop.'); break;
       case 'refueled': hud.toast(e.from === 'pump' ? 'Filling up at the pump...' : 'Refuelled.'); break;
       case 'house-searched':
-        hud.toast(`${e.loot === 'antiviral' ? 'An antiviral dose: the infection held back' : e.loot === 'medkit' ? 'First aid: +health' : e.loot === 'supplies' ? 'Cash in a drawer: +$25' : e.loot === 'ammo' ? 'A box of rounds' : e.loot === 'bottles' ? 'Empty bottles' : e.loot === 'vest' || e.loot === 'helmet' ? `A ${GEAR[e.loot].name.toLowerCase()}, still good` : 'Nothing worth taking'}${e.ambush ? '. Something moves inside!' : ''}`);
+        hud.toast(`${e.loot === 'antiviral' ? 'An antiviral dose: the infection held back' : e.loot === 'medkit' ? 'First aid: +health' : e.loot === 'supplies' ? 'Scrap in a drawer: +25' : e.loot === 'ammo' ? 'A box of rounds' : e.loot === 'bottles' ? 'Empty bottles' : e.loot === 'vest' || e.loot === 'helmet' ? `A ${GEAR[e.loot].name.toLowerCase()}, still good` : 'Nothing worth taking'}${e.ambush ? '. Something moves inside!' : ''}`);
         if (e.ambush) view.shake(0.4);
         break;
       case 'alarm-start': hud.toast('Car alarm! Everything nearby is heading for it.'); break;

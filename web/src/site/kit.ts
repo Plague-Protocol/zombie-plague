@@ -130,7 +130,7 @@ export interface ArmouryView {
 /** Item names, for saying what a night carries (kept small: the catalogue, core/armoury.ts, is not on the first page; a test keeps them equal). */
 export const ITEM_NAMES: Record<string, string> = {
   pistol: 'Pistol', baton: 'Police baton', bat: 'Baseball bat', machete: 'Machete', shotgun: 'Shotgun', rifle: 'Assault rifle',
-  helmet: 'Riot helmet', vest: 'Kevlar vest', ammo: 'Ammo belt', bottles: 'Bottle bag', cash: 'Emergency cash',
+  helmet: 'Riot helmet', vest: 'Kevlar vest', ammo: 'Ammo belt', bottles: 'Bottle bag', cash: 'Scrap stash',
 };
 /** An item's picture: drawn for gear and supplies, the game's own mesh for weapons. */
 export const itemArt = (id: string): string => `/armoury/${['vest', 'helmet', 'ammo', 'bottles', 'cash'].includes(id) ? `${id}.svg` : `${id}.webp`}`;
