@@ -148,6 +148,8 @@ export interface Store {
   settlementsAll(limit: number): Promise<Settlement[]>;
   /** Rooms played by signed-in accounts since `days` ago, summed per account. */
   roomTotals(days: number): Promise<RoomRow[]>;
+  /** Rounds played since `since` (with a signed-in seat), and how many signed-in players got out of them. */
+  roomsSince(since: Date): Promise<{ rounds: number; escapes: number }>;
   lastSelf(accountId: string, chapter: number): Promise<LastSelfRecord | null>;
   setLastSelf(accountId: string, rec: LastSelfRecord | null, chapter: number): Promise<void>;
   bank(accountId: string): Promise<Bank>;
@@ -294,6 +296,10 @@ export class MemoryStore implements Store {
     return { count: rows.length, cash: rows.reduce((s, x) => s + x.delta, 0), recent };
   }
   async addRoundSeats(rows: RoundSeat[]) { for (const r of rows) this.seats.push({ ...r, at: this.now() }); }
+  async roomsSince(since: Date) {
+    const xs = this.seats.filter((x) => x.at.getTime() >= since.getTime());
+    return { rounds: new Set(xs.map((x) => x.code)).size, escapes: xs.filter((x) => x.escaped).length };
+  }
   async roomTotals(days: number): Promise<RoomRow[]> {
     const since = this.now().getTime() - days * 864e5, by = new Map<string, RoomRow>();
     for (const x of this.seats) {
@@ -643,6 +649,10 @@ export class PgStore implements Store {
   }
   async addRoundSeats(rows: RoundSeat[]) {
     for (const x of rows) await this.pool.query('INSERT INTO round_seat (account_id, code, status, kills, escaped) VALUES ($1,$2,$3,$4,$5)', [x.accountId, x.code, x.status, x.kills, x.escaped]);
+  }
+  async roomsSince(since: Date) {
+    const r = await this.pool.query('SELECT count(DISTINCT code)::int AS rounds, count(*) FILTER (WHERE escaped)::int AS escapes FROM round_seat WHERE created_at >= $1', [since]);
+    return { rounds: r.rows[0].rounds as number, escapes: r.rows[0].escapes as number };
   }
   async roomTotals(days: number): Promise<RoomRow[]> {
     const r = await this.pool.query(

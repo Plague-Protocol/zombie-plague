@@ -61,8 +61,9 @@ export const home: Page = {
     <div class="ios-tip">For full screen on iPhone: tap Share, then <b>Add to Home Screen</b>, and play from the new icon.</div>
     <div class="stats">
       <div class="stat"><b>3</b><span>Districts</span></div>
-      <div class="stat"><b data-k="players">&mdash;</b><span>On today's board</span></div>
-      <div class="stat"><b data-k="best">&mdash;</b><span>Best today</span></div>
+      <a class="stat" href="/ranks" data-board="night"><b data-k="players">&mdash;</b><span>On today's board</span></a>
+      <a class="stat" href="/ranks" data-board="night"><b data-k="best">&mdash;</b><span>Best today</span></a>
+      <a class="stat" href="/ranks" data-board="rooms" title="Signed-in players who got out of a multiplayer room today"><b data-k="escapes">&mdash;</b><span>Room escapes today</span></a>
     </div>
   </div></section>
   <div class="ticker" aria-hidden="true"><div>THE CLOCK IS YOUR INFECTION  |  FIND THE DOSES  |  CHECK WHO IS COUGHING  |  KILL THE LIGHT  |  MIND THE RED X  |  REACH THE HELICOPTER  |  THE CLOCK IS YOUR INFECTION  |  FIND THE DOSES  |  CHECK WHO IS COUGHING  |  KILL THE LIGHT  |  MIND THE RED X  |  REACH THE HELICOPTER  |  </div></div>
@@ -109,6 +110,14 @@ export const home: Page = {
   </div>`;
   },
   mount(root) {
+    // each count opens its board on the Ranks page (solo: Today; multiplayer: Rooms)
+    root.querySelectorAll<HTMLAnchorElement>('a.stat[data-board]').forEach((a) => a.addEventListener('click', () => {
+      try { sessionStorage.setItem('zp.board', a.dataset.board!); } catch { /* the Ranks page opens on Today */ }
+    }));
+    void api<{ rounds: number; escapes: number }>('/rooms/today').then((r) => {
+      const b = root.querySelector('[data-k=escapes]');
+      if (b && r) b.textContent = fmt(r.escapes);
+    });
     void board('night').then((b) => {
       const list = root.querySelector('#top5');
       if (!list) return;

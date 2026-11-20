@@ -246,6 +246,17 @@ describe('the leaderboard', () => {
     expect(rooms.rows.length).toBe(1); // b has only two rounds
     expect(rooms.rows[0]).toMatchObject({ value: 2, detail: { rounds: 3, rate: 67, kills: 6 } });
   });
+
+  it('rooms today, for the home page: rounds played and signed-in players who got out', async () => {
+    const s = await makeServer();
+    const a = await s.store.upsertAccount('0x' + 'a'.repeat(40)), b = await s.store.upsertAccount('0x' + 'b'.repeat(40));
+    expect((await s.app.inject({ method: 'GET', url: '/rooms/today' })).json()).toEqual({ rounds: 0, escapes: 0 });
+    await s.store.addRoundSeats([
+      { accountId: a.id, code: 'ABCDE', status: 'escaped', kills: 2, escaped: true }, { accountId: b.id, code: 'ABCDE', status: 'turned', kills: 0, escaped: false },
+      { accountId: b.id, code: 'FGHJK', status: 'escaped', kills: 1, escaped: true },
+    ]);
+    expect((await s.app.inject({ method: 'GET', url: '/rooms/today' })).json()).toEqual({ rounds: 2, escapes: 2 });
+  });
 });
 
 describe('the score', () => {

@@ -64,6 +64,10 @@ for (const [name, make] of stores) {
       await s.addRoundSeats([{ accountId: a.id, code: 'ABCDE', status: 'escaped', kills: 3, escaped: true }, { accountId: a.id, code: 'FGHJK', status: 'turned', kills: 1, escaped: false }]);
       const t = (await s.roomTotals(30)).find((r) => r.accountId === a.id)!;
       expect([t.rounds, t.escapes, t.kills]).toEqual([2, 1, 4]);
+      const today = await s.roomsSince(new Date(Date.now() - 3600e3));
+      expect(today.rounds).toBeGreaterThanOrEqual(2); // a shared database may hold others' rounds
+      expect(today.escapes).toBeGreaterThanOrEqual(1);
+      expect(await s.roomsSince(new Date(Date.now() + 3600e3))).toEqual({ rounds: 0, escapes: 0 });
     });
 
     it('counts for the admin page, and the accounts whose replays fail', async () => {

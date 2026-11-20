@@ -119,6 +119,12 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     return res;
   });
 
+  // the home page: rooms today (since midnight UTC, the day tonight's city belongs to), beside the solo board's numbers
+  app.get('/rooms/today', async () => {
+    const t = now();
+    return d.store.roomsSince(new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate())));
+  });
+
   // ?board=night|week|streak|rooms (default night), ?night= to look at another night. Signed in, the answer also says
   // where you stand and how far it is to the next place.
   app.get('/leaderboard', async (req, reply) => {
