@@ -1,18 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { createGame, currentTask, escortGroup, interactionFor, leaveBehind, requiredDone, solvePuzzle, step, taskTarget, withVehiclesBlocked, type GameState } from '../../core/state';
+import { createGame, currentTask, equip, escortGroup, interactionFor, leaveBehind, requiredDone, solvePuzzle, step, taskTarget, withVehiclesBlocked, type GameState } from '../../core/state';
 import { answerFor } from './helpers';
 import { cellOf, distanceField } from '../../core/map';
 import { CHAPTERS } from '../../core/config';
-import type { Input, Vec2 } from '../../core/types';
+import type { Input, Vec2, WeaponKind } from '../../core/types';
 
 const DT = 1 / 30;
 
 /** Walks the shortest street route to the current objective (no dodging). */
-export function botInput(g: GameState, field: { target: Vec2 | null; f: Int16Array | null }): Input {
+export function botInput(g: GameState, field: { target: Vec2 | null; f: Int16Array | null; took?: WeaponKind }): Input {
   const t = currentTask(g);
   for (const m of [...escortGroup(g)]) if (m.bitten) leaveBehind(g, m); // like a person who looks them over: the bitten are left
   const target = requiredDone(g) || !t ? g.safehouse : taskTarget(g, t);
   const it = interactionFor(g);
+  // a gun in the street: take it (TAKE), then hold it (SWAP), as a person who finds one would
+  if (field.took && g.arsenal.owned.includes(field.took)) { equip(g, field.took); field.took = undefined; }
+  if (it?.kind === 'weapon') { field.took = it.weapon; return { dx: 0, dy: 0, action: true }; }
   if (it?.kind === 'task' && t && it.taskId === t.id) {
     if (t.kind === 'puzzle') { solvePuzzle(g, t.id, answerFor(t)); return { dx: 0, dy: 0 }; } // (the page is instant for a bot)
     return { dx: 0, dy: 0, action: true };

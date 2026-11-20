@@ -28,6 +28,8 @@ function useLabel(s: GameState, it: Interaction | null): string | null {
     case 'climb': return it.up ? 'CLIMB' : 'CLIMB DOWN';
     case 'hide': return 'HIDE';
     case 'unhide': return 'COME OUT';
+    case 'weapon': return `TAKE ${WEAPON_NAMES[it.weapon].toUpperCase()}`;
+    case 'arsenal': return 'TAKE ARSENAL';
   }
 }
 

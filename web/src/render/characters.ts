@@ -267,6 +267,12 @@ export class Actor {
     this.current = name;
   }
 
+  /** Is this clip on and still running (a `once` clip that has not reached its end)? */
+  playing(name: ClipName): boolean {
+    const a = this.actions.get(name);
+    return this.current === name && !!a && a.isRunning();
+  }
+
   /** Playback rate that makes a locomotion cycle cover exactly `speed` units/s (no foot sliding). */
   rateFor(name: ClipName, speed: number): number {
     const g = this.assets.groundSpeed.get(name) ?? 0;
@@ -278,6 +284,13 @@ export class Actor {
     if (speed < 0.15) { this.play('Idle', { fade: 0.25 }); return; }
     const clip: ClipName = speed < 1.7 ? 'Walk' : speed < 3.7 ? 'Jog' : 'Sprint';
     this.play(clip, { timeScale: this.rateFor(clip, speed), fade: 0.18 });
+  }
+
+  /** One of them on the move (a player who turned): the shamble, the runner's sprint, or swaying where it stands. */
+  shamble(speed: number): void {
+    if (speed > 2) this.play('Sprint', { timeScale: this.rateFor('Sprint', speed), fade: 0.18 });
+    else if (speed > 0.25) this.play('ZWalk', { timeScale: this.rateFor('ZWalk', speed), fade: 0.2 });
+    else this.play('ZIdle', { fade: 0.25 });
   }
 
   /** Place, turn smoothly toward a heading (game radians), and advance the animation. */

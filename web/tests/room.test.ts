@@ -1,6 +1,6 @@
 // Rooms: several players in one district at once.
 import { describe, expect, it } from 'vitest';
-import { createRoom, eventSeat, step, type GameState } from '../../core/state';
+import { createRoom, eventSeat, interactionFor, step, type GameState } from '../../core/state';
 import { command, hashState, quantize, replayRoom, RoomRecorder } from '../../core/replay';
 import type { Loadout } from '../../core/loadout';
 import { sightClear, viewFor } from '../../core/view';
@@ -120,7 +120,7 @@ describe('players hurting each other', () => {
 });
 
 describe('what the turned leave behind', () => {
-  it('a player who turns drops what they had in a bag; whoever walks over it takes it all', () => {
+  it('a player who turns leaves an arsenal; whoever takes it (USE) gets it all, and keeps what they hold', () => {
     const g = duel(6);
     const a = g.players[1]!.arsenal;
     a.owned = ['pistol', 'bat']; a.weapon = 'pistol'; a.mag.pistol = 5; a.ammo.pistol = 12; a.bottles = 2; a.gear.vest = 40;
@@ -135,8 +135,14 @@ describe('what the turned leave behind', () => {
     const mine = g.players[0]!;
     const funds = mine.funds, ammo = mine.arsenal.ammo.pistol + mine.arsenal.mag.pistol, had = mine.arsenal.owned.includes('pistol');
     put(g, 0, { ...g.drops[0]!.pos });
+    const held = mine.arsenal.weapon;
     step(g, [IDLE, IDLE], DT);
+    expect(g.drops[0]!.taken).toBe(false); // walking over it does nothing
+    g.cur = mine;
+    expect(interactionFor(g)).toEqual({ kind: 'arsenal', dropId: 0 });
+    step(g, [{ dx: 0, dy: 0, action: true }, IDLE], DT);
     expect(g.drops[0]!.taken).toBe(true);
+    expect(mine.arsenal.weapon).toBe(held);
     expect(mine.funds).toBe(funds + 80);
     expect(mine.arsenal.owned).toContain('bat');
     expect(mine.arsenal.ammo.pistol + mine.arsenal.mag.pistol).toBe(ammo + 17 + (had ? 0 : 0));
@@ -232,6 +238,41 @@ describe('turning', () => {
     step(g, [IDLE, fire], DT);
     expect(g.events.some((e) => e.type === 'lunge')).toBe(true);
     expect(g.players[0]!.health).toBe(before - ATTACK_DAMAGE); // a lunge is full strength
+  });
+});
+
+describe('a step\'s circle', () => {
+  it('is as safe as it is alone: working a step, the walker holds back and the turned cannot bite', () => {
+    const g = duel(1.4);
+    g.players[1]!.remaining = 0.01;
+    step(g, [IDLE, IDLE], DT);
+    expect(g.players[1]!.status).toBe('turned');
+    const me = g.players[0]!, t = g.tasks[0]!;
+    put(g, 0, { ...t.pos }, 0);
+    put(g, 1, { x: t.pos.x + 1.2, y: t.pos.y }, Math.PI);
+    me.hold = { taskId: t.id, progress: 0 }; // working it
+    me.invuln = 0;
+    const z = addZ(g, 'walker', { x: me.pos.x - 1.2, y: me.pos.y });
+    z.alertT = 30; z.action = 'chase';
+    const before = me.health;
+    step(g, [IDLE, fire], DT); // the turned one lunges
+    expect(g.events.some((e) => e.type === 'lunge')).toBe(true);
+    expect(me.health).toBe(before);
+    expect(z.action).not.toBe('attack');
+  });
+});
+
+describe('shots in a room', () => {
+  it('say whose gun it was, and reach the others (not as their own)', () => {
+    const g = duel(3);
+    const z = addZ(g, 'walker', { x: g.players[0]!.pos.x - 4, y: g.players[0]!.pos.y });
+    z.alertT = 30;
+    g.players[0]!.heading = Math.PI;
+    step(g, [fire, IDLE], DT);
+    const shot = g.events.find((e) => e.type === 'shot');
+    expect(shot && shot.type === 'shot' && shot.shooter).toBe(0);
+    expect(eventSeat(shot!)).toBeUndefined(); // not a personal event: seat 1 is sent it too
+    expect(viewFor(g, 1).events.some((e) => e.type === 'shot')).toBe(true);
   });
 });
 

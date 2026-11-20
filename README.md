@@ -120,8 +120,10 @@ screen, make a room (a five-letter code) or join one, and the host starts it. Th
 doing one does it for everyone), but the exit only seats a player who did at least one required step or
 picked up a piece of one, and it has seats for half of those who started. The living cannot hurt each
 other. The dose of each player ticks down separately, and a player who runs out, or is bitten down, **turns**:
-what they carried is left in a bag where they fell (the first to walk over it takes it all), and they hunt
-the rest with a bite (nowhere near the exit). The infected ignore the turned and follow them: any living
+what they carried is left as an **arsenal** where they fell (the first to stand at it and press TAKE ARSENAL
+gets it all, added to their kit without changing the weapon in hand), and they look, move and hunt as one of
+the infected, with a bite (nowhere near the exit, nor at anyone working a step: a step's circle is as safe as
+it is alone, from the infected and the turned). The infected ignore the turned and follow them: any living
 player a turned one closes in on is hunted by the infected round them too. The living can put the turned
 down. Nobody sees anyone else on the map. Rooms have no vehicles and nobody to escort.
 
@@ -233,7 +235,8 @@ that wallet signs in but cannot stake). Copy `.env.example` (page) and `server/.
 - **Fire / swing:** hold FIRE (or Space). Aim assist picks the zombie in front of you. Gunfire
   is loud: everything within earshot comes looking. With a melee weapon the button reads SWING.
 - **Use:** the contextual button (or E): start an objective, search a supply crate, enter a
-  weapon store, get in or out of a vehicle. **Reload** (R) and **swap weapon** (Q) buttons.
+  weapon store, get in or out of a vehicle, take a weapon lying in the street (TAKE: it goes into your
+  arsenal, not your hand, since yours may be better). **Reload** (R) and **swap weapon** (Q) buttons.
 - **Story moments wait for you:** finding something, the radio's next brief, a survivor talking
   and a new chapter open a message panel and the game holds (no clock, no zombies) until you tap
   through it. Its last page says plainly what to do next and how far it is. You then get a moment

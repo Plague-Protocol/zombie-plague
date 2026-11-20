@@ -280,7 +280,7 @@ export type UpgradeKind = 'damage' | 'mag' | 'reload';
 
 export type PickupKind = WeaponKind | GearKind | 'ammo' | 'bottles' | 'jerrycan' | 'antiviral';
 
-/** Lying in the street: walk over it to take it. */
+/** Lying in the street: walk over it to take it (a weapon is taken by hand: USE). */
 export interface Pickup {
   id: number;
   kind: PickupKind;
@@ -332,7 +332,11 @@ export type Interaction =
   | { kind: 'hide'; spot: number }
   | { kind: 'unhide' }
   /** Leave someone you found bitten. */
-  | { kind: 'leave'; who: number };
+  | { kind: 'leave'; who: number }
+  /** A weapon lying in the street: taken by hand, into your arsenal (not into your hand). */
+  | { kind: 'weapon'; pickupId: number; weapon: WeaponKind }
+  /** Rooms: the arsenal a player left where they turned. */
+  | { kind: 'arsenal'; dropId: number };
 
 /** `cleared`: through the door at the end of a chapter; the next district is loading. */
 export type Phase = 'playing' | 'cleared' | 'won' | 'lost';
@@ -350,7 +354,7 @@ export type GameEvent =
   | { type: 'zombie-killed'; id: number }
   /** `by`: a zombie's id, or -1 - seat for another player. `seat`: whose it was (rooms). */
   | { type: 'player-hit'; damage: number; by: number; seat?: number }
-  | { type: 'shot'; weapon: GunKind; from: Vec2; to: Vec2; hit: number | null }
+  | { type: 'shot'; weapon: GunKind; from: Vec2; to: Vec2; hit: number | null; /** rooms: whose gun (everyone near hears and sees it) */ shooter?: number }
   | { type: 'zombie-hurt'; id: number }
   | { type: 'swing'; weapon: MeleeKind; hits: number }
   | { type: 'reload'; weapon: GunKind }
@@ -562,7 +566,7 @@ export interface Player {
   helped: number;
 }
 
-/** Rooms: what a player who turned was carrying, in a bag where they fell. Walk over it to take it all. */
+/** Rooms: what a player who turned was carrying, an arsenal where they fell. TAKE ARSENAL (USE) takes it all. */
 export interface Drop {
   id: number;
   pos: Vec2;

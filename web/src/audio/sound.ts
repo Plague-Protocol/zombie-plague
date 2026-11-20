@@ -737,8 +737,10 @@ export class Sound {
     }
   }
 
-  gunshot(kind: GunKind): void {
-    if (this.sample(kind, this.sfx, kind === 'shotgun' ? 0.85 : kind === 'rifle' ? 0.7 : 0.6, 1, undefined, 0.03)) return;
+  /** A shot: yours, or (`pan` given) someone else's in a room, a little quieter and from where they are. */
+  gunshot(kind: GunKind, pan: number | null = null): void {
+    const out = pan === null ? this.sfx : this.panner(pan), k = pan === null ? 1 : 0.6;
+    if (this.sample(kind, out, (kind === 'shotgun' ? 0.85 : kind === 'rifle' ? 0.7 : 0.6) * k, 1, undefined, 0.03)) return;
     const ctx = this.ctx!, at = ctx.currentTime;
     const big = kind === 'shotgun', sharp = kind === 'rifle';
     const n = this.noiseSrc(at, big ? 0.5 : 0.25);
@@ -747,14 +749,14 @@ export class Sound {
     bp.frequency.setValueAtTime(big ? 2600 : sharp ? 5200 : 3800, at);
     bp.frequency.exponentialRampToValueAtTime(300, at + (big ? 0.4 : 0.18));
     const g = ctx.createGain();
-    this.env(g, at, big ? 0.55 : sharp ? 0.3 : 0.38, 0.002, big ? 0.45 : 0.16);
-    n.connect(bp).connect(g).connect(this.sfx);
+    this.env(g, at, (big ? 0.55 : sharp ? 0.3 : 0.38) * k, 0.002, big ? 0.45 : 0.16);
+    n.connect(bp).connect(g).connect(out);
     const o = ctx.createOscillator();
     o.frequency.setValueAtTime(big ? 90 : 130, at);
     o.frequency.exponentialRampToValueAtTime(40, at + 0.15);
     const og = ctx.createGain();
-    this.env(og, at, big ? 0.5 : 0.3, 0.002, 0.15);
-    o.connect(og).connect(this.sfx);
+    this.env(og, at, (big ? 0.5 : 0.3) * k, 0.002, 0.15);
+    o.connect(og).connect(out);
     o.start(at);
     o.stop(at + 0.2);
   }
@@ -844,7 +846,7 @@ export class Sound {
       a.p.pan.setTargetAtTime(panOf(al.pos.x, al.pos.y), this.ctx.currentTime, 0.1);
     }
     for (const e of events) {
-      if (e.type === 'shot') this.gunshot(e.weapon);
+      if (e.type === 'shot') this.gunshot(e.weapon, e.shooter !== undefined && e.shooter !== s.cur.id ? panOf(e.from.x, e.from.y) : null);
       else if (e.type === 'swing') this.swing(e.hits, e.weapon === 'bat');
       else if (e.type === 'throw') this.swing(0, false);
       else if (e.type === 'bottle-smash') this.smash(panOf(e.pos.x, e.pos.y));

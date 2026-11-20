@@ -649,16 +649,28 @@ describe('weapons', () => {
     void z;
   });
 
-  it('walking over a gun picks it up and puts it in your hands', () => {
+  it('a gun in the street is taken by hand (USE), into your arsenal: what you hold stays in your hand', () => {
     const g = calmGame(25);
     const pk = g.pickups.find((p) => p.kind === 'shotgun')!;
     g.player.pos = { ...pk.pos };
     step(g, IDLE, DT);
+    expect(pk.taken).toBe(false); // walking over it does nothing
+    expect(interactionFor(g)).toEqual({ kind: 'weapon', pickupId: pk.id, weapon: 'shotgun' });
+    step(g, { dx: 0, dy: 0, action: true }, DT);
     expect(pk.taken).toBe(true);
     expect(g.arsenal.owned).toContain('shotgun');
-    expect(g.arsenal.weapon).toBe('shotgun');
-    step(g, { dx: 0, dy: 0, swap: true }, DT);
     expect(g.arsenal.weapon).toBe('pistol');
+    for (let i = 0; i < g.arsenal.owned.length && g.arsenal.weapon !== 'shotgun'; i++) { step(g, { dx: 0, dy: 0, swap: true }, DT); step(g, IDLE, DT); }
+    expect(g.arsenal.weapon).toBe('shotgun'); // SWAP gets to it
+  });
+
+  it('a gun taken with empty hands goes into them', () => {
+    const g = calmGame(25);
+    g.arsenal.owned = []; g.arsenal.weapon = null;
+    const pk = g.pickups.find((p) => p.kind === 'shotgun')!;
+    g.player.pos = { ...pk.pos };
+    step(g, { dx: 0, dy: 0, action: true }, DT);
+    expect(g.arsenal.weapon).toBe('shotgun');
   });
 
   it('a store sells what you can afford, and nothing else', () => {

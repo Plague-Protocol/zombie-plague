@@ -1,5 +1,5 @@
 // Pure game state. No DOM, no three.js, no Date/Math.random: time comes from dt, randomness from state.rng.
-import { applyLoadout, type Loadout } from './loadout';
+import { applyLoadout, isWeapon as isWeaponKind, type Loadout } from './loadout';
 import {
   ATTACK_COOLDOWN, ATTACK_DAMAGE, ATTACK_RANGE, ATTACK_REACH, ATTACK_WINDUP, CALM_FACTOR, CORPSE_SECONDS,
   HIT_INVULNERABLE, KNOCKBACK, MEDKIT_HEAL, PLAYER_ACCEL, PLAYER_HEALTH, PLAYER_RADIUS, PLAYER_SPEED, RISE_SECONDS,
@@ -133,7 +133,7 @@ export interface GameState extends Forwarded {
   roomLimit: number;
   placements: Placement[] | null;
   pickups: Pickup[];
-  /** Rooms: bags of what turned players had on them. */
+  /** Rooms: the arsenals turned players left (what they had on them). */
   drops: Drop[];
   stores: Store[];
   houses: House[];
@@ -363,10 +363,10 @@ function depsMet(s: GameState, t: Task): boolean {
 }
 
 /** Working an objective or talking to someone (or just finished): zombies hold back. */
-export function isBusy(s: GameState): boolean {
-  if (s.mode === 'room') return false; // in a room nobody works under cover: the zombies do not wait
-  return s.hold.taskId !== null || (s.work !== null && s.work.kind !== 'climb') || s.safeT > 0; // climbing is not cover
+export function isBusy(s: GameState): boolean { // rooms too: a step's circle is as safe as it is alone
+  return covered(s.cur);
 }
+const covered = (p: Player) => p.hold.taskId !== null || (p.work !== null && p.work.kind !== 'climb') || p.safeT > 0; // climbing is not cover
 
 export function playerVehicle(s: GameState): Vehicle | null {
   return s.player.vehicleId === null ? null : s.vehicles.find((v) => v.id === s.player.vehicleId) ?? null;
@@ -965,6 +965,7 @@ const PERSONAL = new Set<GameEvent['type']>([
 ]);
 function tagEvent(e: GameEvent, seat: number): void {
   if (PERSONAL.has(e.type) && (e as { seat?: number }).seat === undefined) (e as { seat?: number }).seat = seat;
+  else if (e.type === 'shot' && e.shooter === undefined) e.shooter = seat; // not personal (the others hear it), but whose it is matters
 }
 /** Whose a personal event is (rooms), or undefined for the district's. */
 export const eventSeat = (e: GameEvent): number | undefined => (e as { seat?: number }).seat;
@@ -976,7 +977,7 @@ export const eventSeat = (e: GameEvent): number | undefined => (e as { seat?: nu
  */
 function pickTarget(s: GameState, z: Zombie, dt: number): Player | null {
   z.targetT = (z.targetT ?? 0) - dt;
-  const cost = (q: Player) => dist(z.pos, q.pos) + (q.roof !== null && !climbs(z) ? 15 : 0) + (q.hide !== null ? 10 : 0); // out of reach, or out of sight
+  const cost = (q: Player) => dist(z.pos, q.pos) + (q.roof !== null && !climbs(z) ? 15 : 0) + (q.hide !== null ? 10 : 0) + (covered(q) ? 12 : 0); // out of reach, out of sight, or working a step
   let held = z.targetId !== undefined && z.targetT > 0 ? s.players[z.targetId] : undefined;
   if (held && (held.status !== 'alive' || dist(z.pos, held.pos) > ZOMBIE_ACTIVE_RADIUS)) held = undefined;
   let t: Player | undefined, best = ZOMBIE_ACTIVE_RADIUS;
@@ -992,13 +993,14 @@ function pickTarget(s: GameState, z: Zombie, dt: number): Player | null {
 
 /**
  * Can `a` hurt `b` right now? The living never hurt each other (they race for the seats, they do not fight for
- * them); the living can always put down the turned; the turned can bite the living anywhere but near the exit.
+ * them); the living can always put down the turned; the turned can bite the living anywhere but near the exit or in a step's circle.
  */
 function canHurt(s: GameState, a: Player, b: Player): boolean {
   if (a === b || (b.status !== 'alive' && b.status !== 'turned')) return false;
   if (a.status !== 'alive' && a.status !== 'turned') return false;
   if (a.status === b.status) return false;
   if (b.status === 'turned') return true;
+  if (covered(b)) return false; // working a step: its circle is safe from the turned too
   return dist(a.pos, s.safehouse) > SAFE_RADIUS && dist(b.pos, s.safehouse) > SAFE_RADIUS;
 }
 
@@ -1050,6 +1052,7 @@ function turnPlayer(s: GameState, pl: Player): void {
   pl.health = TURNED_HEALTH;
   pl.speedMul = RUNNER_SPEED / PLAYER_SPEED;
   pl.light = false;
+  pl.crouched = false; // up on its feet: they do not creep
   pl.hold = { taskId: null, progress: 0 };
   pl.work = null;
   pl.lungeCd = 0;
@@ -1057,7 +1060,7 @@ function turnPlayer(s: GameState, pl: Player): void {
   s.events.push({ type: 'turned', seat: pl.id, pos: { ...pl.pos } });
 }
 
-/** What a player had on them is left in a bag where they turned, for whoever gets there first; they keep none of it. */
+/** What a player had on them is left where they turned, an arsenal for whoever takes it first; they keep none of it. */
 function dropKit(s: GameState, pl: Player): void {
   const a = pl.arsenal;
   const ammo: Partial<Record<GunKind, number>> = {};
@@ -1070,22 +1073,20 @@ function dropKit(s: GameState, pl: Player): void {
   s.drops.push({ id: s.drops.length, pos: { ...pl.pos }, from: pl.id, taken: false, loot });
 }
 
-/** Walk over a bag someone left when they turned: everything in it is yours. */
-function takeDrops(s: GameState): void {
+/** Take the arsenal someone left when they turned (USE): everything in it is yours, and what is in your hand stays there. */
+function takeDrop(s: GameState, d: Drop | undefined): void {
+  if (!d || d.taken || !d.loot || d.from === s.cur.id) return;
   const a = s.arsenal;
-  for (const d of s.drops) {
-    if (d.taken || !d.loot || d.from === s.cur.id || dist(d.pos, s.player.pos) > PICKUP_RADIUS + 0.3) continue;
-    d.taken = true;
-    const L = d.loot, items: string[] = [];
-    for (const w of L.weapons) if (!a.owned.includes(w)) { a.owned.push(w); if (isGun(w)) a.mag[w] = 0; items.push(w); }
-    for (const [g, n] of Object.entries(L.ammo) as Array<[GunKind, number]>) { a.ammo[g] += n; items.push(`${n} ${g} rounds`); }
-    if (L.bottles) { a.bottles += L.bottles; items.push(`${L.bottles} bottles`); }
-    if (L.cans) { a.cans += L.cans; items.push(`${L.cans} fuel`); }
-    for (const [g, n] of Object.entries(L.gear) as Array<[GearKind, number]>) if (n > a.gear[g]) { a.gear[g] = n; items.push(g); }
-    s.funds += L.funds;
-    if (!a.weapon && a.owned.length) a.weapon = a.owned[0]!;
-    s.events.push({ type: 'loot-taken', from: d.from, items, funds: L.funds });
-  }
+  d.taken = true;
+  const L = d.loot, items: string[] = [];
+  for (const w of L.weapons) if (!a.owned.includes(w)) { a.owned.push(w); if (isGun(w)) a.mag[w] = 0; items.push(w); }
+  for (const [g, n] of Object.entries(L.ammo) as Array<[GunKind, number]>) { a.ammo[g] += n; items.push(`${n} ${g} rounds`); }
+  if (L.bottles) { a.bottles += L.bottles; items.push(`${L.bottles} bottles`); }
+  if (L.cans) { a.cans += L.cans; items.push(`${L.cans} fuel`); }
+  for (const [g, n] of Object.entries(L.gear) as Array<[GearKind, number]>) if (n > a.gear[g]) { a.gear[g] = n; items.push(g); }
+  s.funds += L.funds;
+  if (!a.weapon && a.owned.length) a.weapon = a.owned[0]!;
+  s.events.push({ type: 'loot-taken', from: d.from, items, funds: L.funds });
 }
 
 /** A turned player's lunge: everything living in front of them, close, is hit at full strength. */
@@ -1201,7 +1202,7 @@ function playerTurn(s: GameState, pl: Player, input: Input, dt: number): void {
     updateWeapons(s, input, dt);
     if (input.throw) throwBottle(s);
   }
-  if (pl.roof === null && pl.hide === null) { takePickups(s); takeParts(s); takeDrops(s); }
+  if (pl.roof === null && pl.hide === null) { takePickups(s); takeParts(s); }
   guardCurrent(s);
   movePlayer(s, input, dt);
   if (pl.roof === null) enterStores(s);
@@ -1324,6 +1325,10 @@ export function interactionFor(s: GameState): Interaction | null {
   const store = s.stores.find((st) => dist(st.pos, p) < USE_RADIUS);
   if (store) return { kind: 'store', storeId: store.id };
   if (s.work) return null; // busy: one job at a time
+  const drop = s.drops.find((d) => !d.taken && d.from !== s.cur.id && dist(d.pos, p) < PICKUP_RADIUS + 0.6);
+  if (drop) return { kind: 'arsenal', dropId: drop.id };
+  const arm = s.pickups.find((k) => !k.taken && isWeaponKind(k.kind) && dist(k.pos, p) < PICKUP_RADIUS + 0.4);
+  if (arm) return { kind: 'weapon', pickupId: arm.id, weapon: arm.kind as WeaponKind };
   const sv = s.survivors.find((v) => v.status !== 'done' && dist(v.pos, p) < 2.6);
   if (sv) return { kind: 'talk', survivorId: sv.id };
   const house = s.houses.find((h) => !h.searched && dist(h.pos, p) < 1.8);
@@ -1428,6 +1433,14 @@ function interact(s: GameState): void {
     case 'climb': s.player.crouched = false; startWork(s, 'climb', it.ladder, CLIMB_SECONDS); break;
     case 'hide': hideIn(s, it.spot); break;
     case 'unhide': leaveHide(s); break;
+    case 'weapon': {
+      const pk = s.pickups.find((k) => k.id === it.pickupId)!;
+      pk.taken = true;
+      giveWeapon(s, it.weapon);
+      s.events.push({ type: 'pickup', kind: it.weapon, amount: isGun(it.weapon) ? GUNS[it.weapon].mag : 0 });
+      break;
+    }
+    case 'arsenal': takeDrop(s, s.drops.find((d) => d.id === it.dropId)!); break;
   }
 }
 
@@ -1666,7 +1679,7 @@ function ammoTarget(s: GameState): GunKind {
 function takePickups(s: GameState): void {
   const a = s.arsenal;
   for (const pk of s.pickups) {
-    if (pk.taken || dist(pk.pos, s.player.pos) > PICKUP_RADIUS) continue;
+    if (pk.taken || isWeaponKind(pk.kind) || dist(pk.pos, s.player.pos) > PICKUP_RADIUS) continue; // a weapon is taken by hand
     pk.taken = true;
     if (pk.kind === 'ammo') {
       const w = ammoTarget(s);
@@ -1683,9 +1696,6 @@ function takePickups(s: GameState): void {
     } else if (pk.kind === 'vest' || pk.kind === 'helmet') {
       wearGear(s, pk.kind);
       s.events.push({ type: 'pickup', kind: pk.kind, amount: GEAR[pk.kind].durability });
-    } else {
-      giveWeapon(s, pk.kind);
-      s.events.push({ type: 'pickup', kind: pk.kind, amount: isGun(pk.kind) ? GUNS[pk.kind].mag : 0 });
     }
   }
 }
@@ -1713,15 +1723,16 @@ export function hurtPlayer(s: GameState, amount: number): number {
   return through;
 }
 
-function giveWeapon(s: GameState, w: WeaponKind): void {
+/** A weapon into your arsenal. In your hand only if your hands were empty, or `hold` (you paid for it): what you are
+ * holding may well be better (your own, upgraded), so SWAP is how you change. */
+function giveWeapon(s: GameState, w: WeaponKind, hold = false): void {
   const a = s.arsenal;
   if (isGun(w)) {
     if (!a.owned.includes(w)) a.mag[w] = gunStats(a, w).mag;
     a.ammo[w] += GUNS[w].ammoPack;
   }
   if (!a.owned.includes(w)) a.owned.push(w);
-  a.weapon = w; // pick it up, hold it
-  a.reloadT = 0;
+  if (hold || !a.weapon) { a.weapon = w; a.reloadT = 0; }
 }
 
 /** Walk through a store's doorway to go in. Leaving puts you back in the doorway, so the store
@@ -1779,7 +1790,7 @@ export function buy(s: GameState, item: StoreItem): boolean {
   s.funds -= price;
   const a = s.arsenal;
   switch (item.kind) {
-    case 'weapon': giveWeapon(s, item.weapon); break;
+    case 'weapon': giveWeapon(s, item.weapon, true); break;
     case 'ammo': a.ammo[item.weapon] += GUNS[item.weapon].ammoPack; break;
     case 'medkit': s.player.health = Math.min(PLAYER_HEALTH, s.player.health + MEDKIT_HEAL); break;
     case 'antiviral': takeAntiviral(s); break;

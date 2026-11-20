@@ -85,7 +85,7 @@ export function markers(s: GameState): Marker[] {
   for (const p of s.pickups) if (!p.taken && p.kind === 'jerrycan') out.push({ pos: p.pos, color: '#e05030', size: 3, shape: 'square' });
   for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan' && p.kind !== 'antiviral') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : p.kind === 'vest' || p.kind === 'helmet' ? '#8cc4ff' : '#f2d060', size: 3.5, shape: 'dot' });
   for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
-  for (const d of s.drops) if (!d.taken) out.push({ pos: d.pos, color: '#ffb347', size: 4.5, shape: 'square', label: 'Dropped kit' }); // rooms: what a turned player left
+  for (const d of s.drops) if (!d.taken) out.push({ pos: d.pos, color: '#ffb347', size: 4.5, shape: 'square', label: 'Arsenal' }); // rooms: what a turned player left
   for (const l of s.map.ladders) out.push({ pos: l.foot, color: '#d8b030', size: 3.4, shape: 'ladder', label: 'Ladder' }); // a way up
   return out;
 }

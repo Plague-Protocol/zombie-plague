@@ -95,7 +95,7 @@ export class GameView {
   private noraKey = '';
   /** Searchable house doors (a glint until searched). */
   private houseGlints = new Map<number, Object3D>();
-  /** Rooms: the bags left where players turned. */
+  /** Rooms: the arsenals left where players turned. */
   private dropMeshes = new Map<number, Object3D>();
   /** The searchable houses' front doors: a leaf on its hinge that swings open, and the dark doorway behind it. */
   private houseDoors = new Map<number, { hinge: Object3D; hole: Mesh<BoxGeometry, MeshBasicMaterial> }>();
@@ -176,6 +176,11 @@ export class GameView {
   private shakeAmt = 0;
   private time = 0;
   private wasCaught = false;
+  /** Who you are drawn as, and whether (a room, turned) you are drawn as one of them instead. */
+  private heroSkin: SkinName = 'humanMaleA';
+  private zombified = false;
+  private lungeAt = -9;
+  private lungeFresh = false;
   /** The last moments of a lost night: you go down, the colour leaves you, and you get up as one of them. */
   private turn: { t: number } | null = null;
   /** You fall, the body fits on the ground while they feed, and it lies still: the turning itself is shown after, on film. */
@@ -256,6 +261,8 @@ export class GameView {
    */
   /** Who you are playing: the survivor's skin (fetched the first time it is worn), with its own copy to drain of colour. */
   async setHeroSkin(skin: SkinName): Promise<void> {
+    this.heroSkin = skin;
+    this.zombified = false;
     await loadSkin(this.assets, skin);
     this.player.setSkin(skin);
     this.playerMat = this.player.ownMaterial();
@@ -406,6 +413,7 @@ export class GameView {
       g.rotation.y = (s.seed % 4) * (Math.PI / 2);
     }
     this.wasCaught = false;
+    if (this.zombified) { this.zombified = false; this.player.setSkin(this.heroSkin); this.playerMat = this.player.ownMaterial(); }
     this.bites.clear();
     this.endTurn();
     this.player.play('Idle', { fade: 0 });
@@ -667,6 +675,10 @@ export class GameView {
     for (const e of events) {
       switch (e.type) {
         case 'shot': {
+          if (e.shooter !== undefined && e.shooter !== s.cur.id) { // rooms: someone else's gun, not yours
+            this.effects.shot(new Vector3(e.from.x, 1.3, e.from.y), new Vector3(e.to.x, 1.3, e.to.y));
+            break;
+          }
           this.lastShot = this.time;
           this.effects.shot(this.muzzle(s), new Vector3(e.to.x, 1.3, e.to.y));
           this.shake(e.weapon === 'shotgun' ? 0.25 : 0.08);
@@ -683,6 +695,7 @@ export class GameView {
           if (v && e.force > 4) { this.effects.burst(new Vector3(v.pos.x, 1, v.pos.y), 0xffb040, 10, 6); this.shake(Math.min(1, e.force / 12)); }
           break;
         }
+        case 'lunge': if (e.seat === s.cur.id) { this.lungeAt = this.time; this.lungeFresh = true; } break;
         case 'reload': this.player.setUpper('ReloadUpper', { timeScale: 1.667 / gunStats(s.arsenal, e.weapon).reload }); break;
         case 'throw': this.lastSwing = this.time; this.player.setUpper('Swing2Upper', { restart: true, timeScale: 1.4 }); break;
         case 'bottle-smash': this.effects.burst(new Vector3(e.pos.x, 0.4, e.pos.y), 0x9fd8b0, 12, 3); this.waves.ring(e.pos.x, e.pos.y, 9, 0x6f9a80); break;
@@ -794,7 +807,18 @@ export class GameView {
     this.camera.lookAt(this.focus.x, 1 + this.lift, this.focus.z);
 
     // --- player (hidden inside a car; astride a bike)
-    const caught = s.phase === 'lost' && s.lossReason === 'caught';
+    // rooms: down, and then up as one of them, in their skin, on their legs
+    const fallen = s.mode === 'room' && (s.player.status === 'down' || s.player.status === 'turned' || s.player.status === 'dead');
+    const zombie = s.mode === 'room' && s.player.status === 'turned';
+    const undead = zombie || (s.mode === 'room' && s.player.status === 'dead'); // put down, it keeps their face
+    if (undead !== this.zombified) {
+      this.zombified = undead;
+      this.player.setSkin(undead ? (s.player.id % 2 ? 'zombieFemaleA' : 'zombieMaleA') : this.heroSkin);
+      this.playerMat = this.player.ownMaterial();
+      this.player.setUpper(null);
+      if (zombie) { this.player.play('ZRise', { once: true, fade: 0.1 }); this.wasCaught = false; } // up off the ground; put down later, it falls again
+    }
+    const caught = (s.phase === 'lost' && s.lossReason === 'caught') || (fallen && !zombie);
     const bike = car?.kind === 'bike' ? car : null;
     this.player.root.visible = !car || !!bike || !!this.outro;
     if (this.outro || this.turn) this.player.crouch(false);
@@ -803,7 +827,10 @@ export class GameView {
     else if (this.turn) this.playTurn(s, dt);
     else {
     if (bike && !caught) { this.player.setUpper(null); this.player.play('Idle', { fade: 0.2 }); }
-    if (caught && !this.wasCaught) { this.wasCaught = true; this.player.setUpper(null); this.player.play('Death', { once: true, fade: 0.15 }); }
+    if (zombie) { // a lunge, or the shamble and the run
+      if (this.time - this.lungeAt < 0.5) { this.player.play('ZAttack', { once: true, timeScale: 1.6, fade: 0.08, restart: this.lungeFresh }); this.lungeFresh = false; }
+      else if (!this.player.playing('ZRise')) this.player.shamble(playerSpeed(s));
+    } else if (caught && !this.wasCaught) { this.wasCaught = true; this.player.setUpper(null); this.player.play('Death', { once: true, fade: 0.15 }); }
     else if (!caught && !car) {
       const hold = s.hold.taskId;
       const work = s.work;
@@ -841,17 +868,18 @@ export class GameView {
     if (!car && !cl && s.player.roof === null && playerSpeed(s) > 0.3 && onBody(s, p)) this.player.root.position.y = 0.16 * Math.abs(Math.sin(this.time * 9));
     // hurt or far gone, he limps; a cough doubles him over
     const inf = infection(s);
-    const limp = caught || car ? 0 : Math.max(s.player.health < PLAYER_HEALTH * 0.45 ? 1 : 0, inf > 0.7 ? (inf - 0.7) / 0.3 : 0) * Math.min(1, playerSpeed(s) / 2);
+    const limp = caught || car || zombie ? 0 : Math.max(s.player.health < PLAYER_HEALTH * 0.45 ? 1 : 0, inf > 0.7 ? (inf - 0.7) / 0.3 : 0) * Math.min(1, playerSpeed(s) / 2);
     this.coughT = Math.max(0, this.coughT - dt);
     this.player.root.rotation.z = Math.sin(this.time * 7.5) * 0.085 * limp;
     this.player.root.rotation.x = caught ? 0 : Math.sin((this.coughT / 0.55) * Math.PI * 2) ** 2 * 0.3 * (this.coughT > 0 ? 1 : 0) + limp * 0.06;
-    this.playerMat?.color.setRGB(1 - inf * 0.36, 1 - inf * 0.22, 1 - inf * 0.4);
+    if (zombie) this.player.root.rotation.x = 0.22; // bent at the waist, head out in front
+    else this.playerMat?.color.setRGB(1 - inf * 0.36, 1 - inf * 0.22, 1 - inf * 0.4);
     if (s.player.hide !== null) this.playerMat?.color.multiplyScalar(0.35); // in the shadow of it
     if (bike) { // on the seat, behind the tank
       this.player.root.position.x -= Math.cos(bike.heading) * 0.45;
       this.player.root.position.z -= Math.sin(bike.heading) * 0.45;
     }
-    this.updateGun(s, !car && !caught && !s.hold.taskId && !s.work);
+    this.updateGun(s, !car && !caught && !zombie && !s.hold.taskId && !s.work);
     }
 
     // flashlight from the chest (or headlights from the car), pointing where you face
@@ -906,7 +934,7 @@ export class GameView {
       g.visible = !pk.taken;
       if (g.visible) pulseGlint(g.getObjectByName('glint')!, this.time, pk.id * 0.37);
     }
-    // bags left by players who turned: there until someone takes one
+    // arsenals left by players who turned: there until someone takes one (USE)
     for (const [id, m] of this.dropMeshes) if (!s.drops.some((d) => d.id === id && !d.taken)) { this.level.remove(m); this.dropMeshes.delete(id); }
     for (const d of s.drops) {
       if (d.taken) continue;
