@@ -7,7 +7,7 @@ import {
 } from '../../core/state';
 import { cellOf } from '../../core/map';
 import {
-  ANTIVIRAL_SECONDS, ATTACK_REACH, BITE_COST, CHECK_SECONDS, CRAWL_DAMAGE, CRAWLERS, DORMANT, DREAD_SECONDS, GRAB_SLOW, HUSK_HEALTH, LASH_DAMAGE,
+  ANTIVIRAL_SECONDS, ATTACK_REACH, BITE_COST, CHECK_SECONDS, CRAWL_DAMAGE, CRAWLERS, DORMANT, DREAD_SECONDS, GRAB_SLOW, HUSK_HEALTH, INTERIOR_DEAD, LASH_DAMAGE,
   LASHERS, LIGHT_OFF_SIGHT, PLAYER_HEALTH, PLAYER_SPEED, SCREAM_WINDUP, SCREAMERS, STALKERS, ZOMBIE_HEALTH,
 } from '../../core/config';
 import { command, quantize, Recorder, replay, STEP } from '../../core/replay';
@@ -144,7 +144,11 @@ describe('the other infected', () => {
     const g = createGame(11);
     expect(g.zombies.filter((z) => z.kind === 'screamer').length).toBe(SCREAMERS[0]);
     expect(g.zombies.filter((z) => z.kind === 'stalker').length).toBe(STALKERS[0]);
-    expect(g.zombies.filter((z) => z.action === 'dormant').length).toBe(DORMANT[0]);
+    // the bodies in the street, and those lying in the walk-in buildings
+    const inside = (z: { pos: { x: number; y: number } }) => g.map.interiors.some((it) => z.pos.x > it.x && z.pos.x < it.x + it.w && z.pos.y > it.y && z.pos.y < it.y + it.h);
+    const lying = g.zombies.filter((z) => z.action === 'dormant');
+    expect(lying.filter((z) => !inside(z)).length).toBe(DORMANT[0]);
+    expect(lying.filter(inside).length).toBeGreaterThanOrEqual(g.map.interiors.length * INTERIOR_DEAD[0]);
     expect(g.corpses.length).toBeGreaterThan(0); // and bodies that are
   });
 

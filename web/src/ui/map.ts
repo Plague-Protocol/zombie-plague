@@ -14,6 +14,7 @@ const DISTRICT_COLORS: Record<string, string> = {
 const SOLID_COLORS: Record<string, string> = {
   tower: '#15161a', building: '#15161a', shop: '#2a2622', house: '#4a3a30', warehouse: '#24272c', container: '#5a3a2a',
   store: '#8c2422', hospital: '#c8c8c0', bus: '#6a6a60', truck: '#3f4628', sandbag: '#7a6a4a', ambulance: '#d8d8d2', tree: '#2e5a33', deadtree: '#4a4136', water: '#0f2a3d',
+  wall: '#6a6258', counter: '#4a3e32',
 };
 
 /** The left safe-area inset (a phone's notch in landscape), in CSS px. */
@@ -45,6 +46,7 @@ export function drawBase(map: MapData, fallen: number[] = []): HTMLCanvasElement
     if (d.kind === 'pier') { g.fillStyle = '#5a4a35'; g.fillRect(d.x, d.y, d.w, d.h); }
     if (d.kind === 'canopy') { g.fillStyle = '#7a7670'; g.fillRect(d.x, d.y, d.w, d.h); }
   }
+  for (const it of map.interiors) { g.fillStyle = '#3c3830'; g.fillRect(it.x, it.y, it.w, it.h); } // a floor you can cross; its walls go over it
   for (const o of map.buildings) {
     const col = SOLID_COLORS[o.kind];
     if (!col) continue;
@@ -87,6 +89,7 @@ export function markers(s: GameState): Marker[] {
   for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan' && p.kind !== 'antiviral') out.push({ pos: p.pos, color: p.kind === 'vest' || p.kind === 'helmet' ? '#8cc4ff' : '#d0a070', size: 3.5, shape: 'dot' }); // weapons tan (yellow is the mission's)
   for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
   for (const d of s.drops) if (!d.taken) out.push({ pos: d.pos, color: '#ffb347', size: 4.5, shape: 'square', label: 'Arsenal' }); // rooms: what a turned player left
+  for (const it of s.map.interiors) out.push({ pos: { x: it.door.x + it.out.x * 0.8, y: it.door.y + it.out.y * 0.8 }, color: '#e8e2d6', size: 3, shape: 'square', label: 'Way in' }); // a building you can search
   for (const l of s.map.ladders) out.push({ pos: l.foot, color: '#9aa4b0', size: 3.4, shape: 'ladder', label: 'Ladder' }); // a way up (steel, not the mission's yellow)
   return out;
 }

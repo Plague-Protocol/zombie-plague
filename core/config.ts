@@ -17,7 +17,7 @@ export const SPAWNS_BY_TIER = [
 ] as const;
 /** Resting population per block, by district. */
 export const ZOMBIES_PER_BLOCK = { downtown: 3.6, residential: 1.8, park: 1.6, industrial: 2.3, outskirts: 1.2, water: 0 } as const;
-export const ZOMBIE_CAP = 110;
+export const ZOMBIE_CAP = 110 + 9; // + room for the ones lying in the walk-in buildings (INTERIORS x INTERIOR_DEAD[1]): the streets keep theirs
 export const ZOMBIE_SPAWN_MIN_DIST = 22; // never closer than this to the player
 export const WAVE_SPAWN_MAX_DIST = 45; // waves arrive from just out of sight
 export const ZOMBIE_ACTIVE_RADIUS = 60; // zombies further away are dormant (not simulated)
@@ -307,3 +307,10 @@ export const ZOMBIE_CLIMB_SECONDS = 2.6;
 export const ROOF_RANGE = 1.25;
 /** Ladders per district (on flat-roofed buildings, one each). */
 export const LADDERS = 22;
+
+// ---- walk-in buildings
+/** Buildings per district you can walk into (low blocks and shops, the roomiest first). */
+export const INTERIORS = 3;
+/** Things to search inside each, by how big it is (small, large), and how many of them lie in there. */
+export const INTERIOR_SEARCH = [2, 4] as const;
+export const INTERIOR_DEAD = [1, 3] as const;

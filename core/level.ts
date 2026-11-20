@@ -3,7 +3,7 @@ import { cellOf, distanceField, generateMap, PITCH, STREET, UNREACHABLE } from '
 import { chapterGroups, generateChain } from './tasks';
 import { content } from './content';
 import {
-  AMBUSH_CHANCE, AMMO_PICKUPS, ANTIVIRAL_PICKUPS, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
+  AMBUSH_CHANCE, AMMO_PICKUPS, ANTIVIRAL_PICKUPS, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, INTERIOR_SEARCH, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
   SURVIVOR_COUNT, SURVIVOR_NAMES, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLE_MIX, VEHICLES,
 } from './config';
 import type {
@@ -118,6 +118,22 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
     taken.push(pos);
     pickups.push({ id: pickups.length + 1, kind, pos, taken: false });
   }
+  // Inside the walk-in buildings: things to search, mostly scrap (their own stream: nothing else in the district moves).
+  const irng = fork(seed, 'interior-loot');
+  for (const it of map.interiors) {
+    const n = it.spots.length >= 40 ? INTERIOR_SEARCH[1] : INTERIOR_SEARCH[0];
+    const at: Vec2[] = [];
+    for (const q of it.spots) { // deepest first, spread out
+      if (at.length >= n) break;
+      if (at.every((a) => dist(a, q) > 2.5) && dist(q, it.door) > 2.5) at.push(q);
+    }
+    for (const pos of at) {
+      const r = next(irng);
+      const loot: Loot = r < 0.5 ? 'supplies' : r < 0.68 ? 'ammo' : r < 0.84 ? 'medkit' : r < 0.94 ? 'bottles' : 'empty';
+      crates.push({ id: crates.length + 1, pos: { ...pos }, loot, opened: false });
+    }
+  }
+
   // Fuel: most cars have some left in the tank, rarely much; the one by the start has enough to matter.
   const frng = fork(seed, 'fuel');
   vehicles.forEach((v, i) => { v.fuel = i === 0 ? range(frng, 0.45, 0.7) : range(frng, 0.15, 0.85); });

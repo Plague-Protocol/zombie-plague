@@ -7,7 +7,9 @@ export type ObstacleKind =
   | 'building' | 'tower' | 'house' | 'warehouse' | 'shop' | 'container'
   | 'car' | 'wreck' | 'dumpster' | 'barrel' | 'barricade' | 'lamp' | 'tree' | 'deadtree' | 'fence' | 'pump' | 'bench'
   | 'water' | 'store'
-  | 'bus' | 'truck' | 'sandbag' | 'ambulance' | 'hospital';
+  | 'bus' | 'truck' | 'sandbag' | 'ambulance' | 'hospital'
+  /** A walk-in building's walls, and the counters and shelving inside it. */
+  | 'wall' | 'counter';
 
 /** A ladder up a building's side: you stand at `foot` in the street to climb, and arrive at `top` on the roof, which
  * runs over `roof` (the building's top, a little in from its edges) at `height`. `out` is the wall's outward normal. */
@@ -57,6 +59,26 @@ export interface Building {
   tone: number; // visual only, 0..1
 }
 
+/**
+ * A building you can walk into: its walls (obstacles of kind 'wall', with a gap for the doorway), a floor you can
+ * cross, things to search on it, and some of them lying in there. Carved from a low building or a shop.
+ */
+export interface Interior {
+  id: number;
+  /** The footprint (the outside of its walls). */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  height: number;
+  tone: number;
+  /** The middle of the doorway, on the wall line, and the unit vector out of it. */
+  door: Vec2;
+  out: Vec2;
+  /** Open floor inside (walkable nav cells, deepest first): where things are searched and where they lie. */
+  spots: Vec2[];
+}
+
 /** A weapon store building with its door on the street. */
 export interface Storefront {
   x: number; // the building's footprint (also an obstacle in `buildings`)
@@ -85,6 +107,8 @@ export interface MapData {
   ladders: Ladder[];
   /** Places to hide: beside a dumpster, under a wreck. */
   hides: HideSpot[];
+  /** Buildings you can walk into. */
+  interiors: Interior[];
   /** Spatial hash of obstacle indices, `gridCell` units per cell, `gridN` x `gridN` cells. */
   grid: number[][];
   gridCell: number;

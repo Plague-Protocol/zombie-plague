@@ -234,6 +234,11 @@ that wallet signs in but cannot stake). Copy `.env.example` (page) and `server/.
 - **Move:** drag anywhere (floating stick) or WASD. A light push walks, a full push runs.
 - **Fire / swing:** hold FIRE (or Space). Aim assist picks the zombie in front of you. Gunfire
   is loud: everything within earshot comes looking. With a melee weapon the button reads SWING.
+- **Walk-in buildings:** two or three a district (a low block, a corner shop, the gas station), with an amber sign
+  over the doorway and "Way in" on the map. Inside, the roof comes off and the walls drop to knee height so you can
+  see; there are two to four things to SEARCH (mostly scrap), and one to three of them lying on the floor that get up
+  when you come close or make noise. Carved into the city's grid (`carveInteriors` in `core/map.ts`), so movement,
+  pathing, sight and the replay check all work in them unchanged, solo and in rooms.
 - **Use:** the contextual button (or E): start an objective, search a supply crate, enter a
   weapon store, get in or out of a vehicle, take a weapon lying in the street (TAKE: it goes into your
   arsenal, not your hand, since yours may be better). **Reload** (R) and **swap weapon** (Q) buttons.

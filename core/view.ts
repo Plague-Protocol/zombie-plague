@@ -92,7 +92,7 @@ function lit(s: GameState, p: Player, at: Vec2): boolean {
 }
 
 /** What blocks sight: the walls of things taller than a person, cell by cell, with no clearance round them. */
-const SIGHT_WALLS = new Set<ObstacleKind>(['building', 'tower', 'house', 'warehouse', 'shop', 'store', 'hospital', 'container', 'bus', 'truck']);
+const SIGHT_WALLS = new Set<ObstacleKind>(['building', 'tower', 'house', 'warehouse', 'shop', 'store', 'hospital', 'container', 'bus', 'truck', 'wall']);
 const wallGrids = new WeakMap<MapData, Uint8Array>();
 function wallsOf(map: MapData): Uint8Array {
   let g = wallGrids.get(map);

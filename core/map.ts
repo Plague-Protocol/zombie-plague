@@ -1,6 +1,6 @@
-import { createRng, chance, int, next, pick, range, shuffle, type Rng } from './rng';
-import type { Block, Building, Decor, District, HideSpot, Ladder, MapData, ObstacleKind, ParkingSpot, Storefront, Theme, Vec2 } from './types';
-import { LADDERS, PILEUPS, STORE_COUNT } from './config';
+import { createRng, chance, fork, int, next, pick, range, shuffle, type Rng } from './rng';
+import type { Block, Building, Decor, District, HideSpot, Interior, Ladder, MapData, ObstacleKind, ParkingSpot, Storefront, Theme, Vec2 } from './types';
+import { INTERIORS, LADDERS, PILEUPS, STORE_COUNT } from './config';
 import { dhypot } from './dmath';
 
 // World scale: a character is 2.8 units tall (about 1.75 m), so 1 unit is about 0.63 m.
@@ -142,6 +142,86 @@ export function onStreets(map: MapData, p: Vec2, maxR = 12): Vec2 {
     if (best >= 0) return { x: (best % cols) + 0.5, y: Math.floor(best / cols) + 0.5 };
   }
   return p;
+}
+
+const WALL = 0.3; // a walk-in building's walls
+const DOORWAY = 2.6; // wide enough that a nav cell always fits through (its middle is put on a cell's middle)
+
+/**
+ * Open up a few low buildings and shops to walk into, from their own random stream (so nothing else moves): each
+ * becomes four walls with a doorway on its street side, and the roomier ones get a counter and a row of shelving. The
+ * building's own entry in `obstacles` becomes its first wall (indices others keep stay right); the rest go on the end.
+ */
+function carveInteriors(seed: number, obstacles: Building[], keepAway: Vec2[]): Interior[] {
+  const rng = fork(seed, 'interiors');
+  const out: Interior[] = [];
+  const free = (x: number, y: number, w: number, h: number, self: Building) =>
+    obstacles.every((o) => o === self || o.x >= x + w || o.x + o.w <= x || o.y >= y + h || o.y + o.h <= y);
+  const roomy = (b: Building) => Math.min(b.w, b.h);
+  const cands = shuffle(rng, obstacles.filter((b) => (b.kind === 'building' || b.kind === 'shop') && roomy(b) >= 6.6))
+    .sort((a, b) => (roomy(b) >= 9 ? 1 : 0) - (roomy(a) >= 9 ? 1 : 0)); // a low block first: room for a counter and shelving
+  for (const b of cands) {
+    if (out.length >= INTERIORS) break;
+    if (out.some((q) => dhypot(q.x - b.x, q.y - b.y) < 40) || keepAway.some((k) => dhypot(k.x - (b.x + b.w / 2), k.y - (b.y + b.h / 2)) < 12)) continue;
+    // the door goes on the side nearest the street, if the pavement in front of it is clear
+    const bi = Math.floor((b.x - STREET) / PITCH), bj = Math.floor((b.y - STREET) / PITCH);
+    const bx = STREET + bi * PITCH, by = STREET + bj * PITCH;
+    const sides = ([
+      { n: { x: -1, y: 0 }, gap: b.x - bx }, { n: { x: 1, y: 0 }, gap: bx + BLOCK - (b.x + b.w) },
+      { n: { x: 0, y: -1 }, gap: b.y - by }, { n: { x: 0, y: 1 }, gap: by + BLOCK - (b.y + b.h) },
+    ]).sort((p, q) => p.gap - q.gap);
+    let made: Interior | null = null;
+    for (const sd of sides) {
+      const alongX = sd.n.y !== 0; // the door's wall runs along x
+      const lo = alongX ? b.x : b.y, len = alongX ? b.w : b.h;
+      // the doorway's middle on a cell's middle, with at least 1.2 of wall either side of it
+      const cMin = lo + 1.2 + DOORWAY / 2, cMax = lo + len - 1.2 - DOORWAY / 2;
+      const c = Math.min(Math.floor(cMax - 0.5) + 0.5, Math.max(Math.ceil(cMin - 0.5) + 0.5, Math.floor(lo + len / 2 + range(rng, -len / 6, len / 6)) + 0.5));
+      if (c < cMin || c > cMax) continue;
+      const wallAt = sd.n.x < 0 ? b.x : sd.n.x > 0 ? b.x + b.w : sd.n.y < 0 ? b.y : b.y + b.h;
+      const door = alongX ? { x: c, y: wallAt } : { x: wallAt, y: c };
+      // the pavement in front, a doorway wide and a couple of steps deep
+      const fx = alongX ? c - DOORWAY / 2 : sd.n.x > 0 ? wallAt : wallAt - 2.5, fy = alongX ? (sd.n.y > 0 ? wallAt : wallAt - 2.5) : c - DOORWAY / 2;
+      if (!free(fx, fy, alongX ? DOORWAY : 2.5, alongX ? 2.5 : DOORWAY, b)) continue;
+      made = { id: out.length, x: b.x, y: b.y, w: b.w, h: b.h, height: b.height, tone: b.tone, door, out: sd.n, spots: [] };
+      break;
+    }
+    if (!made) continue;
+    const it = made, idx = obstacles.indexOf(b);
+    const wall = (x: number, y: number, w: number, h: number): Building => ({ kind: 'wall', x, y, w, h, height: b.height, tone: b.tone });
+    const walls: Building[] = [];
+    const side = (n: Vec2, seg: [number, number, number, number]) => { // a wall, split round the doorway if it is on this side
+      const [x, y, w, h] = seg;
+      if (n.x !== it.out.x || n.y !== it.out.y) { walls.push(wall(x, y, w, h)); return; }
+      if (n.y !== 0) { const g0 = it.door.x - DOORWAY / 2, g1 = it.door.x + DOORWAY / 2; walls.push(wall(x, y, g0 - x, h), wall(g1, y, x + w - g1, h)); }
+      else { const g0 = it.door.y - DOORWAY / 2, g1 = it.door.y + DOORWAY / 2; walls.push(wall(x, y, w, g0 - y), wall(x, g1, w, y + h - g1)); }
+    };
+    side({ x: 0, y: -1 }, [b.x, b.y, b.w, WALL]);
+    side({ x: 0, y: 1 }, [b.x, b.y + b.h - WALL, b.w, WALL]);
+    side({ x: -1, y: 0 }, [b.x, b.y + WALL, WALL, b.h - 2 * WALL]);
+    side({ x: 1, y: 0 }, [b.x + b.w - WALL, b.y + WALL, WALL, b.h - 2 * WALL]);
+    // inside: a counter along a side wall, and in a big one a free-standing row of shelving across the middle
+    const inner = { x: b.x + WALL, y: b.y + WALL, w: b.w - 2 * WALL, h: b.h - 2 * WALL };
+    const fit: Building[] = [];
+    if (Math.min(inner.w, inner.h) >= 8) {
+      const alongX = it.out.y !== 0; // the door's wall runs along x: the side walls run along y
+      const L = (alongX ? inner.h : inner.w) * 0.45, back = alongX ? (it.out.y > 0 ? inner.y : inner.y + inner.h - L) : (it.out.x > 0 ? inner.x : inner.x + inner.w - L);
+      const onLeft = chance(rng, 0.5);
+      fit.push(alongX
+        ? { kind: 'counter', x: onLeft ? inner.x : inner.x + inner.w - 0.8, y: back, w: 0.8, h: L, height: 1.0, tone: b.tone }
+        : { kind: 'counter', x: back, y: onLeft ? inner.y : inner.y + inner.h - 0.8, w: L, h: 0.8, height: 1.0, tone: b.tone });
+      if (Math.min(inner.w, inner.h) >= 9.2) {
+        const cx = inner.x + inner.w / 2, cy = inner.y + inner.h / 2, sl = Math.min(3.2, (alongX ? inner.w : inner.h) * 0.35);
+        fit.push(alongX
+          ? { kind: 'counter', x: cx - sl / 2, y: cy - 0.3, w: sl, h: 0.6, height: 1.9, tone: b.tone }
+          : { kind: 'counter', x: cx - 0.3, y: cy - sl / 2, w: 0.6, h: sl, height: 1.9, tone: b.tone });
+      }
+    }
+    obstacles[idx] = walls[0]!;
+    obstacles.push(...walls.slice(1), ...fit);
+    out.push(it);
+  }
+  return out;
 }
 
 /** The four sides of a box: the middle of each, and its outward normal. */
@@ -481,8 +561,10 @@ export function generateMap(seed: number, theme: Theme = 'downtown'): MapData {
     x0 = px + STREET;
   }
 
-  // The streets after the outbreak: pile-ups, an overrun checkpoint, debris.
-  streetDamage(seed, obstacles, decor, labels, [...storeBlocks.values()].map((f) => f.door));
+  // Buildings to walk into, then the streets after the outbreak (pile-ups, an overrun checkpoint, debris), clear of their doors.
+  const storeDoors = [...storeBlocks.values()].map((f) => f.door);
+  const interiors = carveInteriors(seed, obstacles, storeDoors);
+  streetDamage(seed, obstacles, decor, labels, [...storeDoors, ...interiors.map((it) => ({ x: it.door.x + it.out.x * 2, y: it.door.y + it.out.y * 2 }))]);
 
   // Candidate street points: intersections plus points along every street segment.
   const pts: Vec2[] = [];
@@ -539,7 +621,17 @@ export function generateMap(seed: number, theme: Theme = 'downtown'): MapData {
   });
 
   const { ladders, hides } = climbAndHide(seed, obstacles, reach, cols);
-  return { size: MAP_SIZE, cols, buildings: obstacles, blocked, reach, ladders, hides, points, blocks, decor, parking: parkingFree, storefronts, labels, grid, gridCell: GRID_CELL, gridN };
+  // the floor inside each walk-in building: the cells you can stand on, deepest first
+  for (const it of interiors) {
+    const cells: Vec2[] = [];
+    for (let y = Math.floor(it.y); y < it.y + it.h; y++) for (let x = Math.floor(it.x); x < it.x + it.w; x++) {
+      const c = { x: x + 0.5, y: y + 0.5 };
+      if (c.x < it.x + WALL || c.y < it.y + WALL || c.x > it.x + it.w - WALL || c.y > it.y + it.h - WALL) continue;
+      if (blocked[y * cols + x] === 0 && reach[y * cols + x] === 1) cells.push(c);
+    }
+    it.spots = cells.sort((a, b) => dhypot(b.x - it.door.x, b.y - it.door.y) - dhypot(a.x - it.door.x, a.y - it.door.y));
+  }
+  return { size: MAP_SIZE, cols, buildings: obstacles, blocked, reach, ladders, hides, interiors, points, blocks, decor, parking: parkingFree, storefronts, labels, grid, gridCell: GRID_CELL, gridN };
 }
 
 export function districtAt(map: MapData, p: Vec2): Block | null {

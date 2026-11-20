@@ -23,7 +23,7 @@ import {
   SCREAMER_SIGHT, SCREAMERS, STALKER_SENSE, STALKER_SPEED, STALKERS,
   CRAWL_DAMAGE, CRAWLER_SIGHT, CRAWLER_SPEED, CRAWLERS, GRAB_SECONDS, GRAB_SLOW, HALVE_CHANCE, LASH_DAMAGE, LASH_PULL, LASH_RANGE,
   LASH_REACH, LASHERS,
-  DOWN_SECONDS, EXIT_SEATS_SHARE, LUNGE_ARC, LUNGE_COOLDOWN, PVP_KILL_REWARD, HORDE_PREY, HORDE_RADIUS, ROOM_PLAYERS_MAX, ROOM_SECONDS, SAFE_RADIUS,
+  DOWN_SECONDS, EXIT_SEATS_SHARE, INTERIOR_DEAD, INTERIORS, LUNGE_ARC, LUNGE_COOLDOWN, PVP_KILL_REWARD, HORDE_PREY, HORDE_RADIUS, ROOM_PLAYERS_MAX, ROOM_SECONDS, SAFE_RADIUS,
   SPAWN_APART, SPAWN_FROM_EXIT, TARGET_HOLD, TARGET_SWITCH, TURNED_HEALTH, MERCY_DAMAGE, MERCY_HEALTH, MERCY_INVULN, MERCY_SPEED,
 } from './config';
 import { nearbyObstacles } from './collision';
@@ -665,6 +665,18 @@ function seedHorror(s: GameState, husk: Husk | null): void {
       s.huskLoot = husk.weapon && husk.weapon !== 'pistol' && husk.weapon !== 'baton' ? husk.weapon : 'ammo';
     }
   }
+
+  // the walk-in buildings: some of them lie in there among what you came to search, until you get close or loud
+  const irng = fork(s.seed, 'interior-dead');
+  for (const it of s.map.interiors) {
+    const n = Math.round(range(irng, INTERIOR_DEAD[0], INTERIOR_DEAD[1] + (it.spots.length >= 40 ? 0.49 : -0.51)));
+    const free = it.spots.filter((q) => dist(q, it.door) > 3);
+    for (let k = 0; k < n && free.length; k++) {
+      const at = free.splice(Math.floor(next(irng) * free.length), 1)[0]!;
+      const z = addZombie(s, next(irng) < 0.25 ? 'runner' : 'walker', { ...at }, false, irng);
+      z.action = 'dormant';
+    }
+  }
 }
 
 /** Another one down: the count, the reward, and what your last self was carrying. */
@@ -831,7 +843,7 @@ function callOut(s: GameState, z: Zombie): void {
 
 /** The city's resting population: denser downtown, thin in the outskirts, none near the start. */
 function populate(s: GameState): void {
-  const cap = ZOMBIE_CAP - 16; // leave room for the waves
+  const cap = ZOMBIE_CAP - 16 - INTERIORS * INTERIOR_DEAD[1]; // leave room for the waves, and the ones lying in the walk-ins
   const runners = CHAPTER_RUNNERS[Math.min(s.chapter, CHAPTER_RUNNERS.length - 1)]!; // deeper in, some of them run
   for (const b of s.map.blocks) {
     const rate = ZOMBIES_PER_BLOCK[b.district];
@@ -841,6 +853,7 @@ function populate(s: GameState): void {
         // inside the block (yards, plazas, lots) or on its kerb
         const p = { x: b.x + range(s.rng, -3, b.size + 3), y: b.y + range(s.rng, -3, b.size + 3) };
         if (s.map.blocked[cellOf(s.map, p)] === 1 || nearestPlayerDist(s, p) < 28) continue;
+        if (s.map.interiors.some((it) => p.x > it.x - 1 && p.x < it.x + it.w + 1 && p.y > it.y - 1 && p.y < it.y + it.h + 1)) continue; // the street's, not shut in a building
         addZombie(s, runners > 0 && next(s.rng) < runners ? 'runner' : 'walker', p, false);
         break;
       }

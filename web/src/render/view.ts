@@ -11,7 +11,7 @@ import { ArmyGate, bandageMesh, bandolierMesh, satchelMesh, barricadeMesh, barri
 import { currentTask, escortGroup, finalChapter, gunStats, heightOf, infection, isGun, isRevealed, lightOn, onBody, playerSpeed, playerVehicle, requiredDone, type GameState } from '../../../core/state';
 import { ATTACK_WINDUP, ZOMBIE_CLIMB_SECONDS, COUGH_NOISE, LASH_REACH, MELEE, PLAYER_HEALTH, SAFEHOUSE_RADIUS, SCREAM_WINDUP, TASK_RADIUS } from '../../../core/config';
 import { plagueDressing, Spores, Tentacles, Waves } from './plague';
-import type { GameEvent, Task, TaskId, Vec2, WeaponKind, Zombie } from '../../../core/types';
+import type { GameEvent, Interior, Task, TaskId, Vec2, WeaponKind, Zombie } from '../../../core/types';
 import { chapterInfo, stepDef } from '../../../core/content';
 
 const params = new URLSearchParams(location.search);
@@ -112,6 +112,8 @@ export class GameView {
     return m;
   })();
   private level = new Group(); // everything rebuilt per night
+  /** Walk-in buildings: walls (built a unit tall, scaled to height) and roof, cut away to knee height while you are inside. */
+  private walkIns: Array<{ it: Interior; walls: Mesh; roof: Mesh; h: number }> = [];
   private vehicles = new Map<number, { group: Group; wrecked: boolean }>();
   private pickups = new Map<number, Group>();
   private crates: InstancedMesh | null = null;
@@ -372,6 +374,8 @@ export class GameView {
     this.level.add(this.crates);
     this.level.add(this.buildTaskProps(s));
     if (s.map.ladders.length) this.level.add(this.ladderMesh(s));
+    this.walkIns = s.map.interiors.map((it) => this.walkInMesh(s, it));
+    for (const w of this.walkIns) this.level.add(w.walls, w.roof);
     for (const h of s.houses) {
       const g = glint(1.1, 0xdde8ff);
       g.position.set(h.pos.x, this.groundAt(s, h.pos) + 1.1, h.pos.y - 0.6);
@@ -1083,6 +1087,7 @@ export class GameView {
         let zz = pose.moved ? { ...z, pos: pose.pos, heading: pose.heading } : z;
         // up on a roof, or on its way up a ladder after you
         let zy = z.roof != null ? s.map.ladders[z.roof]?.height ?? 0 : 0;
+        if (zy === 0 && s.map.interiors.some((it) => zz.pos.x > it.x && zz.pos.x < it.x + it.w && zz.pos.y > it.y && zz.pos.y < it.y + it.h)) zy = 0.17; // on a walk-in's floor, not under it
         const goingUp = z.roof == null && (z.climbT ?? 0) > 0 && s.player.roof !== null ? s.map.ladders[s.player.roof] : undefined;
         if (goingUp) {
           zy = Math.min(1, (z.climbT ?? 0) / ZOMBIE_CLIMB_SECONDS) * goingUp.height;
@@ -1127,6 +1132,7 @@ export class GameView {
     this.waves.update(dt);
     this.updateLights(dread);
     this.updateMarkers(s);
+    this.cutAway(s, dt);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -1249,6 +1255,51 @@ export class GameView {
   }
 
   /** The ladders: two rails and the rungs between them, up the wall from the street to the roof's edge. */
+  /** A walk-in building's walls (a unit tall: scaled to its height, or down to knee height while you are inside) and its roof. */
+  private walkInMesh(s: GameState, it: Interior): { it: Interior; walls: Mesh; roof: Mesh; h: number } {
+    const base = new Color().setHSL(0.06 + it.tone * 0.5, 0.06, 0.2 + it.tone * 0.12), side = base.getHex(), top = base.clone().offsetHSL(0, 0, 0.08).getHex();
+    const wb = new MeshBuilder();
+    for (const b of s.map.buildings) {
+      if (b.kind !== 'wall' || b.x < it.x - 0.01 || b.y < it.y - 0.01 || b.x + b.w > it.x + it.w + 0.01 || b.y + b.h > it.y + it.h + 0.01) continue;
+      wb.box(b.x + b.w / 2, 0.5, b.y + b.h / 2, b.w, 1, b.h, side, top);
+    }
+    const walls = new Mesh(wb.build(), new MeshLambertMaterial({ vertexColors: true }));
+    walls.scale.y = it.height;
+    // the roof, and the wall over the doorway (a lintel at door height), go together
+    const alongX = it.out.y !== 0, dh = 2.7;
+    const rb = new MeshBuilder()
+      .box(it.x + it.w / 2, it.height - 0.1, it.y + it.h / 2, it.w, 0.2, it.h, base.clone().offsetHSL(0, 0, -0.06).getHex(), top)
+      .box(it.door.x - it.out.x * 0.15, (dh + it.height) / 2, it.door.y - it.out.y * 0.15, alongX ? 2.7 : 0.3, it.height - dh, alongX ? 0.3 : 2.7, side, top);
+    // dark windows round the walls (they go with the roof: cut away, they would sit at your knees)
+    const win = 0x0c0e12;
+    for (let x = it.x + 1.4; x < it.x + it.w - 1; x += 2.3) {
+      if (!(it.out.y < 0 && Math.abs(x - it.door.x) < 2)) rb.box(x, 1.9, it.y - 0.03, 1.1, 1.1, 0.06, win);
+      if (!(it.out.y > 0 && Math.abs(x - it.door.x) < 2)) rb.box(x, 1.9, it.y + it.h + 0.03, 1.1, 1.1, 0.06, win);
+    }
+    for (let y = it.y + 1.4; y < it.y + it.h - 1; y += 2.3) {
+      if (!(it.out.x < 0 && Math.abs(y - it.door.y) < 2)) rb.box(it.x - 0.03, 1.9, y, 0.06, 1.1, 1.1, win);
+      if (!(it.out.x > 0 && Math.abs(y - it.door.y) < 2)) rb.box(it.x + it.w + 0.03, 1.9, y, 0.06, 1.1, 1.1, win);
+    }
+    const roof = new Mesh(rb.build(), new MeshLambertMaterial({ vertexColors: true }));
+    // over the doorway, a sign still lit on a generator, and the same on the roof's edge to be seen from any side: a way in
+    const gb = new MeshBuilder()
+      .box(it.door.x + it.out.x * 0.12, dh + 0.45, it.door.y + it.out.y * 0.12, alongX ? 2.2 : 0.08, 0.5, alongX ? 0.08 : 2.2, 0xffb060)
+      .box(it.door.x - it.out.x * 0.4, it.height + 0.35, it.door.y - it.out.y * 0.4, alongX ? 2.4 : 0.12, 0.5, alongX ? 0.12 : 2.4, 0xffb060);
+    roof.add(new Mesh(gb.build(), new MeshBasicMaterial({ vertexColors: true })));
+    return { it, walls, roof, h: it.height };
+  }
+
+  /** Inside a walk-in building, its roof goes and its walls come down to knee height so you can see in; outside, they are back. */
+  private cutAway(s: GameState, dt: number): void {
+    const p = s.player.pos;
+    for (const w of this.walkIns) {
+      const inside = p.x > w.it.x - 0.2 && p.x < w.it.x + w.it.w + 0.2 && p.y > w.it.y - 0.2 && p.y < w.it.y + w.it.h + 0.2;
+      const want = inside ? 0.9 : w.h;
+      w.walls.scale.y += (want - w.walls.scale.y) * (1 - Math.exp(-10 * dt));
+      w.roof.visible = !inside && w.walls.scale.y > w.h - 0.3;
+    }
+  }
+
   private ladderMesh(s: GameState): Mesh {
     const b = new MeshBuilder();
     for (const l of s.map.ladders) {
@@ -1567,6 +1618,7 @@ export class GameView {
 
   /** Height of the ground at a point: raised pavement inside blocks, road between them. */
   private groundAt(s: GameState, p: Vec2): number {
+    for (const it of s.map.interiors) if (p.x > it.x && p.x < it.x + it.w && p.y > it.y && p.y < it.y + it.h) return 0.17; // on a walk-in's floor
     for (const b of s.map.blocks) {
       if (b.district !== 'water' && p.x >= b.x && p.x <= b.x + b.size && p.y >= b.y && p.y <= b.y + b.size) return 0.15;
     }

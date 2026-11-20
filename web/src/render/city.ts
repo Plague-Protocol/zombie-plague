@@ -162,6 +162,16 @@ export function buildCity(map: MapData, seed: number, lampColor = 0xffcf8a): Cit
     S(x, z).disc(x, z, range(rng, 0.5, 1.8), 0.015, blood ? 0x3a0d0d : 0x15161a, 11, 0.5, int(rng, 1, 1e6));
   }
 
+  // --- the floor inside each walk-in building: dirty tiles, a stain or two
+  for (const it of map.interiors) {
+    const sb = S(it.x + it.w / 2, it.y + it.h / 2);
+    sb.floor(it.x + 0.05, it.y + 0.05, it.x + it.w - 0.05, it.y + it.h - 0.05, 0.17, 0x34302a);
+    for (let k = 0; k < 3; k++) {
+      const x = it.x + range(rng, 1, it.w - 1), z = it.y + range(rng, 1, it.h - 1);
+      sb.disc(x, z, range(rng, 0.4, 1.1), 0.175, chance(rng, 0.5) ? 0x3a0d0d : 0x1f1c18, 9, 0.5, int(rng, 1, 1e6));
+    }
+  }
+
   // --- obstacles
   for (const b of map.buildings) {
     const cx = b.x + b.w / 2, cz = b.y + b.h / 2;
@@ -258,6 +268,21 @@ export function buildCity(map: MapData, seed: number, lampColor = 0xffcf8a): Cit
         s.box(cx, 0.25, cz, b.w * 0.9, 0.5, 0.1, 0x2a2a2a);
         break;
       case 'lamp': lamp(b); break;
+      case 'wall': break; // a walk-in building's walls are drawn by the view, which cuts them away while you are inside
+      case 'counter': {
+        if (b.height < 1.5) { // a shop counter: dark wood, a scuffed top, a till left open
+          s.box(cx, b.height / 2, cz, b.w, b.height, b.h, 0x3a2a1e, 0x5a4636);
+          s.box(cx, b.height + 0.12, cz, 0.35, 0.24, 0.3, 0x2a2c30);
+        } else { // a row of shelving, picked half bare
+          s.box(cx, b.height / 2, cz, b.w, b.height, b.h, 0x44484e, 0x55595f);
+          for (let k = 0; k < 4; k++) {
+            if (!chance(rng, 0.6)) continue;
+            const along = b.w > b.h, t = (k + 0.5) / 4 - 0.5, L = Math.max(b.w, b.h);
+            s.box(along ? cx + t * L : cx, 0.55 + (k % 2) * 0.7, along ? cz : cz + t * L, along ? L / 5 : b.w + 0.06, 0.32, along ? b.h + 0.06 : L / 5, pick(rng, [0x7a3a2a, 0x3a5a7a, 0x8a7a3a, 0x4a6a3a]));
+          }
+        }
+        break;
+      }
       case 'bus': { // a city bus on its side: windows face the sky, wheels face the street
         const alongZ = b.h > b.w;
         const L = alongZ ? b.h : b.w;

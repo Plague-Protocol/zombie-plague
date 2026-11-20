@@ -138,6 +138,9 @@ export class Hud {
     this.hurtTimer = window.setTimeout(() => { this.hurtEl.style.opacity = '0'; }, 350);
   }
 
+  /** Told what a walk-in building is for (once a session). */
+  private toldInside = false;
+
   toast(text: string, ms = 1800): void {
     this.toastEl.textContent = text;
     this.toastEl.classList.add('on');
@@ -220,6 +223,11 @@ export class Hud {
     const use = useLabel(s, interactionFor(s));
     this.useBtn.style.display = use ? 'flex' : 'none';
     if (use && this.useBtn.textContent !== use) this.useBtn.textContent = use;
+
+    // the first time in a walk-in building tonight: what it is for, and what may be lying in it
+    const pp = s.player.pos;
+    const inside = s.map.interiors.find((it) => pp.x > it.x && pp.x < it.x + it.w && pp.y > it.y && pp.y < it.y + it.h);
+    if (inside && !this.toldInside && s.phase === 'playing') { this.toldInside = true; this.toast('Inside. SEARCH what you find for scrap and supplies, and mind the ones lying on the floor.', 4200); }
 
     // turned (rooms): one of them now. No gun, no light, nothing to use: one button, BITE, dim while you gather for the next
     const turned = s.mode === 'room' && s.player.status === 'turned';
