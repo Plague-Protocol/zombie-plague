@@ -945,7 +945,7 @@ export class GameView {
         bag.scale.setScalar(2.4);
         bag.rotation.set(0, d.id * 1.7, Math.PI / 2); // lying on its side
         bag.position.y = 0.2;
-        const g = glint(0.9, 0xffd27a);
+        const g = glint(0.9, 0xffb347); // the arsenal's orange, as on the map
         g.name = 'glint';
         g.position.y = 0.9;
         m.add(bag, g);
@@ -1260,8 +1260,8 @@ export class GameView {
         b.box(x, top / 2, z, 0.07, top, 0.07, 0x8a8f96, 0xa6abb2);
       }
       for (let y = 0.35; y < l.height + 0.4; y += 0.45) b.box(wx, y, wz, along ? 0.05 : 0.64, 0.05, along ? 0.64 : 0.05, 0x9aa0a8);
-      // a hint of hazard yellow at the bottom, so it is found in the dark
-      b.box(wx, 0.5, wz, along ? 0.08 : 0.72, 0.12, along ? 0.72 : 0.08, 0xd8b030);
+      // a reflective white band at the bottom, so it is found in the dark (yellow is kept for the mission)
+      b.box(wx, 0.5, wz, along ? 0.08 : 0.72, 0.12, along ? 0.72 : 0.08, 0xd9e2ea);
     }
     return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x15161a }));
   }

@@ -65,7 +65,7 @@ function shell(): string {
   <footer class="foot"><div class="wrap">
     <div><a class="brand" href="/"><img src="/intro/splash-mark.webp" alt="" width="32" height="32" loading="lazy" /><span>ZOMBIE PLAGUE</span></a>
       <p>A survival horror night in your browser. Bitten in Port Halden: get to the last helicopter before you turn.</p></div>
-    <div><h4>Play</h4><a href="/play">Today's city</a><a href="/play">Rooms</a><a href="/armoury">Armoury</a></div>
+    <div><h4>Play</h4><a href="/play">Play solo</a><a href="/play">Rooms</a><a href="/armoury">Armoury</a></div>
     <div><h4>Learn</h4><a href="/how-to-play">How to play</a><a href="/ranks">Leaderboards</a><a href="/profile">Profile</a></div>
     <div><h4>More</h4><a href="https://deduce.zplague.xyz" target="_blank" rel="noopener">Deduce</a><a href="mailto:support@zplague.xyz">Support</a></div>
   </div></footer>

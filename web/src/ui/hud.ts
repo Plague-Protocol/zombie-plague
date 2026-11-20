@@ -154,7 +154,7 @@ export class Hud {
     }
 
     const final = finalChapter(s);
-    const clock = `CHAPTER ${s.chapter + 1}/${CHAPTERS} · YOU TURN IN`;
+    const clock = s.mode === 'room' ? 'YOU TURN IN' : `CHAPTER ${s.chapter + 1}/${CHAPTERS} · YOU TURN IN`; // a room is one district
     // the infection: a bar that fills and reddens, and veins in the corners of your eyes
     const inf = Math.round(infection(s) * 50) / 50;
     if (inf !== this.lastInf) {
@@ -166,9 +166,15 @@ export class Hud {
     if (clock !== this.lastClock) { this.lastClock = clock; this.clockLabel.textContent = clock; }
     const cur = currentTask(s);
     const ready = requiredDone(s);
-    const label = ready ? exitLabel(final) : cur ? objectiveFor(cur, final, cur.kind === 'clear' ? clearLeft(s, cur) : null) : 'Find another way through';
+    // the main mission (yellow, like its ring): which step of how many, then the way out
+    const steps = s.tasks.filter((x) => x.required), stepN = steps.filter((x) => x.done).length + 1;
+    const room = s.mode === 'room';
+    const out = room ? `Get to the exit · ${s.seatsLeft} ${s.seatsLeft === 1 ? 'seat' : 'seats'} left` : exitLabel(final);
+    const label = ready ? out : cur ? `STEP ${stepN}/${steps.length}: ${objectiveFor(cur, final, cur.kind === 'clear' ? clearLeft(s, cur) : null)}` : 'Find another way through';
     const optional = s.tasks.filter((x) => !x.required && !x.done);
-    const html = `${label}${!ready && optional.length ? `<small>Optional, costs time: ${optional.map((o) => shortName(o)).join(', ')}</small>` : ''}`;
+    // rooms: the exit seats only those who did a step (or carried a piece of one): say so until you have
+    const seat = room && s.player.status === 'alive' && s.player.helped <= 0 ? '<em>Do a step to earn your exit seat</em>' : '';
+    const html = `${label}${seat}${!ready && optional.length ? `<small>Optional, costs time: ${optional.map((o) => shortName(o)).join(', ')}</small>` : ''}`;
     if (html !== this.lastTask) {
       this.lastTask = html;
       this.task.innerHTML = html;

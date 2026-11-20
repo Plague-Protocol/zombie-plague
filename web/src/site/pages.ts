@@ -53,7 +53,7 @@ export const home: Page = {
     <h1><span>BITTEN.</span><span class="red">GET OUT.</span></h1>
     <p class="lede">You were bitten in Port Halden, and the infection is your clock. Cross three districts, find the doses that hold it back, and reach the last evacuation helicopter before you turn.</p>
     <div class="ctas">
-      <button class="btn" type="button" data-play="solo" disabled>Play now</button>
+      <button class="btn" type="button" data-play="solo" disabled>Play solo</button>
       <a class="btn red" href="/play">Play with friends</a>
       <a class="btn ghost" href="/how-to-play">How to play</a>
     </div>
@@ -70,7 +70,7 @@ export const home: Page = {
   <div class="wrap page">
     ${me ? `<div class="status" data-k="status"><span class="k">Your night</span><span class="muted">Loading your standing&hellip;</span></div>` : ''}
     <div class="tiles" style="margin-top:${me ? 18 : 0}px">
-      <a class="tile" href="/play"><span class="ico">${ICON.play}</span><h3>Play</h3><p>Today's city &middot; Public rooms &middot; Private rooms &middot; Random city</p><span class="go">${ICON.chev}</span></a>
+      <a class="tile" href="/play"><span class="ico">${ICON.play}</span><h3>Play</h3><p>Solo &middot; Public rooms &middot; Private rooms &middot; Solo practice</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/ranks"><span class="ico a">${ICON.trophy}</span><h3>Ranks</h3><p>Today &middot; This week &middot; Streaks &middot; Rooms</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/profile"><span class="ico b">${ICON.user}</span><h3>Profile</h3><p>${me ? 'Your name, your standing, your last nights' : 'Sign in to keep a record'}</p><span class="go">${ICON.chev}</span></a>
       <a class="tile" href="/how-to-play"><span class="ico g">${ICON.book}</span><h3>How to play</h3><p>The night &middot; The controls &middot; Scoring &middot; Questions</p><span class="go">${ICON.chev}</span></a>
@@ -151,16 +151,16 @@ export const play: Page = {
   title: 'Play',
   html: () => `
   <div class="wrap page">
-    ${head('Choose your night', 'Play', 'Today\'s city is the same for everyone and counts for the board. Rooms put you on the streets with others. On a phone, the game turns sideways when it starts.')}
+    ${head('Choose your night', 'Play', 'Play solo in today\'s city, the same for everyone and counted on the board, or join a room and play with others. On a phone, the game turns sideways when it starts.')}
     ${loading}
     ${account() ? '<p class="muted" style="margin:-6px 0 14px;font-size:15px">What you carry is set in the <a href="/armoury">Armoury</a>.</p>' : ''}
     <div class="modes">
-      <button class="mode hot" type="button" data-play="solo" disabled><span class="ico">${ICON.bio}</span><span class="body"><h3>Today's city <span class="tag g">Counts for ranks</span></h3><p>Solo &middot; three districts &middot; the same streets for everyone today &middot; your ranked loadout</p>${carrying('ranked')}</span>${ICON.chev}</button>
+      <button class="mode hot" type="button" data-play="solo" disabled><span class="ico">${ICON.bio}</span><span class="body"><h3>Play solo <span class="tag g">Counts for ranks</span></h3><p>Just you against today's city: the same streets for everyone today &middot; three districts &middot; your ranked loadout</p>${carrying('ranked')}</span>${ICON.chev}</button>
       <button class="mode" type="button" data-play="quick" disabled><span class="ico a">${ICON.users}</span><span class="body"><h3>Join a public room ${needsSignIn()}</h3><p>Multiplayer: we put you with whoever is waiting, or open a new room anyone can join &middot; 2 to 8 players</p><p class="live" data-k="live" hidden></p></span>${ICON.chev}</button>
       <button class="mode" type="button" data-play="create" disabled><span class="ico p">${ICON.door}</span><span class="body"><h3>Private room ${needsSignIn()}</h3><p>Multiplayer, friends only: make a room, then share its five-letter code or an invite link</p></span>${ICON.chev}</button>
       <div class="mode" style="cursor:default"><span class="ico b">${ICON.key}</span><span class="body"><h3>Join with a code</h3><p>A friend read out their room's code? Type it here.</p>
         <form data-join><input name="code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" aria-label="Room code" /><button class="btn sm" type="submit" disabled data-play="join">Join</button></form></span></div>
-      <button class="mode" type="button" data-play="practice" disabled><span class="ico g">${ICON.dice}</span><span class="body"><h3>Random city <span class="tag m">Not ranked</span></h3><p>A new city every time, with everything you own and no points limit. Pays half the ZP, and is not on the board.</p>${carrying('open')}</span>${ICON.chev}</button>
+      <button class="mode" type="button" data-play="practice" disabled><span class="ico g">${ICON.dice}</span><span class="body"><h3>Solo practice <span class="tag m">Not ranked</span></h3><p>Just you, in a random city: a new one every time, with everything you own and no points limit. Pays half the ZP, and is not on the board.</p>${carrying('open')}</span>${ICON.chev}</button>
       <button class="mode" type="button" data-play="rooms" disabled data-k="staked"><span class="ico a">${ICON.coin}</span><span class="body"><h3>Staked rooms ${needsSignIn()}<span class="tag g">ZP</span>${stakingOn ? '<span class="tag">USDm &middot; USDT</span>' : ''}</h3><p>Everyone stakes the same and those who get out split the pot. Stake ZP from 50 a seat${stakingOn ? ', or real USDm and USDT on Celo from a wallet' : ''}.</p></span>${ICON.chev}</button>
     </div>
     <div class="sec grid">

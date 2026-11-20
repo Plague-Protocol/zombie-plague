@@ -64,7 +64,8 @@ export function markers(s: GameState): Marker[] {
     if (t.done || !isRevealed(s, t)) continue; // later steps stay hidden until they come up
     const piece = stepDef(t.id).parts?.name;
     t.parts?.forEach((q, i) => { if (!t.got![i]) out.push({ pos: q, color: '#f2b630', size: 4, shape: 'dot', label: piece }); });
-    out.push({ pos: t.pos, color: t.required ? '#f2b630' : '#3f9be6', size: t === cur ? 7 : 5, shape: 'ring', label: t === cur ? shortName(t) : undefined });
+    // yellow is the main mission and nothing else; optional steps are blue, and named, so they are not taken for it
+    out.push({ pos: t.pos, color: t.required ? '#f2b630' : '#3f9be6', size: t === cur ? 7 : 5, shape: 'ring', label: t === cur ? shortName(t) : !t.required ? `${shortName(t)} (optional)` : undefined });
   }
   if (s.safehouseKnown) out.push({ pos: s.safehouse, color: requiredDone(s) ? '#3ddc84' : '#d9534f', size: 8, shape: 'ring', label: finalChapter(s) ? 'Evac' : 'Subway' });
   if (s.escort) out.push({ pos: s.escort.pos, color: '#7fe08a', size: 4.5, shape: 'dot', label: s.escort.name });
@@ -83,10 +84,10 @@ export function markers(s: GameState): Marker[] {
     .sort((a, b) => Math.hypot(a.pos.x - pp.x, a.pos.y - pp.y) - Math.hypot(b.pos.x - pp.x, b.pos.y - pp.y));
   doses.forEach((p, i) => out.push({ pos: p.pos, color: '#4ad27a', size: 4.5, shape: 'cross', label: 'Vaccine', rim: i === 0 }));
   for (const p of s.pickups) if (!p.taken && p.kind === 'jerrycan') out.push({ pos: p.pos, color: '#e05030', size: 3, shape: 'square' });
-  for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan' && p.kind !== 'antiviral') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : p.kind === 'vest' || p.kind === 'helmet' ? '#8cc4ff' : '#f2d060', size: 3.5, shape: 'dot' });
+  for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan' && p.kind !== 'antiviral') out.push({ pos: p.pos, color: p.kind === 'vest' || p.kind === 'helmet' ? '#8cc4ff' : '#d0a070', size: 3.5, shape: 'dot' }); // weapons tan (yellow is the mission's)
   for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
   for (const d of s.drops) if (!d.taken) out.push({ pos: d.pos, color: '#ffb347', size: 4.5, shape: 'square', label: 'Arsenal' }); // rooms: what a turned player left
-  for (const l of s.map.ladders) out.push({ pos: l.foot, color: '#d8b030', size: 3.4, shape: 'ladder', label: 'Ladder' }); // a way up
+  for (const l of s.map.ladders) out.push({ pos: l.foot, color: '#9aa4b0', size: 3.4, shape: 'ladder', label: 'Ladder' }); // a way up (steel, not the mission's yellow)
   return out;
 }
 
