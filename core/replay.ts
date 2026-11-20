@@ -69,6 +69,8 @@ export interface NightLog {
   chapters: ChapterLog[];
   /** What the player brought from the armoury (absent: the standard kit). The server checks it is theirs. */
   loadout?: Loadout;
+  /** The rules it was played under (server/src/rules-id.ts), when the site knew them: other rules cannot replay it. */
+  rules?: string;
 }
 
 const Q = 64; // the stick is recorded in 64ths: what is simulated is exactly what is written down
@@ -95,7 +97,7 @@ export class Recorder {
   private cur: ChapterLog | null = null;
   private steps = 0;
 
-  constructor(readonly night: number, readonly content: number, readonly loadout?: Loadout) {}
+  constructor(readonly night: number, readonly content: number, readonly loadout?: Loadout, readonly rules?: string) {}
 
   /** A chapter begins (or begins again: a retry throws away the attempt before it, and anything after). */
   begin(chapter: number, husk: Husk | null): void {
@@ -120,7 +122,7 @@ export class Recorder {
   }
 
   log(): NightLog {
-    return { v: 1, content: this.content, night: this.night, chapters: this.chapters, ...(this.loadout ? { loadout: this.loadout } : {}) };
+    return { v: 1, content: this.content, night: this.night, chapters: this.chapters, ...(this.loadout ? { loadout: this.loadout } : {}), ...(this.rules ? { rules: this.rules } : {}) };
   }
 }
 

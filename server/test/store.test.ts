@@ -29,15 +29,19 @@ for (const [name, make] of stores) {
       expect((await s.accountById(one.id))?.name).toBe('Sam');
     });
 
-    it('keeps runs, counts the ones that replayed, and counts recent failures', async () => {
+    it('keeps runs, counts the ones that replayed, and counts recent failures (those with a reason)', async () => {
       const s = await fresh();
       const a = await s.upsertAccount(addr());
       await s.addRun(run(a.id));
       await s.addRun(run(a.id, { replayOk: true }));
-      await s.addRun(run(a.id, { replayOk: false }));
+      await s.addRun(run(a.id, { replayOk: false })); // from before failures had a reason: not held against them
+      expect((await (await s.runStats(a.id)).failedSince(7)).count).toBe(0);
+      await s.addRun(run(a.id, { replayOk: false, reason: 'the log does not end the way the claim says' }));
       const st = await s.runStats(a.id);
       expect(st.okRuns).toBe(2);
-      expect(await st.failedSince(7)).toBe(1);
+      const f = await st.failedSince(7);
+      expect(f.count).toBe(1);
+      expect(f.last).toBeInstanceOf(Date);
       const recent = await s.recentRuns(a.id, 2);
       expect(recent.length).toBe(2);
       expect('log' in recent[0]!).toBe(false);
@@ -66,14 +70,14 @@ for (const [name, make] of stores) {
       const s = await fresh();
       const before = await s.adminCounts();
       const a = await s.upsertAccount(addr()), b = await s.upsertAccount(addr());
-      await s.addRun(run(a.id, { replayOk: false })); await s.addRun(run(a.id, { replayOk: false })); await s.addRun(run(a.id));
-      await s.addRun(run(b.id));
+      await s.addRun(run(a.id, { replayOk: false, reason: 'first' })); await s.addRun(run(a.id, { replayOk: false, reason: 'second' })); await s.addRun(run(a.id));
+      await s.addRun(run(b.id)); await s.addRun(run(b.id, { replayOk: false })); // b's is from before failures had a reason: not counted
       const after = await s.adminCounts();
       expect(after.accounts - before.accounts).toBe(2);
-      expect(after.runs24h - before.runs24h).toBe(4);
+      expect(after.runs24h - before.runs24h).toBe(5);
       expect(after.failed24h - before.failed24h).toBe(2);
       const sus = (await s.failedAccounts(7, 50)).find((x) => x.accountId === a.id)!;
-      expect([sus.failed, sus.ok]).toEqual([2, 1]);
+      expect([sus.failed, sus.ok, sus.reason]).toEqual([2, 1, 'second']);
       expect((await s.failedAccounts(7, 50)).some((x) => x.accountId === b.id)).toBe(false);
       const ref = `USDm:${Math.floor(Math.random() * 1e9)}`;
       await s.addSettlement({ roomId: ref, winners: [], logHash: '0x00', status: 'pending', tx: null, error: null });

@@ -97,7 +97,7 @@ let roomDriver: Driver | null = null;
 function fresh(make: (husk: Husk | null) => GameState, chapter: number, loadout?: Loadout): GameState {
   const husk = lastSelf(chapter);
   const g = make(husk);
-  if (chapter === 0) rec = new Recorder(g.night, content().version, loadout);
+  if (chapter === 0) rec = new Recorder(g.night, content().version, loadout, __RULES__);
   rec.begin(chapter, husk);
   return g;
 }
@@ -441,7 +441,7 @@ function narrate(events: readonly GameEvent[]): void {
             : e.kind === 'jerrycan' ? 'Jerrycan: fill up a car (stand by it, REFUEL)'
               : e.kind === 'antiviral' ? (e.amount > 0 ? `Antiviral dose: the infection held back ${e.amount} s` : 'Antiviral dose: nothing to hold back yet')
               : e.kind === 'vest' || e.kind === 'helmet' ? `${GEAR[e.kind].name}: takes part of every hit`
-                : `Picked up: ${WEAPON_NAMES[e.kind]}`);
+                : state.arsenal.weapon === e.kind ? `${WEAPON_NAMES[e.kind]}: in your hand` : `${WEAPON_NAMES[e.kind]} added to your arsenal. SWAP to use it.`);
         break;
       case 'crate-opened':
         hud.toast(e.loot === 'medkit' ? 'Medkit: +health' : e.loot === 'supplies' ? 'Supplies: +25 scrap' : e.loot === 'ammo' ? 'Ammo' : 'Empty');
@@ -466,7 +466,7 @@ function narrate(events: readonly GameEvent[]): void {
       case 'seat-unearned': hud.toast('The exit is open, but not to you: you did none of the steps. Do one, or take a seat some other way.', 5000); break;
       case 'loot-taken': {
         const what = [...e.items, ...(e.funds ? [`${e.funds} funds`] : [])];
-        hud.toast(what.length ? `What they had on them when they turned: ${what.join(', ')}` : 'Their bag: nothing you could use');
+        hud.toast(what.length ? `Their arsenal is yours: ${what.join(', ')}. SWAP to change weapon.` : 'Their arsenal: nothing you could use');
         break;
       }
       case 'house-searched':

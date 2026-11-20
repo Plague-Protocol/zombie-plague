@@ -23,6 +23,9 @@ export interface RunRecord {
   kills: number;
   hash: string;
   replayOk: boolean;
+  /** Why the replay failed. Runs from before 2026-11-20 have none, and those failures are not held against anyone: until
+   * then a server running older rules than the site failed honest nights (see rules.ts). */
+  reason?: string | null;
   /** The server's score for it (0 if the replay failed), and what the replay counted. */
   score: number;
   stats: RunStats | null;
@@ -133,15 +136,15 @@ export interface Store {
   setName(id: string, name: string): Promise<boolean>;
   addRun(r: Omit<RunRecord, 'id' | 'createdAt'>): Promise<RunRecord>;
   recentRuns(accountId: string, limit: number): Promise<Omit<RunRecord, 'log'>[]>;
-  /** How many replay-checked free runs this account has, and when its first was. */
-  runStats(accountId: string): Promise<{ okRuns: number; failedSince: (days: number) => Promise<number> }>;
+  /** How many replay-checked free runs this account has, and its failed replays (with a reason) in the last `days`: how many, and the last. */
+  runStats(accountId: string): Promise<{ okRuns: number; failedSince: (days: number) => Promise<{ count: number; last: Date | null }> }>;
   /** For each account, its best-scoring replayed run on each of these nights. */
   bestRuns(nights: number[]): Promise<BestRun[]>;
   addRoundSeats(rows: RoundSeat[]): Promise<void>;
   /** For the admin page. */
   adminCounts(): Promise<{ accounts: number; runs: number; runs24h: number; failed24h: number; accounts24h: number; rounds24h: number }>;
   /** Accounts with replays that failed in the last `days`: the first place to look for cheating. */
-  failedAccounts(days: number, limit: number): Promise<Array<{ accountId: string; address: string; name: string | null; failed: number; ok: number }>>;
+  failedAccounts(days: number, limit: number): Promise<Array<{ accountId: string; address: string; name: string | null; failed: number; ok: number; reason: string | null }>>;
   settlementsAll(limit: number): Promise<Settlement[]>;
   /** Rooms played by signed-in accounts since `days` ago, summed per account. */
   roomTotals(days: number): Promise<RoomRow[]>;
@@ -214,7 +217,10 @@ export class MemoryStore implements Store {
     const mine = this.runs.filter((r) => r.accountId === accountId);
     return {
       okRuns: mine.filter((r) => r.replayOk).length,
-      failedSince: async (days: number) => mine.filter((r) => !r.replayOk && this.now().getTime() - r.createdAt.getTime() < days * 864e5).length,
+      failedSince: async (days: number) => {
+        const f = mine.filter((r) => !r.replayOk && r.reason && this.now().getTime() - r.createdAt.getTime() < days * 864e5);
+        return { count: f.length, last: f.length ? f[f.length - 1]!.createdAt : null };
+      },
     };
   }
   async bestRuns(nights: number[]): Promise<BestRun[]> {
@@ -231,14 +237,19 @@ export class MemoryStore implements Store {
     return {
       accounts: this.accounts.size, runs: this.runs.length,
       runs24h: this.runs.filter((r) => r.createdAt.getTime() > day).length,
-      failed24h: this.runs.filter((r) => !r.replayOk && r.createdAt.getTime() > day).length,
+      failed24h: this.runs.filter((r) => !r.replayOk && r.reason && r.createdAt.getTime() > day).length,
       accounts24h: [...this.accounts.values()].filter((a) => a.createdAt.getTime() > day).length,
       rounds24h: new Set(this.seats.filter((x) => x.at.getTime() > day).map((x) => x.code)).size,
     };
   }
   async failedAccounts(days: number, limit: number) {
-    const since = this.now().getTime() - days * 864e5, by = new Map<string, { failed: number; ok: number }>();
-    for (const r of this.runs) { if (r.createdAt.getTime() < since) continue; const x = by.get(r.accountId) ?? { failed: 0, ok: 0 }; if (r.replayOk) x.ok++; else x.failed++; by.set(r.accountId, x); }
+    const since = this.now().getTime() - days * 864e5, by = new Map<string, { failed: number; ok: number; reason: string | null }>();
+    for (const r of this.runs) {
+      if (r.createdAt.getTime() < since || (!r.replayOk && !r.reason)) continue;
+      const x = by.get(r.accountId) ?? { failed: 0, ok: 0, reason: null };
+      if (r.replayOk) x.ok++; else { x.failed++; x.reason = r.reason!; }
+      by.set(r.accountId, x);
+    }
     return [...by].filter(([, x]) => x.failed > 0).sort((a, b) => b[1].failed - a[1].failed).slice(0, limit)
       .map(([id, x]) => { const a = this.accounts.get(id)!; return { accountId: id, address: a.address, name: a.name, ...x }; });
   }
@@ -383,6 +394,7 @@ CREATE INDEX IF NOT EXISTS run_account_idx ON run (account_id, created_at);
 CREATE INDEX IF NOT EXISTS run_night_idx ON run (night, outcome, seconds_left);
 ALTER TABLE run ADD COLUMN IF NOT EXISTS score integer NOT NULL DEFAULT 0;
 ALTER TABLE run ADD COLUMN IF NOT EXISTS stats text;
+ALTER TABLE run ADD COLUMN IF NOT EXISTS reason text;
 CREATE INDEX IF NOT EXISTS run_score_idx ON run (night, account_id, score DESC) WHERE replay_ok;
 CREATE TABLE IF NOT EXISTS round_seat (
   id         bigserial PRIMARY KEY,
@@ -526,8 +538,8 @@ export class PgStore implements Store {
   async addRun(x: Omit<RunRecord, 'id' | 'createdAt'>): Promise<RunRecord> {
     const id = newId();
     const r = await this.pool.query(
-      'INSERT INTO run (id, account_id, night, content, chapter, outcome, loss_reason, seconds_left, kills, hash, replay_ok, log, score, stats) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING created_at',
-      [id, x.accountId, x.night, x.content, x.chapter, x.outcome, x.lossReason, x.secondsLeft, x.kills, x.hash, x.replayOk, x.log, x.score, x.stats ? JSON.stringify(x.stats) : null]);
+      'INSERT INTO run (id, account_id, night, content, chapter, outcome, loss_reason, seconds_left, kills, hash, replay_ok, log, score, stats, reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING created_at',
+      [id, x.accountId, x.night, x.content, x.chapter, x.outcome, x.lossReason, x.secondsLeft, x.kills, x.hash, x.replayOk, x.log, x.score, x.stats ? JSON.stringify(x.stats) : null, x.reason ?? null]);
     return { ...x, id, createdAt: r.rows[0].created_at };
   }
   async recentRuns(accountId: string, limit: number) {
@@ -538,7 +550,10 @@ export class PgStore implements Store {
     const r = await this.pool.query('SELECT count(*)::int AS n FROM run WHERE account_id = $1 AND replay_ok', [accountId]);
     return {
       okRuns: r.rows[0].n as number,
-      failedSince: async (days: number) => (await this.pool.query("SELECT count(*)::int AS n FROM run WHERE account_id = $1 AND NOT replay_ok AND created_at > now() - ($2 || ' days')::interval", [accountId, String(days)])).rows[0].n as number,
+      failedSince: async (days: number) => {
+        const f = (await this.pool.query("SELECT count(*)::int AS n, max(created_at) AS last FROM run WHERE account_id = $1 AND NOT replay_ok AND reason IS NOT NULL AND created_at > now() - ($2 || ' days')::interval", [accountId, String(days)])).rows[0];
+        return { count: f.n as number, last: (f.last as Date | null) ?? null };
+      },
     };
   }
   async bestRuns(nights: number[]): Promise<BestRun[]> {
@@ -554,17 +569,19 @@ export class PgStore implements Store {
     const r = await this.pool.query(`SELECT
       (SELECT count(*)::int FROM account) AS accounts, (SELECT count(*)::int FROM run) AS runs,
       (SELECT count(*)::int FROM run WHERE created_at > now() - interval '1 day') AS runs24h,
-      (SELECT count(*)::int FROM run WHERE NOT replay_ok AND created_at > now() - interval '1 day') AS failed24h,
+      (SELECT count(*)::int FROM run WHERE NOT replay_ok AND reason IS NOT NULL AND created_at > now() - interval '1 day') AS failed24h,
       (SELECT count(*)::int FROM account WHERE created_at > now() - interval '1 day') AS accounts24h,
       (SELECT count(DISTINCT code)::int FROM round_seat WHERE created_at > now() - interval '1 day') AS rounds24h`);
     return r.rows[0];
   }
   async failedAccounts(days: number, limit: number) {
     const r = await this.pool.query(
-      `SELECT r.account_id, a.address, a.name, count(*) FILTER (WHERE NOT r.replay_ok)::int AS failed, count(*) FILTER (WHERE r.replay_ok)::int AS ok
-         FROM run r JOIN account a ON a.id = r.account_id WHERE r.created_at > now() - ($1 || ' days')::interval
+      `SELECT r.account_id, a.address, a.name, count(*) FILTER (WHERE NOT r.replay_ok)::int AS failed, count(*) FILTER (WHERE r.replay_ok)::int AS ok,
+              (array_agg(r.reason ORDER BY r.created_at DESC) FILTER (WHERE NOT r.replay_ok))[1] AS reason
+         FROM run r JOIN account a ON a.id = r.account_id
+        WHERE r.created_at > now() - ($1 || ' days')::interval AND (r.replay_ok OR r.reason IS NOT NULL)
         GROUP BY r.account_id, a.address, a.name HAVING count(*) FILTER (WHERE NOT r.replay_ok) > 0 ORDER BY failed DESC LIMIT $2`, [String(days), limit]);
-    return r.rows.map((x) => ({ accountId: x.account_id, address: x.address, name: x.name, failed: x.failed, ok: x.ok }));
+    return r.rows.map((x) => ({ accountId: x.account_id, address: x.address, name: x.name, failed: x.failed, ok: x.ok, reason: x.reason ?? null }));
   }
   async settlementsAll(limit: number) { const r = await this.pool.query('SELECT * FROM settlement ORDER BY created_at DESC LIMIT $1', [limit]); return r.rows.map((x) => this.sett(x)); }
   async fundEvents(stack: string) {

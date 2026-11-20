@@ -15,7 +15,7 @@ import type { GameView } from '../render/view';
 import type { Controls } from '../input/controls';
 import { Actor, loadSkin, type SkinName } from '../render/characters';
 import { makeDecoder } from '../../../core/codec';
-import { ROOM_DT, type ClientMsg, type SeatInfo, type ServerMsg } from '../../../core/protocol';
+import { ROOM_DT, type ClientMsg, type Eligibility, type SeatInfo, type ServerMsg } from '../../../core/protocol';
 import { ROOM_PLAYERS_MAX, ZOMBIE_HEALTH } from '../../../core/config';
 import { account, signIn, signInSocial, socialAvailable, type Account } from './account';
 
@@ -147,12 +147,26 @@ const ERRORS: Record<string, string> = {
   full: 'That room is full.', 'no-room': 'No room with that code.', started: 'That round has already begun.', rate: 'Too fast.', bad: 'Something went wrong.',
   busy: 'The server is full. Try again in a minute.', hello: 'Not connected yet.',
   'staked-off': 'Staked rooms are not open yet.', 'not-staked': 'The chain does not show your stake in that room.',
-  'not-eligible': 'Staked rooms need an account that is a day old, with three finished nights, signed in, and not already in a staked room.',
+  'not-eligible': 'Staked rooms need an account that is a day old, with three nights that passed their replay check, none failed in the last 7 days, and not already in a staked room.',
   'no-chain': 'The server could not read the chain. Try again.',
   signin: 'Sign in to play with others.',
   'no-zp': 'Not enough ZP for that stake. Play a night, or top up in the Armoury.',
   'zp-off': 'ZP rooms are not open on this server yet.',
 };
+/** Why a player may not sit in a staked room yet, and when that clears: said before any money moves. */
+export function eligText(e: Eligibility): string {
+  if (e.ok) return '';
+  const when = (iso: string) => new Date(iso).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  switch (e.why) {
+    case 'signin': return 'Sign in to stake.';
+    case 'off': return 'Staked rooms are not open yet.';
+    case 'busy': return 'You are already in a staked room. Finish or leave that one first.';
+    case 'new': return `Your account is new. Staked rooms open to it on ${when(e.until)}.`;
+    case 'runs': return `Finish ${e.need - e.have} more ${e.need - e.have === 1 ? 'night' : 'nights'} (solo, signed in) to unlock staked rooms: ${e.have} of ${e.need} so far.`;
+    case 'failed': return `One of your recent nights failed its replay check, so staked rooms are closed to you until ${when(e.until)}. Free and ZP rooms are open.`;
+  }
+}
+
 /** The ZP stakes on offer (the server's list: server/src/zp.ts). */
 const ZP_STAKES = [50, 100, 250, 500, 1000] as const;
 /** Errors that may only mean the chain has not caught up with a transaction a moment ago: the seat is asked for again. */
@@ -180,6 +194,16 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
   let pick = 0; // which of them the player chose
   let stk: typeof import('./stake') | null = null;
   const loadStake = async () => (stk ??= await import('./stake'));
+  /** May this player sit in a staked room? Asked before the wallet is touched; null: not known yet. */
+  let elig: Eligibility | null = null;
+  const checkElig = async () => {
+    if (!me) { elig = { ok: false, why: 'signin' }; draw(); return; }
+    try {
+      const r = await fetch(`${httpUrl(url)}/staked/eligible`, { headers: { authorization: `Bearer ${me.token}` } });
+      elig = r.ok ? (await r.json()) as Eligibility : null;
+    } catch { elig = null; } // the server's own check still stands when they sit
+    draw();
+  };
   // Is there a staked lobby to show? Only if this build knows the contracts and the server says it can settle them.
   void (async () => {
     try {
@@ -190,7 +214,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
       stacks = j.staked && j.ok ? mine.filter((c) => (j.stacks ?? ['USDm']).includes(c.symbol)) : [];
       if (stakedInvite) pick = Math.max(0, stacks.findIndex((c) => c.symbol === stakedInvite.symbol));
     } catch { stacks = []; }
-    if (stacks.length) draw();
+    if (stacks.length) { draw(); void checkElig(); }
   })();
   /** Ask the server for a seat in the on-chain room (it checks the chain and the account; it retries while the chain catches up). */
   const seatIn = (stack: string, id: bigint) => { seating = { stack, id, tries: 0 }; connect(() => send({ t: 'staked', stack, roomId: String(id) })); };
@@ -217,7 +241,8 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
       else if (m.t === 'err') {
         if (seating && RETRY.has(m.code) && seating.tries < 12) { seating.tries++; const { stack, id } = seating; setTimeout(() => send({ t: 'staked', stack, roomId: String(id) }), 1500); return; }
         seating = null;
-        err = ERRORS[m.code] ?? 'Something went wrong.'; draw();
+        if (m.elig) elig = m.elig;
+        err = (m.elig && eligText(m.elig)) || (ERRORS[m.code] ?? 'Something went wrong.'); draw();
       }
       else if (m.t === 'confirm') { joinAsk = m; err = ''; draw(); }
       else if (m.t === 'zp') { note = ''; err = ''; zpNote = m.got ? `Your ${m.got} ZP stake is back.` : ''; draw(); }
@@ -337,7 +362,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
   /** Rooms are for signed-in players: the ways to sign in this browser has. */
   function signInPanel(c: HTMLElement): void {
     c.append(el('div', { class: 'mp-note' }, invite ? `You were invited to room ${invite}. Sign in to join it: it is free.` : 'Rooms are for signed-in players, so your name is on the board and your seat waits if you drop. It is free.'));
-    const signedIn = (a: Account) => { me = a; ws?.close(); ws = null; if (invite) { const code = invite; connect(() => send({ t: 'join', code })); } void import('../site/kit').then((k) => k.armoury()).then((x) => { if (x) zpHave = x.cash; draw(); }); draw(); };
+    const signedIn = (a: Account) => { me = a; ws?.close(); ws = null; if (stacks.length) void checkElig(); if (invite) { const code = invite; connect(() => send({ t: 'join', code })); } void import('../site/kit').then((k) => k.armoury()).then((x) => { if (x) zpHave = x.cash; draw(); }); draw(); };
     if ((window as unknown as { ethereum?: unknown }).ethereum) {
       const si = btn('Sign in with wallet');
       si.onclick = async () => { si.disabled = true; try { signedIn(await signIn(httpUrl(url))); } catch (e) { err = e instanceof Error ? e.message : 'Sign-in failed.'; draw(); } };
@@ -497,7 +522,8 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
     amtF.append(amt); sizeF.append(size);
     const fields = el('div', { class: 'mp-row' }); fields.append(amtF, sizeF);
     const mkS = btn('Create a staked room');
-    mkS.disabled = note !== '';
+    const barred = elig !== null && !elig.ok; // nothing goes to the chain from someone the server will not seat
+    mkS.disabled = note !== '' || barred;
     mkS.onclick = () => void chainStep('Confirm in your wallet…', async (m, cfg) => {
       const n = Number(size.value);
       if (!(n >= 2 && n <= 8)) throw new Error('2 to 8 players.');
@@ -506,7 +532,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
     });
     const idIn = el('input', { class: 'code', placeholder: 'ROOM #', maxlength: '12', inputmode: 'numeric', value: stakedInvite && stakedInvite.symbol === unit ? stakedInvite.id : '' });
     const jnS = btn('Join', true);
-    jnS.disabled = note !== '';
+    jnS.disabled = note !== '' || barred;
     jnS.onclick = () => void chainStep('Confirm in your wallet…', async (m, cfg) => {
       if (!/^\d{1,12}$/.test(idIn.value.trim())) throw new Error('Enter the room number.');
       const id = BigInt(idIn.value.trim());
@@ -514,6 +540,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
       note = 'Taking your seat…'; seatIn(cfg.symbol, id);
     });
     const jr = el('div', { class: 'mp-row' }); jr.append(idIn, jnS);
+    if (elig && !elig.ok) c.append(el('div', { class: 'mp-note' }, eligText(elig)));
     c.append(fields, mkS, el('div', { class: 'mp-label' }, 'Or join one by its number'), jr,
       el('div', { class: 'mp-note gold' }, 'Real money: you can lose your stake. Players who get out split the pot less a 1.5% fee; if nobody gets out, everyone is refunded. The server plays the round, and the whole round is kept so it can be checked.'));
     if (note) c.append(el('div', { class: 'ok' }, note));
@@ -570,6 +597,9 @@ class Session implements Driver {
   private off = { x: 0, y: 0 };
   private zombies = new Map<number, Zombie>();
   private actors = new Map<number, Actor>();
+  /** When each of the others last fired (their shoot pose, for a moment). */
+  private shotAt = new Map<number, number>();
+  private shooting = new Set<number>();
   private skins = new Map<number, string>();
   private names: HTMLElement;
   private hud: HTMLElement;
@@ -677,6 +707,8 @@ class Session implements Driver {
     this.off.y *= Math.exp(-dt / EASE);
     p.pos = { x: this.truth.x + this.off.x, y: this.truth.y + this.off.y };
 
+    const now = performance.now() / 1000;
+    for (const e of this.events) if (e.type === 'shot' && e.shooter !== undefined && e.shooter !== p.id) this.shotAt.set(e.shooter, now); // they fire: their arms come up, not yours
     this.drawOthers(dt);
     this.labels();
     const out = this.events;
@@ -749,10 +781,12 @@ class Session implements Driver {
       act.root.visible = true;
       const sp = Math.hypot(p.pos.x - (act.root.position.x), p.pos.y - act.root.position.z) / Math.max(dt, 1e-3);
       if (o.status === 'down' || o.status === 'dead') act.play('Death', { once: true, fade: 0.15 });
-      else if (o.status === 'turned') { act.play(sp > 0.5 ? 'Sprint' : 'ZIdle', { fade: 0.15 }); }
+      else if (o.status === 'turned') act.shamble(Math.min(8, sp));
       else if (o.hidden || (o.crouched && sp < 0.3)) act.play('Kneel', { startAt: 0.12, timeScale: 0.0001, fade: 0.25 }); // down low
       else act.locomote(Math.min(5.5, sp));
       act.crouch(o.status === 'alive' && o.crouched && !o.hidden && sp >= 0.3); // a low creep, knees bent
+      const fired = o.status === 'alive' && now - (this.shotAt.get(o.id) ?? -9) < 0.35;
+      if (fired !== this.shooting.has(o.id)) { act.setUpper(fired ? 'ShootUpper' : null, { restart: true, timeScale: 1.6 }); if (fired) this.shooting.add(o.id); else this.shooting.delete(o.id); }
       act.update(p.pos.x, p.pos.y, p.heading, dt, true);
       act.root.position.y = o.roof !== null ? s.map.ladders[o.roof]?.height ?? 0 : 0; // up on a roof
     }

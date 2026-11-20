@@ -6,6 +6,7 @@ import { nightOf, type ContentRegistry } from './content.ts';
 import { BOARD_KINDS, buildBoard, type BoardKind } from './boards.ts';
 import { Limiter } from './limiter.ts';
 import { submit, type Claim } from './runs.ts';
+import { RULES } from './rules.ts';
 import { registerArmoury } from './armoury.ts';
 import type { Store } from './store.ts';
 
@@ -46,13 +47,13 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
   const ip = (req: FastifyRequest) => req.ip;
 
   app.get('/health', async (_req, reply) => {
-    if (!d.chain) return { ok: true, staked: false };
+    if (!d.chain) return { ok: true, staked: false, rules: RULES };
     // the backend key holds only gas: under 0.5 CELO it cannot be trusted to settle, so say so loudly
     try {
       const wei = await d.chain.gas();
       const low = wei < 5n * 10n ** 17n;
       if (low) reply.code(503);
-      return { ok: !low, staked: true, stacks: d.stacks ?? [], gasCelo: Number(wei / 10n ** 14n) / 1e4, low };
+      return { ok: !low, staked: true, stacks: d.stacks ?? [], gasCelo: Number(wei / 10n ** 14n) / 1e4, low, rules: RULES };
     } catch { reply.code(503); return { ok: false, staked: true, error: 'chain' }; }
   });
 

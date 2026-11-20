@@ -5,6 +5,7 @@ import { buildApp } from './http.ts';
 import { ViemChain } from './chain.ts';
 import { Hub } from './rooms.ts';
 import { Staked } from './staked.ts';
+import type { Eligibility } from '../../core/protocol.ts';
 import { registerAdmin } from './admin.ts';
 import { Funds } from './funds.ts';
 import { ZpBank } from './zp.ts';
@@ -51,6 +52,11 @@ if (chain) {
   setInterval(() => { void staked!.resume(); }, 60_000).unref();
 }
 app.get('/rooms/live', async () => hub.live()); // the Play page: is anyone about?
+// before any money moves: may this player sit in a staked room, and if not, what is missing and when it clears
+app.get('/staked/eligible', async (req): Promise<Eligibility> => {
+  if (!staked) return { ok: false, why: 'off' };
+  return staked.check(await auth.accountOf(req.headers.authorization?.replace(/^Bearer /, '')));
+});
 // the money in staked rooms, read from the contracts' events into the store (the admin page's Funds section)
 const funds = Object.keys(chains).length ? new Funds({ logs: chains, store, fromBlock: cfg.fromBlock }) : undefined;
 if (funds) { void funds.syncAll(); setInterval(() => { void funds.syncAll(); }, 120_000).unref(); }

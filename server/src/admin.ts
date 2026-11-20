@@ -11,6 +11,7 @@ import { SALE_SCOPES, type SaleScope } from '../../core/armoury.ts';
 import type { Hub } from './rooms.ts';
 import type { Staked } from './staked.ts';
 import type { Store } from './store.ts';
+import { RULES } from './rules.ts';
 
 export interface AdminDeps {
   store: Store;
@@ -58,7 +59,7 @@ export function registerAdmin(app: FastifyInstance, d: AdminDeps): void {
     }));
     return {
       you: who,
-      server: { uptimeS: Math.round((Date.now() - d.startedAt) / 1000), rssMb: Math.round(process.memoryUsage().rss / 1048576), db: d.db, content: d.content(), node: process.version },
+      server: { uptimeS: Math.round((Date.now() - d.startedAt) / 1000), rssMb: Math.round(process.memoryUsage().rss / 1048576), db: d.db, content: d.content(), rules: RULES, node: process.version },
       players: await d.store.adminCounts(),
       rooms: rooms.map((r) => ({
         code: r.code, state: r.state, seats: r.seats.length, connected: r.live, stack: r.staked?.stack ?? null, onChain: r.staked?.roomId ?? null,

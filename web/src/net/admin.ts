@@ -6,12 +6,12 @@ import { account, apiBase, signIn } from './account';
 
 interface Overview {
   you: string;
-  server: { uptimeS: number; rssMb: number; db: string; content: number; node: string };
+  server: { uptimeS: number; rssMb: number; db: string; content: number; rules?: string; node: string };
   players: { accounts: number; runs: number; runs24h: number; failed24h: number; accounts24h: number; rounds24h: number };
   rooms: Array<{ code: string; state: string; seats: number; connected: number; stack: string | null; onChain: string | null; elapsedS: number }>;
   stacks: Array<{ symbol: string; rooms?: string; paused?: boolean; feeManager?: string; fees?: string; held?: string; roomCount?: string; gas?: string; error?: string }>;
   settlements: Array<{ roomId: string; winners: string[]; status: string; tx: string | null; error: string | null }>;
-  suspicious: Array<{ address: string; name: string | null; failed: number; ok: number }>;
+  suspicious: Array<{ address: string; name: string | null; failed: number; ok: number; reason?: string | null }>;
 }
 
 interface PlayerMoney { address: string; in: string; out: string; owed: string; how: string }
@@ -182,7 +182,10 @@ export function openAdmin(parent?: HTMLElement): void {
     grid.append(await promoCard(), grantCard());
 
     const srv = card('Server');
-    srv.append(kv('Uptime', ago(o.server.uptimeS)), kv('Memory', `${o.server.rssMb} MB`, o.server.rssMb > 400 ? 'warn' : ''), kv('Store', o.server.db, o.server.db === 'memory' ? 'warn' : 'good'), kv('Content', `v${o.server.content}`), kv('Node', o.server.node));
+    srv.append(kv('Uptime', ago(o.server.uptimeS)), kv('Memory', `${o.server.rssMb} MB`, o.server.rssMb > 400 ? 'warn' : ''), kv('Store', o.server.db, o.server.db === 'memory' ? 'warn' : 'good'), kv('Content', `v${o.server.content}`),
+      // the server must replay by the same rules as the site, or every night played on the site fails its replay
+      kv('Rules', o.server.rules === __RULES__ ? `${__RULES__} (same as the site)` : `${o.server.rules ?? 'old'}, site ${__RULES__}: redeploy`, o.server.rules === __RULES__ ? 'good' : 'warn'),
+      kv('Node', o.server.node));
     grid.append(srv);
 
     for (const s of o.stacks) {
@@ -248,11 +251,12 @@ export function openAdmin(parent?: HTMLElement): void {
         const tr = el('tr'); const who = el('td');
         if (x.name) who.append(el('b', x.name), document.createTextNode(' '));
         who.append(el('code', x.address));
+        if (x.reason) who.append(el('div', `Last: ${x.reason}`, 'ad-note')); // why the last one failed
         tr.append(who, el('td', String(x.failed), 'warn'), el('td', String(x.ok))); t.append(tr);
       }
       sus.append(wrap(t));
     }
-    sus.append(el('p', 'A failed replay is a run whose log does not end the way the player said: a modified client, or a bug. Several from one account is worth a look.', 'ad-note'));
+    sus.append(el('p', 'A failed replay is a run whose log does not end the way the player said: a modified client, or a bug. Several from one account is worth a look. Each keeps its player out of staked rooms for 7 days. Failures from before 20 Nov 2026 are not counted (a server on older rules than the site failed honest nights), and a night played under other rules is now refused as an update, not a failure.', 'ad-note'));
     grid.append(sus);
     root.append(fundsBox);
   }

@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { gunzipSync } from 'node:zlib';
 import { idleNight, makeServer, SECRET, wallet, type Server } from './helpers.ts';
 import { Auth, makeSignatureChecker } from '../src/auth.ts';
-import { check, MAX_CHAPTERS, refuseBeforeReplay } from '../src/runs.ts';
+import { check, MAX_CHAPTERS, OTHER_RULES, refuseBeforeReplay } from '../src/runs.ts';
+import { RULES } from '../src/rules.ts';
 import { nightOf } from '../src/content.ts';
 import { loadConfig } from '../src/config.ts';
 
@@ -134,6 +135,18 @@ describe('runs are checked by replay', () => {
     expect(check(time, s.content, selves).replayOk).toBe(false);
     const why = clone(base); why.lossReason = base.lossReason === 'caught' ? 'time' : 'caught';
     expect(check(why, s.content, selves).replayOk).toBe(false);
+  });
+
+  it('a night played under other rules (an update meanwhile) is refused as such, and not kept as a failed replay', async () => {
+    const s = await makeServer();
+    const { token } = (await wallet().signIn(s.app)).body;
+    const same = idleNight(45); same.replay.rules = RULES;
+    expect((await s.app.inject({ method: 'POST', url: '/runs', headers: bearer(token), payload: { result: same } })).json()).toMatchObject({ replayOk: true });
+    const other = idleNight(46); other.replay.rules = 'aaaaaaaaaaaa';
+    const r = (await s.app.inject({ method: 'POST', url: '/runs', headers: bearer(token), payload: { result: other } })).json() as { replayOk: boolean; reason: string };
+    expect(r).toMatchObject({ replayOk: false, reason: OTHER_RULES });
+    const me = (await s.app.inject({ method: 'GET', url: '/me', headers: bearer(token) })).json() as { runs: unknown[] };
+    expect(me.runs.length).toBe(1); // only the one that was checked
   });
 
   it('refuses what cannot be a log before replaying any of it', async () => {

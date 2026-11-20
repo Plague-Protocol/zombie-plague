@@ -1,6 +1,10 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+import { rulesId } from '../server/src/rules-id';
 
 export default defineConfig({
+  // the rules this build plays by: stamped on every night's log, so the server can tell an update from a bad replay
+  define: { __RULES__: JSON.stringify(rulesId(fileURLToPath(new URL('../core', import.meta.url)))) },
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 700,

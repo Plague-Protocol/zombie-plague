@@ -41,4 +41,16 @@ export type ServerMsg =
   | { t: 'confirm'; code: string; zp: number; seats: number; pot: number }
   /** What a ZP room paid you: `got` back of your `stake` (0: lost; the stake: nobody got out, or the room closed). */
   | { t: 'zp'; stake: number; got: number }
-  | { t: 'err'; code: 'full' | 'no-room' | 'started' | 'rate' | 'bad' | 'busy' | 'hello' | 'staked-off' | 'not-staked' | 'not-eligible' | 'no-chain' | 'signin' | 'no-zp' | 'zp-off' };
+  | { t: 'err'; code: 'full' | 'no-room' | 'started' | 'rate' | 'bad' | 'busy' | 'hello' | 'staked-off' | 'not-staked' | 'not-eligible' | 'no-chain' | 'signin' | 'no-zp' | 'zp-off'; elig?: Eligibility };
+
+/**
+ * May an account sit in a staked room (GET /staked/eligible, and with a `not-eligible` refusal), and if not, what is
+ * missing. `until`: when it clears by itself (ISO time). `new`: the account is too young; `runs`: too few checked nights
+ * (`have` of `need`); `failed`: a failed replay too recently; `busy`: already in another staked room; `off`: staked rooms
+ * are not open on this server.
+ */
+export type Eligibility =
+  | { ok: true }
+  | { ok: false; why: 'new' | 'failed'; until: string }
+  | { ok: false; why: 'runs'; have: number; need: number }
+  | { ok: false; why: 'busy' | 'signin' | 'off' };

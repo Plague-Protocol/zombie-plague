@@ -176,7 +176,8 @@ export function attachWs(server: Server, o: WsOptions): () => void {
           if (conn.room) return;
           if (!o.staked) { conn.send({ t: 'err', code: 'staked-off' }); return; }
           const r = await o.staked.seat(conn, m.stack, m.roomId);
-          if (r !== 'ok') conn.send({ t: 'err', code: r });
+          if (r === 'not-eligible') conn.send({ t: 'err', code: r, elig: await o.staked.check(conn.accountId) }); // what is missing, and when it clears
+          else if (r !== 'ok') conn.send({ t: 'err', code: r });
           else { const room = conn.room as Room | null; if (room?.state === 'playing') { const i = room.seats.findIndex((x) => x.conn === conn); conn.send({ t: 'begin', seed: room.seed, players: room.seats.length, content: o.hub.opts.contentVersion(), seat: i }); } }
           return;
         }

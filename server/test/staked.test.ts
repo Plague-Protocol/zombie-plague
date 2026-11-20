@@ -98,8 +98,28 @@ describe('who may sit', () => {
     expect(await ok(await player(w, B, { old: false }))).toBe(false);
     expect(await ok(await player(w, C, { runs: 2 }))).toBe(false);
     const d = await player(w, D);
-    await w.store.addRun({ accountId: d.accountId!, night: 1, content: 1, chapter: 0, outcome: 'won', lossReason: null, secondsLeft: 9, kills: 0, hash: 'x', replayOk: false, score: 0, stats: null, log: Buffer.alloc(0) });
+    const failed = { accountId: d.accountId!, night: 1, content: 1, chapter: 0, outcome: 'won' as const, lossReason: null, secondsLeft: 9, kills: 0, hash: 'x', replayOk: false, score: 0, stats: null, log: Buffer.alloc(0) };
+    await w.store.addRun(failed); // from before failures had a reason (a server on older rules): not held against them
+    expect(await ok(d)).toBe(true);
+    await w.store.addRun({ ...failed, reason: 'the log does not end the way the claim says' });
     expect(await ok(d)).toBe(false);
+  });
+
+  it('says what is missing and when it clears, before any money moves and when a seat is refused', async () => {
+    const w = mk();
+    const s = w.staked();
+    const at = w.store.now().getTime();
+    expect(await s.check(null)).toEqual({ ok: false, why: 'signin' });
+    expect(await s.check((await player(w, A)).accountId)).toEqual({ ok: true });
+    const young = await s.check((await player(w, B, { old: false })).accountId);
+    expect(young).toMatchObject({ ok: false, why: 'new' });
+    expect(Date.parse((young as { until: string }).until)).toBeGreaterThan(at);
+    expect(await s.check((await player(w, C, { runs: 2 })).accountId)).toEqual({ ok: false, why: 'runs', have: 2, need: opts.minOkRuns });
+    const d = await player(w, D);
+    await w.store.addRun({ accountId: d.accountId!, night: 1, content: 1, chapter: 0, outcome: 'won', lossReason: null, secondsLeft: 9, kills: 0, hash: 'x', replayOk: false, reason: 'bad', score: 0, stats: null, log: Buffer.alloc(0) });
+    const f = await s.check(d.accountId);
+    expect(f).toMatchObject({ ok: false, why: 'failed' });
+    expect(Date.parse((f as { until: string }).until)).toBeCloseTo(at + 7 * 864e5, -5);
   });
 
   it('one account cannot sit in two staked rooms at once', async () => {

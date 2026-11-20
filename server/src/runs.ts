@@ -8,6 +8,10 @@ import type { Husk, LossReason, WeaponKind } from '../../core/types.ts';
 import type { ContentRegistry } from './content.ts';
 import type { RunRecord, Store } from './store.ts';
 import { loadoutRefusal, payForRun } from './armoury.ts';
+import { RULES } from './rules.ts';
+
+/** Said of a log played under other rules (the site or this server was updated meanwhile): not a failed replay. */
+export const OTHER_RULES = 'the game was updated while you played, so this night could not be checked. Reload to get the new version';
 
 export const MAX_GZ_BYTES = 400 * 1024;
 export const MAX_CHAPTERS = 3;
@@ -33,6 +37,7 @@ export function refuseBeforeReplay(c: Claim, content: ContentRegistry): string |
   if (log.chapters.length < 1 || log.chapters.length > MAX_CHAPTERS) return 'wrong number of chapters';
   if (log.night !== c.seed) return 'the log is for a different night';
   if (!content.has(log.content)) return `unknown content version ${log.content}`;
+  if (log.rules !== undefined && log.rules !== RULES) return OTHER_RULES;
   if (c.chapter !== log.chapters.length - 1) return 'the claimed chapter is not the last one in the log';
   return null;
 }
@@ -76,7 +81,7 @@ export async function submit(
   if (gz.length > MAX_GZ_BYTES) return { replayOk: false, reason: 'log too large', hash: v.hash };
   const rec: Omit<RunRecord, 'id' | 'createdAt'> = {
     accountId, night: c.seed, content: c.replay.content, chapter: c.chapter, outcome: c.outcome, lossReason: c.lossReason,
-    secondsLeft: c.secondsLeft, kills: v.kills, hash: v.hash, replayOk: v.replayOk, log: gz,
+    secondsLeft: c.secondsLeft, kills: v.kills, hash: v.hash, replayOk: v.replayOk, reason: v.replayOk ? null : v.reason, log: gz,
     score: v.replayOk ? v.scored.score : 0, stats: v.replayOk ? v.stats : null,
   };
   const run = await store.addRun(rec);

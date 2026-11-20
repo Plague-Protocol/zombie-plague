@@ -3,6 +3,7 @@
 // chain and against the server's own records, fresh, at the moment it is asked for.
 import { createHash } from 'node:crypto';
 import type { Chain } from './chain.ts';
+import type { Eligibility } from '../../core/protocol.ts';
 import { Hub, type Conn, type RoundResult } from './rooms.ts';
 import type { Store } from './store.ts';
 
@@ -25,13 +26,22 @@ export type Refusal = 'not-eligible' | 'not-staked' | 'no-room' | 'started' | 'b
 
 export const DEFAULTS = { minAgeMs: 24 * 3600 * 1000, minOkRuns: 3, failedDays: 7 };
 
+type EligOpts = { minAgeMs: number; minOkRuns: number; failedDays: number; now: () => number };
+
 /** The checks that slow a farm of wallets down (they do not stop one person running several: say so). */
-export async function eligible(store: Store, accountId: string, o: { minAgeMs: number; minOkRuns: number; failedDays: number; now: () => number }): Promise<boolean> {
+export async function eligibility(store: Store, accountId: string, o: EligOpts): Promise<Eligibility> {
   const acc = await store.accountById(accountId);
-  if (!acc || o.now() - acc.createdAt.getTime() < o.minAgeMs) return false;
+  if (!acc) return { ok: false, why: 'signin' };
+  if (o.now() - acc.createdAt.getTime() < o.minAgeMs) return { ok: false, why: 'new', until: new Date(acc.createdAt.getTime() + o.minAgeMs).toISOString() };
   const st = await store.runStats(accountId);
-  if (st.okRuns < o.minOkRuns) return false;
-  return (await st.failedSince(o.failedDays)) === 0;
+  if (st.okRuns < o.minOkRuns) return { ok: false, why: 'runs', have: st.okRuns, need: o.minOkRuns };
+  const f = await st.failedSince(o.failedDays);
+  if (f.count > 0 && f.last) return { ok: false, why: 'failed', until: new Date(f.last.getTime() + o.failedDays * 864e5).toISOString() };
+  return { ok: true };
+}
+
+export async function eligible(store: Store, accountId: string, o: EligOpts): Promise<boolean> {
+  return (await eligibility(store, accountId, o)).ok;
 }
 
 export class Staked {
@@ -44,6 +54,13 @@ export class Staked {
   }
 
   private say(m: string): void { (this.o.log ?? console.log)(`[staked] ${m}`); }
+
+  /** May this account take a seat in a staked room (asked before any money moves, and again when they sit)? */
+  async check(accountId: string | null): Promise<Eligibility> {
+    if (!accountId) return { ok: false, why: 'signin' };
+    if (this.o.hub.inStaked(accountId)) return { ok: false, why: 'busy' };
+    return eligibility(this.o.store, accountId, this.o);
+  }
 
   /** Seat a connection in the room for an on-chain id, if the chain and the records both say it may sit. */
   async seat(conn: Conn, stack: string, roomIdText: string): Promise<Refusal | 'ok'> {
