@@ -209,7 +209,8 @@ export function viewFor(s: GameState, seat: number): PlayerView {
     drops: s.drops.filter((d) => !d.taken).map((d) => ({ id: d.id, pos: d.pos })),
     opened: s.crates.map((c) => c.opened),
     searched: s.houses.map((h) => h.searched),
-    tasks: s.tasks.map((t) => ({ id: t.id, done: t.done, ...(t.got ? { got: t.got.slice() } : {}), ...(t.targets ? { targets: t.targets.slice() } : {}) })),
+    // your own steps (and anyone's), not the others': theirs are no business of yours, and would cost every snapshot
+    tasks: s.tasks.filter((t) => t.owner === undefined || t.owner === seat).map((t) => ({ id: t.id, done: t.done, ...(t.got ? { got: t.got.slice() } : {}), ...(t.targets ? { targets: t.targets.slice() } : {}) })),
     safehouseKnown: s.safehouseKnown,
     flare: s.flare,
     fallen: s.fallenN,

@@ -104,7 +104,7 @@ export function content(): Content {
 }
 
 export function stepDef(id: string): StepDef {
-  const d = index.get(id);
+  const d = index.get(id.split('@')[0]!); // a room's steps are the content's, with whose they are after the @
   if (!d) throw new Error(`unknown step ${id}`);
   return d;
 }

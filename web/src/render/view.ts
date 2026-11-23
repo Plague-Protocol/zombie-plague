@@ -8,7 +8,7 @@ import { Crowd, MUT, type CrowdClip } from './crowd';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
 import { ArmyGate, bandageMesh, bandolierMesh, satchelMesh, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
-import { currentTask, escortGroup, finalChapter, gunStats, heightOf, infection, isGun, isRevealed, lightOn, onBody, playerSpeed, playerVehicle, requiredDone, type GameState } from '../../../core/state';
+import { currentTask, escortGroup, finalChapter, gunStats, heightOf, infection, isGun, isRevealed, lightOn, mine, onBody, playerSpeed, playerVehicle, requiredDone, type GameState } from '../../../core/state';
 import { ATTACK_WINDUP, ZOMBIE_CLIMB_SECONDS, COUGH_NOISE, LASH_REACH, MELEE, PLAYER_HEALTH, SAFEHOUSE_RADIUS, SCREAM_WINDUP, TASK_RADIUS } from '../../../core/config';
 import { plagueDressing, Spores, Tentacles, Waves } from './plague';
 import type { GameEvent, Interior, Task, TaskId, Vec2, WeaponKind, Zombie } from '../../../core/types';
@@ -494,6 +494,7 @@ export class GameView {
     };
 
     for (const t of s.tasks) {
+      if (!mine(s, t)) continue; // a room: only your own steps are set out in your city
       const def = stepDef(t.id);
       const id = t.id;
       const x = t.pos.x + 1.4, z = t.pos.y + 1.4;
@@ -1680,33 +1681,32 @@ export class GameView {
   private updateMarkers(s: GameState): void {
     const cur = currentTask(s);
     const parts = cur?.parts ?? [];
-    const n = Math.min(this.rings.instanceMatrix.count, s.tasks.length + 1 + parts.length);
-    this.rings.count = n;
-    this.beams.count = n;
-    const set = (i: number, pos: Vec2, radius: number, color: number, beam: boolean, visible: boolean) => {
+    // only what you can see: your current step (yellow), optional ones (blue), the exit, the pieces still to find
+    const shown = s.tasks.filter((t) => !t.done && isRevealed(s, t) && (!t.got || t.got.every(Boolean)));
+    const cap = this.rings.instanceMatrix.count;
+    let i = 0;
+    const set = (pos: Vec2, radius: number, color: number, beam: boolean) => {
+      if (i >= cap) return;
       const pulse = 1 + Math.sin(this.time * 3 + i) * 0.06;
-      const r = visible ? radius * pulse : 0;
+      const r = radius * pulse;
       this.tmp.position.set(pos.x, 0.22, pos.y);
       this.tmp.rotation.set(0, 0, 0);
       this.tmp.scale.set(r, 1, r);
       this.tmp.updateMatrix();
       this.rings.setMatrixAt(i, this.tmp.matrix);
       this.rings.setColorAt(i, this.colorTmp.setHex(color));
-      const bs = beam && visible ? radius * 0.6 : 0;
+      const bs = beam ? radius * 0.6 : 0;
       this.tmp.scale.set(bs, 1, bs);
       this.tmp.updateMatrix();
       this.beams.setMatrixAt(i, this.tmp.matrix);
       this.beams.setColorAt(i, this.colorTmp);
+      i++;
     };
-    s.tasks.forEach((t, i) => {
-      const color = t.done ? 0x000000 : t.required ? 0xf2b630 : 0x3f9be6;
-      set(i, t.pos, TASK_RADIUS, color, cur === t, !t.done && isRevealed(s, t) && (!t.got || t.got.every(Boolean)));
-    });
-    const open = requiredDone(s);
-    set(s.tasks.length, s.safehouse, SAFEHOUSE_RADIUS, open ? 0x3ddc84 : 0xd9534f, s.safehouseKnown, s.safehouseKnown);
-    parts.forEach((q, i) => { // each fuse still to find
-      if (s.tasks.length + 1 + i < n) set(s.tasks.length + 1 + i, { x: q.x + 1.2, y: q.y + 1.2 }, 1.3, 0xf2b630, true, !cur!.got![i]);
-    });
+    for (const t of shown) set(t.pos, TASK_RADIUS, t.required ? 0xf2b630 : 0x3f9be6, cur === t);
+    if (s.safehouseKnown) set(s.safehouse, SAFEHOUSE_RADIUS, requiredDone(s) ? 0x3ddc84 : 0xd9534f, true);
+    parts.forEach((q, k) => { if (!cur!.got![k]) set({ x: q.x + 1.2, y: q.y + 1.2 }, 1.3, 0xf2b630, true); }); // each fuse still to find
+    this.rings.count = i;
+    this.beams.count = i;
     this.tmp.scale.set(1, 1, 1);
     for (const mesh of [this.rings, this.beams]) {
       mesh.instanceMatrix.needsUpdate = true;

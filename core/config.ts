@@ -194,7 +194,8 @@ export const FLARE_RADIUS = 26;
 // and each district's dose holds it back for that district. Running out means turning.
 export const BITE_COST = 8; // seconds the infection jumps ahead for a full bite (gear takes its share)
 export const ANTIVIRAL_SECONDS = 30; // a dose holds it back this long (never past a full clock)
-export const ANTIVIRAL_PICKUPS = 3; // lying in each district
+export const ANTIVIRAL_PICKUPS = 4; // lying in each district
+export const ANTIVIRAL_PER_SEAT = 1; // a room: this many more for every player after the first
 export const ANTIVIRAL_PRICE = 60;
 /** Late on, they stop seeing you as prey: how much of their sight is lost, fully sick. It starts at half way. */
 export const INFECTED_CAMO = 0.35;
@@ -264,7 +265,8 @@ export const FALLEN_QUIET = 0.6; // and the quiet is shorter
 
 // ---- rooms: several players in one district, all at once
 export const ROOM_PLAYERS_MAX = 8;
-export const ROOM_SECONDS = 420; // the round ends here whatever has happened
+export const ROOM_SECONDS = 600; // the round ends here whatever has happened
+export const ROOM_TASKS = 4; // steps each player must do themselves before the exit lets them in
 export const EXIT_SEATS_SHARE = 0.5; // the exit has room for this share of the players who started (at least one)
 export const SAFE_RADIUS = 12; // nobody can hurt anybody this close to the exit
 export const PVP_KILL_REWARD = 25;

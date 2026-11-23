@@ -1,9 +1,10 @@
 import { chance, fork, next, pick, range, shuffle } from './rng';
+import type { Theme } from './types';
 import { cellOf, distanceField, generateMap, PITCH, STREET, UNREACHABLE } from './map';
-import { chapterGroups, generateChain } from './tasks';
+import { chapterGroups, generateChain, roomChains } from './tasks';
 import { content } from './content';
 import {
-  AMBUSH_CHANCE, AMMO_PICKUPS, ANTIVIRAL_PICKUPS, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, INTERIOR_SEARCH, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
+  AMBUSH_CHANCE, AMMO_PICKUPS, ANTIVIRAL_PICKUPS, ANTIVIRAL_PER_SEAT, ROOM_TASKS, SPAWN_APART, SPAWN_FROM_EXIT, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, INTERIOR_SEARCH, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
   SURVIVOR_COUNT, SURVIVOR_NAMES, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLE_MIX, VEHICLES,
 } from './config';
 import type {
@@ -26,6 +27,8 @@ export interface Level {
   stores: Store[];
   houses: House[];
   survivors: Survivor[];
+  /** Rooms: where each seat starts. */
+  spawns?: Vec2[];
 }
 
 /** A spot on the pavement beside a street point (where crates, pickups and the store counter go). */
@@ -38,8 +41,8 @@ function pavement(map: MapData, p: Vec2, side: number): Vec2 | null {
 const dist = (a: Vec2, b: Vec2) => dhypot(a.x - b.x, a.y - b.y);
 
 /** Deterministic: the same seed (and chapter of the same night) always yields the same Level. */
-export function generateLevel(seed: number, opts: { night?: number; chapter?: number; room?: boolean } = {}): Level {
-  const map = generateMap(fork(seed, 'map').s, content().story.chapters[opts.chapter ?? 0]?.theme);
+export function generateLevel(seed: number, opts: { night?: number; chapter?: number; room?: boolean; players?: number; theme?: Theme } = {}): Level {
+  const map = generateMap(fork(seed, 'map').s, opts.theme ?? content().story.chapters[opts.chapter ?? 0]?.theme);
   const rng = fork(seed, 'level');
 
   const [spawn0] = shuffle(rng, map.points);
@@ -52,15 +55,33 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
   const [sh0] = shuffle(rng, far);
   const safehouse = { ...(sh0 as Vec2) };
 
-  const tasks = generateChain(rng, map, spawn, safehouse, chapterGroups(opts.night ?? seed, opts.chapter ?? 0, opts.room));
+  // a room: every seat starts apart and a long walk from the exit, and has steps of its own
+  let spawns: Vec2[] | undefined, roomRoute = 0;
+  if (opts.players) {
+    const srng = fork(seed, 'spawns');
+    const away = distanceField(map, safehouse);
+    const ok = shuffle(srng, map.points.filter((p) => { const f = away[cellOf(map, p)] as number; return f !== UNREACHABLE && f >= SPAWN_FROM_EXIT; }));
+    spawns = [];
+    for (const gap of [SPAWN_APART, SPAWN_APART / 2, 8, 0]) {
+      for (const p of ok) {
+        if (spawns.length >= opts.players) break;
+        if (spawns.every((q) => dist(p, q) >= gap)) spawns.push({ x: p.x, y: p.y });
+      }
+      if (spawns.length >= opts.players) break;
+    }
+    while (spawns.length < opts.players) spawns.push({ ...spawn });
+  }
+  const own = spawns ? roomChains(fork(seed, 'room-steps'), map, spawns, safehouse, ROOM_TASKS) : null;
+  if (own) roomRoute = own.route;
+  const tasks = own ? own.tasks : generateChain(rng, map, spawn, safehouse, chapterGroups(opts.night ?? seed, opts.chapter ?? 0, opts.room));
 
-  const route = [spawn, ...tasks.filter((t) => t.required).flatMap((t) => [...(t.parts ?? []), t.pos]), safehouse];
-  let steps = 0;
+  const route = own ? [] : [spawn, ...tasks.filter((t) => t.required).flatMap((t) => [...(t.parts ?? []), t.pos]), safehouse];
+  let steps = own ? roomRoute : 0; // a room: the longest of the seats' routes, walked (every seat gets the same clock)
   for (let i = 0; i < route.length - 1; i++) {
     const f = distanceField(map, route[i] as Vec2);
     steps += f[cellOf(map, route[i + 1] as Vec2)] as number;
   }
-  const holding = tasks.filter((t) => t.required).reduce((a, t) => a + (t.seconds ?? TASK_HOLD_SECONDS), 0);
+  const holding = tasks.filter((t) => t.required).reduce((a, t) => a + (t.seconds ?? TASK_HOLD_SECONDS), 0) / (spawns?.length ?? 1); // a room: one player's share
   const routeSeconds = steps / PLAYER_SPEED + holding;
   const timeLimit = Math.ceil(routeSeconds * TIME_SLACK + TIME_PAD);
 
@@ -186,12 +207,12 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
   // Antiviral doses, dropped where the clinics' runners fell: each holds the infection back a while.
   const arng = fork(seed, 'antiviral');
   for (const p of shuffle(arng, map.points)) {
-    if (pickups.filter((q) => q.kind === 'antiviral').length >= ANTIVIRAL_PICKUPS) break;
+    if (pickups.filter((q) => q.kind === 'antiviral').length >= ANTIVIRAL_PICKUPS + (opts.players ? opts.players * ANTIVIRAL_PER_SEAT - 1 : 0)) break; // a room: more to go round
     if (dist(p, spawn) < 35 || taken2.some((q) => dist(p, q) < 14)) continue;
     const pos = pavement(map, p, chance(arng, 0.5) ? 1 : -1) ?? { ...p };
     taken2.push(pos);
     pickups.push({ id: pickups.length + 1, kind: 'antiviral', pos, taken: false });
   }
 
-  return { seed, map, spawn, safehouse, tasks, timeLimit, routeSeconds, vehicles: opts.room ? [] : vehicles, crates, pickups, stores, houses, survivors };
+  return { seed, map, spawn, safehouse, tasks, timeLimit, routeSeconds, vehicles: opts.room ? [] : vehicles, crates, pickups, stores, houses, survivors, ...(spawns ? { spawns } : {}) };
 }

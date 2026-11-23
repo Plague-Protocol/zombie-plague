@@ -33,6 +33,8 @@ export function runSplash(): Promise<void> {
   const el = document.getElementById('splash');
   if (!el || getComputedStyle(el).display === 'none') return Promise.resolve();
   const root: HTMLElement = el;
+  const w = window as unknown as { __splashLive?: boolean; __splashBegin?: boolean };
+  w.__splashLive = true; // the page's own early handlers (index.html) stand down
   return new Promise((resolve) => {
     const $ = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
     const gate = $('.gate'), story = $('.story'), lines = $('.lines'), enter = $<HTMLButtonElement>('.enter');
@@ -85,6 +87,7 @@ export function runSplash(): Promise<void> {
         for (const a of audios) a.pause();
         root.remove();
         document.removeEventListener('keydown', onKey);
+        window.dispatchEvent(new Event('zp:splash-gone'));
         resolve();
       };
       if (instant) { close(); return; }
@@ -108,7 +111,10 @@ export function runSplash(): Promise<void> {
     });
 
     // the gate: a tap starts the sound inside the gesture (phones only allow it there), then the story
-    $('.begin').addEventListener('click', () => {
+    const begin = $('.begin');
+    begin.textContent = 'Message from Command';
+    begin.addEventListener('click', () => {
+      window.dispatchEvent(new Event('zp:splash-begin'));
       ambient = new Audio('/intro/ambient-lobby.mp3');
       ambient.loop = true;
       ambient.volume = 0.28;
@@ -130,6 +136,7 @@ export function runSplash(): Promise<void> {
       later(4500, step);
       void type();
     }, { once: true });
+    if (w.__splashBegin) begin.click(); // tapped before this script was in: play it now (captions; the sound may wait for the next tap)
 
     let lastBeat = 0;
     async function type(): Promise<void> {

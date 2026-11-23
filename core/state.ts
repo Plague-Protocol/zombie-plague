@@ -24,7 +24,7 @@ import {
   CRAWL_DAMAGE, CRAWLER_SIGHT, CRAWLER_SPEED, CRAWLERS, GRAB_SECONDS, GRAB_SLOW, HALVE_CHANCE, LASH_DAMAGE, LASH_PULL, LASH_RANGE,
   LASH_REACH, LASHERS,
   DOWN_SECONDS, EXIT_SEATS_SHARE, INTERIOR_DEAD, INTERIORS, LUNGE_ARC, LUNGE_COOLDOWN, PVP_KILL_REWARD, HORDE_PREY, HORDE_RADIUS, ROOM_PLAYERS_MAX, ROOM_SECONDS, SAFE_RADIUS,
-  SPAWN_APART, SPAWN_FROM_EXIT, TARGET_HOLD, TARGET_SWITCH, TURNED_HEALTH, MERCY_DAMAGE, MERCY_HEALTH, MERCY_INVULN, MERCY_SPEED,
+  TARGET_HOLD, TARGET_SWITCH, TURNED_HEALTH, MERCY_DAMAGE, MERCY_HEALTH, MERCY_INVULN, MERCY_SPEED,
 } from './config';
 import { nearbyObstacles } from './collision';
 import { lineClear, resolve } from './collision';
@@ -35,9 +35,10 @@ import type {
   Ladder,
   Abandoned, Alarm, Arsenal, Drop, Player, Work, House, Husk, Loot, PickupKind, Survivor, Thrown,
   Crate, Escort, GameEvent, Placement, GearKind, GunKind, Input, Interaction, LossReason, MapData, MeleeKind, Phase, Pickup, Store, StoreItem, Task,
-  TaskId, Vec2, Vehicle, WeaponKind, Zombie, ZombieKind,
+  TaskId, Theme, Vec2, Vehicle, WeaponKind, Zombie, ZombieKind,
 } from './types';
 import { dsin, dcos, datan2, dhypot } from './dmath';
+import { content } from './content';
 
 export type { Arsenal, Work };
 
@@ -285,21 +286,14 @@ export function createGame(
  */
 export function createRoom(seed: number, players: number, loadouts?: ReadonlyArray<Loadout | undefined>): GameState {
   const n = Math.max(2, Math.min(ROOM_PLAYERS_MAX, Math.floor(players)));
-  const level = generateLevel(seed, { night: seed, chapter: 0, room: true });
-  // seats: spread out, and a long walk from the exit
-  const rng = fork(seed, 'spawns');
-  const away = distanceField(level.map, level.safehouse);
-  const ok = shuffle(rng, level.map.points.filter((p) => { const f = away[cellOf(level.map, p)] as number; return f !== UNREACHABLE && f >= SPAWN_FROM_EXIT; }));
-  const spawns: Vec2[] = [];
-  for (const gap of [SPAWN_APART, SPAWN_APART / 2, 8, 0]) {
-    for (const p of ok) {
-      if (spawns.length >= n) break;
-      if (spawns.every((q) => dist(p, q) >= gap)) spawns.push({ x: p.x, y: p.y });
-    }
-    if (spawns.length >= n) break;
-  }
-  while (spawns.length < n) spawns.push({ ...level.spawn });
-  return createGame(seed, level, { night: seed, chapter: 0, spawns, loadouts });
+  const level = generateLevel(seed, { night: seed, chapter: 0, room: true, players: n, theme: roomCity(seed) });
+  return createGame(seed, level, { night: seed, chapter: 0, spawns: level.spawns, loadouts });
+}
+
+/** Which city a room is in: any of the story's districts, rolled from its seed (more cities join as the content grows). */
+export function roomCity(seed: number): Theme {
+  const cities = [...new Set(content().story.chapters.map((c) => c.theme).filter((t): t is Theme => !!t))];
+  return cities.length ? pick(fork(seed, 'room-city'), cities) : 'downtown';
 }
 
 /** The last chapter: its way out is the helicopter, not a door. */
@@ -349,13 +343,21 @@ export function isRevealed(s: GameState, t: Task): boolean {
   return t.done || !t.required || t === currentTask(s);
 }
 
+/** Is this step one `cur` can do: anyone's (solo, optional ones), or, in a room, their own? */
+export const mine = (s: GameState, t: Task): boolean => t.owner === undefined || t.owner === s.cur.id;
+
+/** The required steps `cur` has to do (in a room, their own). */
+export function myTasks(s: GameState): Task[] {
+  return s.tasks.filter((t) => t.required && mine(s, t));
+}
+
 export function requiredDone(s: GameState): boolean {
-  return s.tasks.every((t) => !t.required || t.done);
+  return s.tasks.every((t) => !t.required || t.done || !mine(s, t));
 }
 
 /** First incomplete required task whose dependencies are met (chain order). */
 export function currentTask(s: GameState): Task | null {
-  return s.tasks.find((t) => t.required && !t.done && depsMet(s, t)) ?? null;
+  return s.tasks.find((t) => t.required && !t.done && mine(s, t) && depsMet(s, t)) ?? null;
 }
 
 function depsMet(s: GameState, t: Task): boolean {
@@ -974,7 +976,7 @@ export function nearestPlayerDist(s: GameState, at: Vec2): number {
 const PERSONAL = new Set<GameEvent['type']>([
   'player-hit', 'gear-hit', 'gear-broken', 'bitten', 'grabbed', 'pickup', 'purchase', 'healed', 'equip', 'reload', 'empty', 'light', 'cough',
   'crate-opened', 'house-searched', 'checked', 'work-started', 'store-open', 'task-started', 'task-locked', 'safehouse-locked', 'puzzle-open', 'puzzle-wrong',
-  'part-taken', 'seat-unearned', 'loot-taken', 'down', 'turned', 'escaped', 'lunge', 'antiviral', 'throw', 'survivor-asked', 'survivor-ready', 'survivor-done', 'fetched',
+  'part-taken', 'seat-unearned', 'loot-taken', 'task-done', 'time-penalty', 'down', 'turned', 'escaped', 'lunge', 'antiviral', 'throw', 'survivor-asked', 'survivor-ready', 'survivor-done', 'fetched',
 ]);
 function tagEvent(e: GameEvent, seat: number): void {
   if (PERSONAL.has(e.type) && (e as { seat?: number }).seat === undefined) (e as { seat?: number }).seat = seat;
@@ -1121,12 +1123,8 @@ function updateExit(s: GameState): void {
   const pl = s.cur;
   if (pl.status !== 'alive') return;
   if (dist(s.safehouse, pl.pos) >= SAFEHOUSE_RADIUS) { pl.lockedNotice = null; return; }
-  if (requiredDone(s)) {
+  if (requiredDone(s)) { // every one of your own steps done: a seat, while there is one
     if (s.seatsLeft <= 0) return;
-    if (pl.helped <= 0) { // you let the others do it all: no seat for you
-      if (pl.lockedNotice !== 'seat') { pl.lockedNotice = 'seat'; s.events.push({ type: 'seat-unearned' }); }
-      return;
-    }
     pl.status = 'escaped';
     pl.escapedAt = s.elapsed;
     pl.vel = { x: 0, y: 0 };

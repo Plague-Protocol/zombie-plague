@@ -119,3 +119,117 @@ export function generateChain(rng: Rng, map: MapData, spawn: Vec2, safehouse: Ve
   for (const o of optional) tasks.push(make(o, [], false, ''));
   return tasks;
 }
+
+// ---------------------------------------------------------------- rooms: every player's own steps
+
+/** The groups a room can deal from: single steps and pairs, never one you collect in pieces, nor anyone to escort. */
+export function roomGroups(): StepDef[][] {
+  return content().groups.filter((g) => !g.some((d) => d.parts || d.effect === 'escort-start' || d.effect === 'escort-end' || d.needsEscort));
+}
+
+/** A room step's id: the step's own, and whose it is (`radio@2`). The content knows it by the part before the @. */
+export const roomStepId = (id: string, seat: number): string => `${id}@${seat}`;
+
+/** How far, as the crow flies, consecutive steps of one player's route lie apart. */
+const LEG: readonly [number, number] = [34, 72];
+/** Of each seat's tries, how many are walked in full to match the seats' routes (more: fairer, slower to set up). */
+const ROUTES_WALKED = 5;
+
+/**
+ * Each seat's own steps in a room: `each` of them, dealt from the room groups (a pair counts as two, in order), placed
+ * as a route from that seat's start. Every seat's route is picked, from several tries, to be as close as possible to the
+ * same length (by the streets), so no one is dealt the short walk. Returns the steps (each `owner`d) and the longest
+ * route as it is really walked (cells), which sets the room's clock.
+ */
+export function roomChains(rng: Rng, map: MapData, spawns: Vec2[], safehouse: Vec2, each: number): { tasks: Task[]; route: number } {
+  const field = distanceField(map, spawns[0]!);
+  const usable = map.points.filter((p) => (field[cellOf(map, p)] as number) !== UNREACHABLE && dhypot(p.x - safehouse.x, p.y - safehouse.y) >= MIN_SPAWN_DISTANCE);
+  const blocked = (p: Vec2) => map.blocked[cellOf(map, p)] === 1 || (field[cellOf(map, p)] as number) === UNREACHABLE;
+  const doors: Array<{ door: Vec2; pos: Vec2 }> = [];
+  for (const b of map.buildings) {
+    if (b.kind !== 'house' && b.kind !== 'shop' && b.kind !== 'tower' && b.kind !== 'warehouse' && b.kind !== 'hospital') continue;
+    for (const [nx, ny] of [[0, 1], [0, -1], [1, 0], [-1, 0]] as const) {
+      const door = { x: b.x + b.w / 2 + (nx * b.w) / 2, y: b.y + b.h / 2 + (ny * b.h) / 2 };
+      const pos = { x: door.x + nx * 1.8, y: door.y + ny * 1.8 };
+      if ([1.8, 3.2].some((k) => blocked({ x: door.x + nx * k, y: door.y + ny * k }))) continue;
+      if (dhypot(pos.x - safehouse.x, pos.y - safehouse.y) < MIN_SPAWN_DISTANCE) continue;
+      doors.push({ door, pos });
+    }
+  }
+  const pool = roomGroups();
+  const target = (each * (LEG[0] + LEG[1]) / 2 + 80) * 1.2; // the length every route aims at, by the streets (steps, then on to the exit)
+  const taken: Vec2[] = []; // every seat's steps so far: no two players' steps on the same spot
+  const tasks: Task[] = [];
+  let order = shuffle(rng, pool);
+  const toExit = distanceField(map, safehouse); // the last leg, and the first (from each start), measured as walked
+  const scratch = new Int16Array(map.cols * map.cols);
+  let matchTo: number | null = null; // the walked length the first seat's route came to: the rest are matched to it
+  spawns.forEach((spawn, seat) => {
+    const fromStart = distanceField(map, spawn);
+    let best: Array<{ pos: Vec2; door?: Vec2 }> | null = null;
+    // the steps: groups in turn from a pool shared out so players get different ones while it lasts
+    const steps: Array<{ d: StepDef; prev: string | null; code: string }> = [];
+    while (steps.length < each) {
+      if (!order.length) order = shuffle(rng, pool);
+      const left = each - steps.length;
+      const gi = order.findIndex((g) => g.length <= left);
+      const g = gi >= 0 ? order.splice(gi, 1)[0]! : order.shift()!.slice(0, left); // a pair cut to its first step, if that is all that fits
+      const code = String(int(rng, 1000, 9999));
+      g.forEach((d, k) => steps.push({ d, prev: k > 0 ? roomStepId(g[k - 1]!.id, seat) : null, code }));
+    }
+    // the route: from the start, each step a fair walk on from the last. Two dozen tries are judged roughly (first and
+    // last legs as walked, the rest by the streets' grid); the nearest few (ROUTES_WALKED) are then walked in full, and the
+    // first seat's pick sets the length every other seat's route is matched to.
+    type Spot = { pos: Vec2; door?: Vec2 };
+    const tries: Array<{ route: Spot[]; est: number }> = [];
+    for (let tryN = 0; tryN < 24; tryN++) {
+      const route: Spot[] = [];
+      let at = spawn, len = 0, ok = true;
+      for (const st of steps) {
+        const fits = (p: Vec2) => { const d = dhypot(p.x - at.x, p.y - at.y); return d >= LEG[0] && d <= LEG[1] && taken.every((q) => dhypot(p.x - q.x, p.y - q.y) >= 8) && route.every((q) => dhypot(p.x - q.pos.x, p.y - q.pos.y) >= 30); };
+        const spot = st.d.door ? shuffle(rng, doors).find((o) => fits(o.pos)) : undefined;
+        const p = spot?.pos ?? shuffle(rng, usable).find(fits);
+        if (!p) { ok = false; break; }
+        len += route.length === 0 ? (fromStart[cellOf(map, p)] as number) : Math.abs(p.x - at.x) + Math.abs(p.y - at.y);
+        route.push(spot ? { pos: { ...spot.pos }, door: { ...spot.door } } : { pos: { x: p.x, y: p.y } });
+        at = p;
+      }
+      if (ok) tries.push({ route, est: len + (toExit[cellOf(map, at)] as number) });
+    }
+    const walked = (r: Spot[]) => {
+      let len = fromStart[cellOf(map, r[0]!.pos)] as number;
+      for (let k = 1; k < r.length; k++) len += distanceField(map, r[k - 1]!.pos, scratch)[cellOf(map, r[k]!.pos)] as number;
+      return len + (toExit[cellOf(map, r[r.length - 1]!.pos)] as number);
+    };
+    const near = tries.sort((a, b) => Math.abs(a.est - target) - Math.abs(b.est - target)).slice(0, ROUTES_WALKED).map((t) => ({ route: t.route, len: walked(t.route) }));
+    if (near.length) {
+      if (matchTo === null) matchTo = near.map((t) => t.len).sort((a, b) => a - b)[Math.floor(near.length / 2)]!;
+      const pickN = near.reduce((a, b) => (Math.abs(b.len - matchTo!) < Math.abs(a.len - matchTo!) ? b : a));
+      best = pickN.route;
+    }
+    // nothing fitted (a cramped district): anywhere reachable, apart from the rest
+    best ??= steps.map(() => ({ pos: { ...(shuffle(rng, usable).find((p) => taken.every((q) => dhypot(p.x - q.x, p.y - q.y) >= 8)) ?? usable[0]!) } }));
+    steps.forEach((st, k) => {
+      const spot = best![k]!, d = st.d;
+      const t: Task = {
+        id: roomStepId(d.id, seat), kind: d.kind, required: true, requires: st.prev ? [st.prev] : [], pos: spot.pos,
+        timeCost: d.timeCost ?? 0, reward: d.reward ?? null, done: false, code: st.code, owner: seat,
+      };
+      if (spot.door) t.door = spot.door;
+      if (d.seconds) t.seconds = d.seconds;
+      if (d.effect && d.effect !== 'reveal-exit') t.effect = d.effect;
+      if (d.puzzle) { t.puzzle = d.puzzle; t.scramble = scramble(rng, d.puzzle); }
+      if (d.kind === 'clear') t.clear = d.clear;
+      tasks.push(t);
+      taken.push(spot.pos);
+    });
+  });
+  // the clock is set by the longest route as it is really walked (every seat gets the same clock)
+  let longest = 0;
+  spawns.forEach((spawn, seat) => {
+    let at = spawn, cells = 0;
+    for (const p of [...tasks.filter((t) => t.owner === seat).map((t) => t.pos), safehouse]) { cells += distanceField(map, at)[cellOf(map, p)] as number; at = p; }
+    longest = Math.max(longest, cells);
+  });
+  return { tasks, route: longest };
+}

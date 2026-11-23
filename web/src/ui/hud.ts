@@ -1,4 +1,4 @@
-import { clearLeft, currentTask, escortGroup, finalChapter, infection, interactionFor, isGun, latchedOn, playerVehicle, requiredDone, taskTarget, type GameState } from '../../../core/state';
+import { clearLeft, currentTask, escortGroup, finalChapter, infection, interactionFor, isGun, latchedOn, myTasks, playerVehicle, requiredDone, taskTarget, type GameState } from '../../../core/state';
 import { ending, exitLabel, objectiveFor, shortName, verbFor } from '../../../core/story';
 import { CHAPTERS, GEAR, PLAYER_HEALTH, VEHICLES, WEAPON_NAMES } from '../../../core/config';
 import type { Interaction } from '../../../core/types';
@@ -170,13 +170,13 @@ export class Hud {
     const cur = currentTask(s);
     const ready = requiredDone(s);
     // the main mission (yellow, like its ring): which step of how many, then the way out
-    const steps = s.tasks.filter((x) => x.required), stepN = steps.filter((x) => x.done).length + 1;
+    const steps = myTasks(s), stepN = steps.filter((x) => x.done).length + 1; // in a room, your own
     const room = s.mode === 'room';
     const out = room ? `Get to the exit · ${s.seatsLeft} ${s.seatsLeft === 1 ? 'seat' : 'seats'} left` : exitLabel(final);
     const label = ready ? out : cur ? `STEP ${stepN}/${steps.length}: ${objectiveFor(cur, final, cur.kind === 'clear' ? clearLeft(s, cur) : null)}` : 'Find another way through';
     const optional = s.tasks.filter((x) => !x.required && !x.done);
-    // rooms: the exit seats only those who did a step (or carried a piece of one): say so until you have
-    const seat = room && s.player.status === 'alive' && s.player.helped <= 0 ? '<em>Do a step to earn your exit seat</em>' : '';
+    // rooms: the exit lets you in only once your own steps are all done
+    const seat = room && s.player.status === 'alive' && !ready ? `<em>The exit opens to you after your ${steps.length} steps</em>` : '';
     const html = `${label}${seat}${!ready && optional.length ? `<small>Optional, costs time: ${optional.map((o) => shortName(o)).join(', ')}</small>` : ''}`;
     if (html !== this.lastTask) {
       this.lastTask = html;

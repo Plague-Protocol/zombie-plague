@@ -3,6 +3,8 @@
 //   - what moves every snapshot (you, the other players, the zombies you can see) goes as short arrays of whole
 //     numbers (positions in 1/16 units, angles in 1/100 radian);
 //   - everything else (what you carry, the steps, what has been taken) is sent only when it changes, key by key.
+// Zombies, the bulk of it, go the same way: a full row the first time one comes into view, then only what changed
+// (its moves as small steps from the last), nothing while it keeps still, and its id once when it goes out of view.
 // The channel is a WebSocket, so frames arrive whole and in order and a delta can never be missed. A new connection
 // gets a new encoder, so its first snapshot carries everything.
 import type { GameEvent, PlayerStatus, WeaponKind, ZombieAction, ZombieKind } from './types';
@@ -25,7 +27,9 @@ export interface WireSnap {
   /** seat */ s: number;
   /** you: x, y, vx, vy, heading, health, status */ y: number[];
   /** others: id, x, y, heading, status, bits (1 light, 2 exposed, 4 crouched, 8 hidden), weapon, vehicle+1, roof+1 */ o: number[][];
-  /** zombies: id, kind, x, y, heading, speed, action, flags (1 staggered, 2 frozen), roof+1 */ z: number[][];
+  /** zombies new in view: id, kind, x, y, heading, speed, action, flags (1 staggered, 2 frozen), roof+1 */ z: number[][];
+  /** zombies already in view that changed: id, dx, dy, dheading, speed, action, flags, roof+1 (trailing zeros left off) */ zd?: number[][];
+  /** zombies gone out of view */ zg?: number[];
   /** events, if any */ e?: GameEvent[];
   /** the parts that changed since the last snapshot, by key ("y.arsenal" for something of yours) */ c?: Record<string, unknown>;
 }
@@ -49,6 +53,7 @@ function coarse(key: string, v: unknown): unknown {
 /** A per-connection encoder: remembers what it has already told this player. */
 export function makeEncoder(): (v: PlayerView) => WireSnap {
   const sent = new Map<string, string>();
+  const zs = new Map<number, number[]>(); // each zombie in view, as this player was last told it
   return (v) => {
     const c: Record<string, unknown> = {};
     const put = (key: string, value: unknown) => {
@@ -64,8 +69,24 @@ export function makeEncoder(): (v: PlayerView) => WireSnap {
       k: v.tick, s: v.seat,
       y: [q(v.you.pos.x, P), q(v.you.pos.y, P), q(v.you.vel.x, P), q(v.you.vel.y, P), q(v.you.heading, A), Math.round(v.you.health), STATUS.indexOf(v.you.status)],
       o: v.others.map((o) => [o.id, q(o.pos.x, P), q(o.pos.y, P), q(o.heading, A), STATUS.indexOf(o.status), (o.light ? 1 : 0) | (o.exposed ? 2 : 0) | (o.crouched ? 4 : 0) | (o.hidden ? 8 : 0), WEAPON.indexOf(o.weapon), (o.vehicleId ?? -1) + 1, (o.roof ?? -1) + 1]),
-      z: v.zombies.map((z) => [z.id, KIND.indexOf(z.kind), q(z.pos.x, P), q(z.pos.y, P), q(z.heading, A), q(z.speed, S), ACTION.indexOf(z.action), (z.staggerT > 0 ? 1 : 0) | (z.frozen ? 2 : 0), (z.roof ?? -1) + 1]),
+      z: [],
     };
+    const zd: number[][] = [], seen = new Set<number>();
+    for (const z of v.zombies) {
+      const row = [z.id, KIND.indexOf(z.kind), q(z.pos.x, P), q(z.pos.y, P), q(z.heading, A), q(z.speed, S), ACTION.indexOf(z.action), (z.staggerT > 0 ? 1 : 0) | (z.frozen ? 2 : 0), (z.roof ?? -1) + 1];
+      seen.add(z.id);
+      const was = zs.get(z.id);
+      zs.set(z.id, row);
+      if (!was || was[1] !== row[1]) { w.z.push(row); continue; } // new in view: in full
+      if (row.every((x, i) => x === was[i])) continue; // kept still: nothing
+      const d = [z.id, row[2]! - was[2]!, row[3]! - was[3]!, row[4]! - was[4]!, row[5]!, row[6]!, row[7]!, row[8]!];
+      while (d.length > 1 && d[d.length - 1] === 0) d.pop();
+      zd.push(d);
+    }
+    const zg: number[] = [];
+    for (const id of zs.keys()) if (!seen.has(id)) { zs.delete(id); zg.push(id); }
+    if (zd.length) w.zd = zd;
+    if (zg.length) w.zg = zg;
     if (v.events.length) w.e = round2(v.events);
     if (Object.keys(c).length) w.c = c;
     return w;
@@ -75,6 +96,7 @@ export function makeEncoder(): (v: PlayerView) => WireSnap {
 /** A per-connection decoder: keeps what the server has said so far and rebuilds the whole view each time. */
 export function makeDecoder(): (w: WireSnap) => PlayerView {
   const cold = new Map<string, unknown>();
+  const zs = new Map<number, number[]>(); // each zombie in view, as last told
   return (w) => {
     if (w.c) for (const [k, val] of Object.entries(w.c)) cold.set(k, val);
     const you: Record<string, unknown> = {};
@@ -89,7 +111,15 @@ export function makeDecoder(): (w: WireSnap) => PlayerView {
       weapon: WEAPON[o[6]!] ?? null, vehicleId: o[7]! - 1 || null,
       crouched: (o[5]! & 4) !== 0, hidden: (o[5]! & 8) !== 0, roof: (o[8] ?? 0) > 0 ? o[8]! - 1 : null,
     }));
-    const zombies: ZombieView[] = w.z.map((z) => ({
+    for (const id of w.zg ?? []) zs.delete(id);
+    for (const r of w.z) zs.set(r[0]!, r);
+    for (const d of w.zd ?? []) {
+      const was = zs.get(d[0]!);
+      if (!was) continue;
+      const at = (i: number) => d[i] ?? 0;
+      zs.set(d[0]!, [was[0]!, was[1]!, was[2]! + at(1), was[3]! + at(2), was[4]! + at(3), at(4), at(5), at(6), at(7)]);
+    }
+    const zombies: ZombieView[] = [...zs.values()].map((z) => ({
       id: z[0]!, kind: KIND[z[1]!]!, pos: { x: z[2]! / P, y: z[3]! / P }, heading: z[4]! / A, speed: z[5]! / S, action: ACTION[z[6]!]!,
       actionT: 0, staggerT: (z[7]! & 1) !== 0 ? 0.3 : 0, frozen: (z[7]! & 2) !== 0, roof: (z[8] ?? 0) > 0 ? z[8]! - 1 : null,
     }));

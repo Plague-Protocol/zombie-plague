@@ -116,10 +116,14 @@ Caveat: exact across the same JavaScript engine only, until the trig calls are m
 ## Multiplayer
 
 Free rooms of 2 to 8 players in one district at once, run by a server. Tap **Multiplayer** on the title
-screen, make a room (a five-letter code) or join one, and the host starts it. The steps are shared (anyone
-doing one does it for everyone), but the exit only seats a player who did at least one required step or
-picked up a piece of one, and it has seats for half of those who started. The living cannot hurt each
-other. The dose of each player ticks down separately, and a player who runs out, or is bitten down, **turns**:
+screen, make a room (a five-letter code) or join one, and the host starts it. Each room is in a city rolled from
+its seed (downtown, the docks or the edge for now; every city the story adds joins the draw). Every player has
+**their own four steps** (single steps and pairs, never one you collect in pieces), on a route picked to be about
+as long as everyone else's; nobody else sees or can do them. The exit opens to a player once all four of theirs
+are done, and it has seats for half of those who started: the first ones through take them. The round lasts ten
+minutes; the infection clock is set by the longest route, and there are more doses lying about the more players
+there are. The living cannot hurt each other. The dose of each player ticks down separately, and a player who runs
+out, or is bitten down, **turns**:
 what they carried is left as an **arsenal** where they fell (the first to stand at it and press TAKE ARSENAL
 gets it all, added to their kit without changing the weapon in hand), and they look, move and hunt as one of
 the infected, with a bite (nowhere near the exit, nor at anyone working a step: a step's circle is as safe as
@@ -129,7 +133,7 @@ down. Nobody sees anyone else on the map. Rooms have no vehicles and nobody to e
 
 What a browser is told is what its player could see (`core/view.ts`): other players and infected out
 of sight, other players' health and clocks, and noises too far to hear never leave the server. Snapshots go
-out at 15 a second in a compact form (`core/codec.ts`), 4 to 6 KB/s per player. Your own walking is
+out at 15 a second in a compact form (`core/codec.ts`: a zombie is sent in full once, then only its moves), 2.5 to 4 KB/s per player in a busy room. Your own walking is
 predicted so the controls answer at once, and corrected when the server's word comes back; everything else
 is drawn a tenth of a second in the past, between two snapshots (`web/src/net/room.ts`, loaded only when you tap
 Multiplayer).

@@ -7,16 +7,47 @@ import { isMuted, onMute, setMuted } from './seams/mute';
 import { drawPromos, startPromos } from './site/promos';
 import { admin, armouryPage, home, how, notFound, play, profile, ranks, type Ctx, type Page } from './site/pages';
 
-// the cold open, once a session (its own chunk)
-if (!document.documentElement.classList.contains('intro-seen')) void import('./ui/splash').then((m) => m.runSplash());
+// A page opened just before a deploy asks for chunks the new deploy no longer has: load the new version, once.
+const reloadOnce = (): boolean => {
+  try {
+    const at = Number(sessionStorage.getItem('zp_reloaded') ?? 0);
+    if (Date.now() - at < 60_000) return false; // tried a moment ago: do not loop
+    sessionStorage.setItem('zp_reloaded', String(Date.now()));
+  } catch { return false; }
+  location.reload();
+  return true;
+};
+window.addEventListener('vite:preloadError', (e) => { if (reloadOnce()) e.preventDefault(); });
+
+// the cold open, once a session (its own chunk). If it cannot load, it gets out of the way rather than freeze the page.
+const splashing = !document.documentElement.classList.contains('intro-seen');
+if (splashing) {
+  void import('./ui/splash').then((m) => m.runSplash(), () => {
+    if (reloadOnce()) return;
+    document.documentElement.classList.add('intro-seen');
+    window.dispatchEvent(new Event('zp:splash-gone'));
+  });
+}
 
 type Game = typeof import('./main');
 let game: Game | null = null;
 let gameErr = '';
 /** Still not in after a while: a stalled connection never fails, so say so rather than spin for ever. */
 let gameSlow = false;
-setTimeout(() => { if (!game && !gameErr) { gameSlow = true; armPlay(); } }, 20000);
-void import('./main').then((m) => { game = m; armPlay(); }, (e: unknown) => { gameErr = e instanceof Error ? e.message : String(e); armPlay(); });
+// The game: heavy to fetch and set up, so it waits while the splash's first screen is up (its buttons must answer at
+// once on a slow phone) and starts the moment the player taps through, or straight away when there is no splash.
+const loadGame = () => (setTimeout(() => { if (!game && !gameErr) { gameSlow = true; armPlay(); } }, 20000), void import('./main').then((m) => { game = m; armPlay(); }, (e: unknown) => {
+  if (/dynamically imported module|Importing a module script failed|error loading/i.test(String(e)) && reloadOnce()) return; // a stale page after a deploy
+  gameErr = e instanceof Error ? e.message : String(e); armPlay();
+}));
+if (!splashing) loadGame();
+else {
+  let started = false;
+  const go = () => { if (!started) { started = true; loadGame(); } };
+  window.addEventListener('zp:splash-begin', go, { once: true });
+  window.addEventListener('zp:splash-gone', go, { once: true });
+  setTimeout(go, 8000); // left on the gate: start anyway
+}
 
 const ROUTES: Record<string, Page> = { '/': home, '/play': play, '/armoury': armouryPage, '/ranks': ranks, '/profile': profile, '/how-to-play': how, '/admin': admin };
 const NAV: Array<[string, string, string]> = [['/', 'Home', ICON.home], ['/play', 'Play', ICON.play], ['/armoury', 'Armoury', ICON.shieldGun], ['/ranks', 'Ranks', ICON.trophy], ['/profile', 'Profile', ICON.user], ['/how-to-play', 'How to play', ICON.book]];

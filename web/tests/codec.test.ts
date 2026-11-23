@@ -49,7 +49,39 @@ describe('the snapshot wire form', () => {
     expect(third.c!.tasks).toBeUndefined();
     const v = dec(third);
     expect(v.you.funds).toBe(g.players[1]!.funds);
-    expect(v.tasks.length).toBe(g.tasks.length); // still there: the decoder kept it
+    expect(v.tasks.length).toBe(g.tasks.filter((t) => t.owner === undefined || t.owner === 1).length); // still there (your own): the decoder kept it
+  });
+
+  it('sends a zombie in full once, then only its moves, nothing while it keeps still, and its id when it goes', () => {
+    const g = busy();
+    const enc = makeEncoder(), dec = makeDecoder();
+    const first = enc(viewFor(g, 0));
+    dec(first);
+    expect(first.z.length).toBe(viewFor(g, 0).zombies.length);
+    // a few snapshots on: whatever moved comes as small steps, and the decoder lands exactly where the encoder is
+    for (let k = 0; k < 6; k++) {
+      for (let i = 0; i < 2; i++) step(g, [], 1 / 30);
+      const v = viewFor(g, 0), w = enc(v), out = dec(w);
+      expect(w.z.length).toBeLessThan(v.zombies.length + 1);
+      for (const d of w.zd ?? []) { expect(Math.abs(d[1] ?? 0)).toBeLessThan(40); expect(Math.abs(d[2] ?? 0)).toBeLessThan(40); }
+      const byId = new Map(out.zombies.map((z) => [z.id, z]));
+      expect(out.zombies.length).toBe(v.zombies.length);
+      for (const z of v.zombies) {
+        const o = byId.get(z.id)!;
+        expect(o.pos.x).toBeCloseTo(Math.round(z.pos.x * 16) / 16, 6); // no drift: the steps add up to the same place
+        expect(o.pos.y).toBeCloseTo(Math.round(z.pos.y * 16) / 16, 6);
+        expect(o.action).toBe(z.action);
+      }
+    }
+    // standing still: nothing at all about it
+    const still = viewFor(g, 0);
+    const again = enc(still);
+    expect(again.z.length + (again.zd?.length ?? 0)).toBe(0);
+    // out of view: its id once, and the decoder forgets it
+    const gone = { ...still, zombies: still.zombies.slice(1) };
+    const w = enc(gone);
+    expect(w.zg).toEqual([still.zombies[0]!.id]);
+    expect(dec(w).zombies.some((z) => z.id === still.zombies[0]!.id)).toBe(false);
   });
 
   it('a new connection starts from nothing and is told everything', () => {

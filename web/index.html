@@ -21,6 +21,21 @@
     if (ios && !standalone) document.documentElement.classList.add('ios-browser');
     // the cold open plays once a session (and never in tests: ?skipintro)
     try { if (sessionStorage.getItem('zp_intro_seen') || /[?&](skipintro|nosplash)/.test(location.search)) document.documentElement.classList.add('intro-seen'); } catch (e) {}
+    // the splash's buttons answer before its script has arrived (a slow phone, or a stale page after a deploy): SKIP
+    // closes it at once; a tap on the message is remembered and played as soon as the script is in (splash.ts)
+    document.addEventListener('click', function (e) {
+      if (window.__splashLive) return;
+      var t = e.target && e.target.closest ? e.target : null;
+      if (t && t.closest('#splash .skip')) {
+        try { sessionStorage.setItem('zp_intro_seen', '1'); } catch (x) {}
+        document.documentElement.classList.add('intro-seen');
+        window.dispatchEvent(new Event('zp:splash-gone'));
+      } else if (t && t.closest('#splash .begin')) {
+        window.__splashBegin = true;
+        t.closest('#splash .begin').textContent = 'Tuning in…';
+        window.dispatchEvent(new Event('zp:splash-begin'));
+      }
+    }, true);
   })();
 </script>
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />

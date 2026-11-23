@@ -16,7 +16,7 @@ import type { Controls } from '../input/controls';
 import { Actor, loadSkin, type SkinName } from '../render/characters';
 import { makeDecoder } from '../../../core/codec';
 import { ROOM_DT, type ClientMsg, type Eligibility, type SeatInfo, type ServerMsg } from '../../../core/protocol';
-import { ROOM_PLAYERS_MAX, ZOMBIE_HEALTH } from '../../../core/config';
+import { ROOM_PLAYERS_MAX, ROOM_TASKS, ZOMBIE_HEALTH } from '../../../core/config';
 import { account, signIn, signInSocial, socialAvailable, type Account } from './account';
 
 /** What the page lends this module. */
@@ -620,7 +620,7 @@ class Session implements Driver {
     // the others' survivors: their skins are fetched now, and worn as soon as they are in
     this.sv = begin.sv ?? [];
     for (const id of this.sv) { const sk = id ? SURVIVORS[id as SurvivorId]?.skin : null; if (sk) void loadSkin(host.view.assets, sk as SkinName); }
-    host.toast('Get the steps done and reach the exit. Seats are limited.');
+    host.toast(`Do your own ${ROOM_TASKS} steps, then reach the exit. Seats are limited: the first ones out take them.`);
   }
 
   message(m: ServerMsg): void {
