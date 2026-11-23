@@ -96,6 +96,18 @@ describe('the infection is the clock', () => {
     expect(g.remaining).toBeGreaterThan(g.timeLimit / 2 + ANTIVIRAL_SECONDS - 1);
   });
 
+  it('a dose walked over with the clock still nearly full stays where it is, for when it is needed', () => {
+    const g = quiet();
+    const dose = g.pickups.find((p) => p.kind === 'antiviral')!;
+    g.remaining = g.timeLimit - 5; // five seconds gone: it would mostly go to waste
+    g.player.pos = { ...dose.pos };
+    step(g, IDLE, DT);
+    expect(dose.taken).toBe(false);
+    g.remaining = g.timeLimit - 40; // now it is worth having
+    step(g, IDLE, DT);
+    expect(dose.taken).toBe(true);
+  });
+
   it('nearly turned, they see less of you, and you cough loud enough to be heard', () => {
     const g = quiet();
     const fresh = sightScale(g);

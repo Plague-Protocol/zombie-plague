@@ -195,6 +195,7 @@ export const FLARE_RADIUS = 26;
 export const BITE_COST = 8; // seconds the infection jumps ahead for a full bite (gear takes its share)
 export const ANTIVIRAL_SECONDS = 30; // a dose holds it back this long (never past a full clock)
 export const ANTIVIRAL_PICKUPS = 4; // lying in each district
+export const ANTIVIRAL_KEEP = 15; // walked over with less than this off your clock, a dose is left lying (it would mostly go to waste)
 export const ANTIVIRAL_PER_SEAT = 1; // a room: this many more for every player after the first
 export const ANTIVIRAL_PRICE = 60;
 /** Late on, they stop seeing you as prey: how much of their sight is lost, fully sick. It starts at half way. */

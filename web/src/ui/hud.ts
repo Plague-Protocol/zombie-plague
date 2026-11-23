@@ -1,6 +1,6 @@
 import { clearLeft, currentTask, escortGroup, finalChapter, infection, interactionFor, isGun, latchedOn, myTasks, playerVehicle, requiredDone, taskTarget, type GameState } from '../../../core/state';
 import { ending, exitLabel, objectiveFor, shortName, verbFor } from '../../../core/story';
-import { CHAPTERS, GEAR, PLAYER_HEALTH, VEHICLES, WEAPON_NAMES } from '../../../core/config';
+import { ANTIVIRAL_KEEP, CHAPTERS, GEAR, PLAYER_HEALTH, VEHICLES, WEAPON_NAMES } from '../../../core/config';
 import type { Interaction } from '../../../core/types';
 import type { GameView } from '../render/view';
 
@@ -140,6 +140,8 @@ export class Hud {
 
   /** Told what a walk-in building is for (once a session). */
   private toldInside = false;
+  /** Told why a dose stayed on the ground (once a session). */
+  private toldDose = false;
 
   toast(text: string, ms = 1800): void {
     this.toastEl.textContent = text;
@@ -228,6 +230,13 @@ export class Hud {
     const pp = s.player.pos;
     const inside = s.map.interiors.find((it) => pp.x > it.x && pp.x < it.x + it.w && pp.y > it.y && pp.y < it.y + it.h);
     if (inside && !this.toldInside && s.phase === 'playing') { this.toldInside = true; this.toast('Inside. SEARCH what you find for scrap and supplies, and mind the ones lying on the floor.', 4200); }
+
+    // a dose walked over while the clock is still nearly full stays where it is: say so, once
+    if (!this.toldDose && s.phase === 'playing' && s.timeLimit - s.remaining < ANTIVIRAL_KEEP
+      && s.pickups.some((k) => !k.taken && k.kind === 'antiviral' && Math.hypot(k.pos.x - pp.x, k.pos.y - pp.y) < 2)) {
+      this.toldDose = true;
+      this.toast('A dose. You do not need it yet: it keeps here until your clock has gone down.', 3500);
+    }
 
     // turned (rooms): one of them now. No gun, no light, nothing to use: one button, BITE, dim while you gather for the next
     const turned = s.mode === 'room' && s.player.status === 'turned';
