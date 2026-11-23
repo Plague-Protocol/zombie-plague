@@ -2397,10 +2397,25 @@ function updateClear(s: GameState): void {
   if (!t.targets) {
     if (dist(t.pos, s.player.pos) > 26) return;
     t.targets = [];
+    // only where they can walk to you from: never inside a building, behind a wall or in a pocket off the street,
+    // or the step could never be finished
+    const field = distanceField(s.map, t.pos);
+    const open = (p: Vec2) => {
+      if (p.x < 1 || p.y < 1 || p.x > s.map.size - 1 || p.y > s.map.size - 1) return false;
+      const c = cellOf(s.map, p);
+      return s.map.blocked[c] === 0 && field[c] !== UNREACHABLE && (field[c] as number) <= 16
+        && !s.map.interiors.some((it) => p.x > it.x && p.x < it.x + it.w && p.y > it.y && p.y < it.y + it.h);
+    };
     for (let k = 0; k < (t.clear ?? 4); k++) {
-      const a = (k / (t.clear ?? 4)) * Math.PI * 2 + next(s.rng);
+      let at: Vec2 = { x: t.pos.x, y: t.pos.y };
+      for (let tries = 0; tries < 16; tries++) {
+        const a = (k / (t.clear ?? 4)) * Math.PI * 2 + next(s.rng) + tries * 0.9;
+        const r = range(s.rng, 4, 8);
+        const p = { x: t.pos.x + dcos(a) * r, y: t.pos.y + dsin(a) * r };
+        if (open(p)) { at = p; break; }
+      }
       t.targets.push(s.nextZombieId);
-      addZombie(s, k % 3 === 2 ? 'runner' : 'walker', { x: t.pos.x + dcos(a) * range(s.rng, 4, 8), y: t.pos.y + dsin(a) * range(s.rng, 4, 8) }, true);
+      addZombie(s, k % 3 === 2 ? 'runner' : 'walker', at, true);
       s.zombies[s.zombies.length - 1]!.alertT = 30; // they know you are there
     }
     s.events.push({ type: 'clear-start', id: t.id, count: t.targets.length });

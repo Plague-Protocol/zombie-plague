@@ -7,6 +7,7 @@ import {
   priceOf, restartChapter, step, escortGroup, type GameState,
 } from '../../core/state';
 import { ending } from '../../core/story';
+import { cellOf, distanceField, UNREACHABLE } from '../../core/map';
 import { CHAPTER_HEAL, CHAPTERS, GEAR, PLAYER_HEALTH } from '../../core/config';
 import type { Input, Task } from '../../core/types';
 
@@ -341,6 +342,30 @@ describe('task content and its mechanics', () => {
     for (const z of g.zombies) if (t.targets!.includes(z.id)) { z.health = 0; z.action = 'dead'; z.actionT = 1; }
     step(g, IDLE, DT);
     expect(t.done).toBe(true);
+  });
+
+  it('a clear step never sends them from somewhere they cannot get out of (inside a building, behind a wall)', () => {
+    const g0 = at('dock');
+    const t0 = currentTask(g0)!;
+    // the step moved hard up against buildings all over the map, the worst case for where they come from
+    const near = (p: { x: number; y: number }, r: number) => g0.map.interiors.some((it) => p.x > it.x - r && p.x < it.x + it.w + r && p.y > it.y - r && p.y < it.y + it.h + r);
+    const spots = g0.map.points.filter((p) => near(p, 6));
+    expect(spots.length).toBeGreaterThan(0);
+    for (const p of spots) {
+      const g = at('dock');
+      const t = currentTask(g)!;
+      t.pos = { x: p.x, y: p.y };
+      g.player.pos = { x: t.pos.x + 1, y: t.pos.y };
+      step(g, IDLE, DT);
+      const field = distanceField(g.map, t.pos);
+      for (const id of t.targets!) {
+        const z = g.zombies.find((q) => q.id === id)!;
+        expect(field[cellOf(g.map, z.pos)]).not.toBe(UNREACHABLE);
+        expect(field[cellOf(g.map, z.pos)]).toBeLessThanOrEqual(18); // close by the streets, not round a block
+        expect(g.map.interiors.some((it) => z.pos.x > it.x && z.pos.x < it.x + it.w && z.pos.y > it.y && z.pos.y < it.y + it.h)).toBe(false);
+      }
+    }
+    expect(t0.kind).toBe('clear');
   });
 
   it('a family follows in a line, and the shelter takes them only when all three are with you', () => {
