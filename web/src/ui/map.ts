@@ -87,7 +87,7 @@ export function markers(s: GameState): Marker[] {
   doses.forEach((p, i) => out.push({ pos: p.pos, color: '#4ad27a', size: 4.5, shape: 'cross', label: 'Vaccine', rim: i === 0 }));
   for (const p of s.pickups) if (!p.taken && p.kind === 'jerrycan') out.push({ pos: p.pos, color: '#e05030', size: 3, shape: 'square' });
   for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan' && p.kind !== 'antiviral') out.push({ pos: p.pos, color: p.kind === 'vest' || p.kind === 'helmet' ? '#8cc4ff' : '#d0a070', size: 3.5, shape: 'dot' }); // weapons tan (yellow is the mission's)
-  for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
+  for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId && v.pos.x >= 0) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
   for (const d of s.drops) if (!d.taken) out.push({ pos: d.pos, color: '#ffb347', size: 4.5, shape: 'square', label: 'Arsenal' }); // rooms: what a turned player left
   for (const it of s.map.interiors) out.push({ pos: { x: it.door.x + it.out.x * 0.8, y: it.door.y + it.out.y * 0.8 }, color: '#e8e2d6', size: 3, shape: 'square', label: 'Way in' }); // a building you can search
   for (const l of s.map.ladders) out.push({ pos: l.foot, color: '#9aa4b0', size: 3.4, shape: 'ladder', label: 'Ladder' }); // a way up (steel, not the mission's yellow)

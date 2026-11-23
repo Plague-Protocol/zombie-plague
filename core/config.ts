@@ -49,6 +49,7 @@ export const VEHICLES = {
   bike: { length: 3.2, width: 1.1, maxSpeed: 18, accel: 13, reverse: 3, steer: 3.0, health: 60 },
 } as const;
 export const VEHICLE_COUNT = 12; // a few, not a car park: about half of them bikes
+export const VEHICLES_ROOM = 10; // a room: this many, and one more for every player (one parked a short walk from each start)
 /** Share of each kind among the parked vehicles (in order; the rest are vans). */
 export const VEHICLE_MIX = { bike: 0.45, sedan: 0.25, pickup: 0.18 } as const;
 // An engine is loud: everything within earshot comes, again and again while it runs.

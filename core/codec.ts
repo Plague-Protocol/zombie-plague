@@ -8,7 +8,7 @@
 // The channel is a WebSocket, so frames arrive whole and in order and a delta can never be missed. A new connection
 // gets a new encoder, so its first snapshot carries everything.
 import type { GameEvent, PlayerStatus, WeaponKind, ZombieAction, ZombieKind } from './types';
-import type { OtherView, PlayerView, YouView, ZombieView } from './view';
+import type { OtherView, PlayerView, VehicleView, YouView, ZombieView } from './view';
 
 const STATUS: PlayerStatus[] = ['alive', 'down', 'turned', 'escaped', 'dead', 'missed'];
 const KIND: ZombieKind[] = ['walker', 'runner', 'screamer', 'stalker', 'crawler', 'lasher'];
@@ -30,6 +30,7 @@ export interface WireSnap {
   /** zombies new in view: id, kind, x, y, heading, speed, action, flags (1 staggered, 2 frozen), roof+1 */ z: number[][];
   /** zombies already in view that changed: id, dx, dy, dheading, speed, action, flags, roof+1 (trailing zeros left off) */ zd?: number[][];
   /** zombies gone out of view */ zg?: number[];
+  /** vehicles in view that changed since this player was last told: id, x, y, heading, speed, health, fuel (per mille), wrecked */ v?: number[][];
   /** events, if any */ e?: GameEvent[];
   /** the parts that changed since the last snapshot, by key ("y.arsenal" for something of yours) */ c?: Record<string, unknown>;
 }
@@ -54,6 +55,7 @@ function coarse(key: string, v: unknown): unknown {
 export function makeEncoder(): (v: PlayerView) => WireSnap {
   const sent = new Map<string, string>();
   const zs = new Map<number, number[]>(); // each zombie in view, as this player was last told it
+  const cars = new Map<number, string>(); // each vehicle, as this player was last told it
   return (v) => {
     const c: Record<string, unknown> = {};
     const put = (key: string, value: unknown) => {
@@ -65,6 +67,7 @@ export function makeEncoder(): (v: PlayerView) => WireSnap {
     put('taken', v.taken); put('drops', v.drops); put('opened', v.opened); put('searched', v.searched); put('tasks', v.tasks);
     put('safehouseKnown', v.safehouseKnown); put('flare', v.flare); put('fallen', v.fallen); put('tier', v.tier);
     put('roomRemaining', v.roomRemaining); put('seatsLeft', v.seatsLeft); put('placements', v.placements); put('corpses', v.corpses);
+    put('carsGone', v.carsGone);
     const w: WireSnap = {
       k: v.tick, s: v.seat,
       y: [q(v.you.pos.x, P), q(v.you.pos.y, P), q(v.you.vel.x, P), q(v.you.vel.y, P), q(v.you.heading, A), Math.round(v.you.health), STATUS.indexOf(v.you.status)],
@@ -85,6 +88,17 @@ export function makeEncoder(): (v: PlayerView) => WireSnap {
     }
     const zg: number[] = [];
     for (const id of zs.keys()) if (!seen.has(id)) { zs.delete(id); zg.push(id); }
+    // vehicles: a row when one in view has changed from what this player was last told (most are parked: nothing)
+    const vr: number[][] = [];
+    for (const c of v.vehicles) {
+      const row = [c.id, q(c.pos.x, P), q(c.pos.y, P), q(c.heading, A), q(c.speed, S), Math.round(c.health), Math.round(c.fuel * 1000), c.wrecked ? 1 : 0];
+      const j = row.join(',');
+      if (cars.get(c.id) === j) continue;
+      cars.set(c.id, j);
+      vr.push(row);
+    }
+    for (const id of v.carsGone) cars.delete(id); // out of sight somewhere else: told afresh when seen again
+    if (vr.length) w.v = vr;
     if (zd.length) w.zd = zd;
     if (zg.length) w.zg = zg;
     if (v.events.length) w.e = round2(v.events);
@@ -97,6 +111,7 @@ export function makeEncoder(): (v: PlayerView) => WireSnap {
 export function makeDecoder(): (w: WireSnap) => PlayerView {
   const cold = new Map<string, unknown>();
   const zs = new Map<number, number[]>(); // each zombie in view, as last told
+  const cars = new Map<number, VehicleView>(); // each vehicle, as last told
   return (w) => {
     if (w.c) for (const [k, val] of Object.entries(w.c)) cold.set(k, val);
     const you: Record<string, unknown> = {};
@@ -124,8 +139,11 @@ export function makeDecoder(): (w: WireSnap) => PlayerView {
       actionT: 0, staggerT: (z[7]! & 1) !== 0 ? 0.3 : 0, frozen: (z[7]! & 2) !== 0, roof: (z[8] ?? 0) > 0 ? z[8]! - 1 : null,
     }));
     const get = <T>(k: string, d: T) => (cold.has(k) ? (cold.get(k) as T) : d);
+    for (const r of w.v ?? []) cars.set(r[0]!, { id: r[0]!, pos: { x: r[1]! / P, y: r[2]! / P }, heading: r[3]! / A, speed: r[4]! / S, health: r[5]!, fuel: r[6]! / 1000, wrecked: r[7] === 1 });
+    const carsGone = get<number[]>('carsGone', []);
+    for (const id of carsGone) cars.delete(id);
     return {
-      seat: w.s, tick: w.k, phase: PHASE.includes(get('phase', 'playing')) ? get('phase', 'playing') : 'playing', you: you as unknown as YouView, others, zombies,
+      seat: w.s, tick: w.k, phase: PHASE.includes(get('phase', 'playing')) ? get('phase', 'playing') : 'playing', you: you as unknown as YouView, others, zombies, vehicles: [...cars.values()], carsGone,
       corpses: get('corpses', []), taken: get('taken', []), drops: get('drops', []), opened: get('opened', []), searched: get('searched', []), tasks: get('tasks', []),
       safehouseKnown: get('safehouseKnown', false), flare: get('flare', null), fallen: get('fallen', 0), tier: get('tier', 0), events: w.e ?? [],
       roomRemaining: get('roomRemaining', 0), seatsLeft: get('seatsLeft', 0), placements: get('placements', null),

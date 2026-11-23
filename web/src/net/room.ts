@@ -5,7 +5,7 @@
 // rules except one thing, walking. The player's own walking is predicted from their inputs so the controls answer at
 // once, then corrected when the server's word on where they are comes back. Everyone and everything else is drawn
 // a little in the past, between the two snapshots either side of that moment, so it moves smoothly.
-import { movePlayer, createRoom, type GameState } from '../../../core/state';
+import { movePlayer, createRoom, playerVehicle, predictVehicle, type GameState } from '../../../core/state';
 import { SURVIVORS, type SurvivorId } from '../../../core/survivors';
 import { quantize, type Command } from '../../../core/replay';
 import { content } from '../../../core/content';
@@ -627,7 +627,11 @@ class Session implements Driver {
   /** The player's true (predicted) position; what is drawn is this plus a correction that fades. */
   private truth = { x: 0, y: 0 };
   private off = { x: 0, y: 0 };
+  /** At the wheel: the car's true (predicted) heading and speed; its position is `truth`. */
+  private car = { heading: 0, speed: 0 };
   private zombies = new Map<number, Zombie>();
+  /** Cars driven off somewhere out of sight: not drawn (and not where they were parked). */
+  private gone = new Set<number>();
   private actors = new Map<number, Actor>();
   /** When each of the others last fired (their shoot pose, for a moment). */
   private shotAt = new Map<number, number>();
@@ -683,7 +687,22 @@ class Session implements Driver {
     p.vel = { x: vel.x, y: vel.y };
     p.heading = heading;
     this.pending = this.pending.filter((x) => x.seq > ack);
-    if (p.status === 'alive' || p.status === 'turned') for (const x of this.pending) movePlayer(s, x.input, ROOM_DT);
+    // the cars: what each one in sight is like now; one driven off out of sight is not drawn where it was parked
+    for (const c of v.vehicles) {
+      const k = s.vehicles.find((x) => x.id === c.id);
+      if (!k) continue;
+      k.health = c.health; k.fuel = c.fuel; k.wrecked = c.wrecked;
+      if (c.id === p.vehicleId) { k.pos = { x: c.pos.x, y: c.pos.y }; k.heading = c.heading; k.speed = c.speed; }
+      else if (this.gone.has(c.id)) { k.pos = { x: c.pos.x, y: c.pos.y }; k.heading = c.heading; } // back in sight
+      this.gone.delete(c.id);
+    }
+    for (const id of v.carsGone) { const k = s.vehicles.find((x) => x.id === id); if (k && id !== p.vehicleId) { this.gone.add(id); k.pos = { x: -999, y: -999 }; k.speed = 0; } }
+    const car = playerVehicle(s);
+    if (car && p.status === 'alive') { // at the wheel: the server's car, then the inputs it has not seen yet
+      for (const x of this.pending) predictVehicle(s, car, x.input, ROOM_DT);
+      p.pos = { x: car.pos.x, y: car.pos.y };
+      this.car = { heading: car.heading, speed: car.speed };
+    } else if (p.status === 'alive' || p.status === 'turned') for (const x of this.pending) movePlayer(s, x.input, ROOM_DT);
     this.truth = { x: p.pos.x, y: p.pos.y };
     const ex = was.x - this.truth.x, ey = was.y - this.truth.y;
     if (DEBUG && !this.firstSnap) ((window as unknown as { __mpErr?: number[] }).__mpErr ??= []).push(Math.hypot(ex, ey)); // how far off the prediction was
@@ -728,7 +747,14 @@ class Session implements Driver {
       this.send({ t: 'in', seq, i: [Math.round(input.dx * 64), Math.round(input.dy * 64), b] });
       this.pending.push({ seq, input });
       if (this.pending.length > 90) this.pending.shift();
-      if (!this.over && (p.status === 'alive' || p.status === 'turned') && !(p.hold.taskId || p.work)) {
+      const car = playerVehicle(s);
+      if (!this.over && car && p.status === 'alive') { // driving: the car answers the stick at once
+        car.pos = { x: this.truth.x, y: this.truth.y };
+        car.heading = this.car.heading; car.speed = this.car.speed;
+        predictVehicle(s, car, input, ROOM_DT);
+        this.truth = { x: car.pos.x, y: car.pos.y };
+        this.car = { heading: car.heading, speed: car.speed };
+      } else if (!this.over && (p.status === 'alive' || p.status === 'turned') && !(p.hold.taskId || p.work)) {
         p.pos = { x: this.truth.x, y: this.truth.y };
         movePlayer(s, input, ROOM_DT);
         this.truth = { x: p.pos.x, y: p.pos.y };
@@ -738,6 +764,8 @@ class Session implements Driver {
     this.off.x *= Math.exp(-dt / EASE);
     this.off.y *= Math.exp(-dt / EASE);
     p.pos = { x: this.truth.x + this.off.x, y: this.truth.y + this.off.y };
+    const mine = playerVehicle(s);
+    if (mine) { mine.pos = { x: p.pos.x, y: p.pos.y }; mine.heading = this.car.heading; mine.speed = this.car.speed; p.heading = this.car.heading; }
 
     const now = performance.now() / 1000;
     for (const e of this.events) if (e.type === 'shot' && e.shooter !== undefined && e.shooter !== p.id) this.shotAt.set(e.shooter, now); // they fire: their arms come up, not yours
@@ -785,6 +813,17 @@ class Session implements Driver {
     for (const id of this.zombies.keys()) if (!b.v.zombies.some((z) => z.id === id)) this.zombies.delete(id);
     s.zombies = live;
 
+    // the cars others are driving (or that were left rolling), between the two snapshots
+    const carsBefore = new Map(a.v.vehicles.map((c) => [c.id, c]));
+    for (const c of b.v.vehicles) {
+      if (c.id === this.local.vehicleId || this.gone.has(c.id)) continue;
+      const k = s.vehicles.find((x) => x.id === c.id), o = carsBefore.get(c.id);
+      if (!k) continue;
+      k.pos = { x: o ? lerp(o.pos.x, c.pos.x) : c.pos.x, y: o ? lerp(o.pos.y, c.pos.y) : c.pos.y };
+      k.heading = o ? arc(o.heading, c.heading) : c.heading;
+      k.speed = c.speed;
+    }
+
     // other players
     const seen = new Set<number>();
     const prev = new Map(a.v.others.map((o) => [o.id, o]));
@@ -810,7 +849,8 @@ class Session implements Driver {
         this.actors.set(o.id, act);
         this.skins.set(o.id, skin);
       } else if (this.skins.get(o.id) !== skin) { act.setSkin(skin); this.skins.set(o.id, skin); } // a player who turns looks like one of them
-      act.root.visible = true;
+      p.vehicleId = o.vehicleId;
+      act.root.visible = o.vehicleId === null; // at the wheel: the car is what you see
       const sp = Math.hypot(p.pos.x - (act.root.position.x), p.pos.y - act.root.position.z) / Math.max(dt, 1e-3);
       if (o.status === 'down' || o.status === 'dead') act.play('Death', { once: true, fade: 0.15 });
       else if (o.status === 'turned') act.shamble(Math.min(8, sp));

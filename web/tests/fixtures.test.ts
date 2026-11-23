@@ -63,7 +63,7 @@ describe('replay fixtures', () => {
   });
   it('the fingerprint is a real fingerprint: changing one input changes it', () => {
     const log = JSON.parse(JSON.stringify(f.room.log)) as RoomLog;
-    log.seats[0]![1] = (log.seats[0]![1] ?? 0) + 0.5;
+    log.seats[0]![1] = -(log.seats[0]![1] ?? 0) - 0.5; // the other way (adding to one already at full stick would be clamped away)
     expect(hashState(replayRoom(log))).not.toBe(f.room.hash);
   });
 });

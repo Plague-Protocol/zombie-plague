@@ -5,7 +5,7 @@ import { chapterGroups, generateChain, roomPool } from './tasks';
 import { content } from './content';
 import {
   AMBUSH_CHANCE, AMMO_PICKUPS, ANTIVIRAL_PICKUPS, ANTIVIRAL_PER_SEAT, ROOM_SPARE, ROOM_TASKS, SPAWN_APART, SPAWN_FROM_EXIT, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, INTERIOR_SEARCH, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
-  SURVIVOR_COUNT, SURVIVOR_NAMES, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLE_MIX, VEHICLES,
+  SURVIVOR_COUNT, SURVIVOR_NAMES, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLES_ROOM, VEHICLE_MIX, VEHICLES,
 } from './config';
 import type {
   Crate, House, Loot, MapData, Pickup, PickupKind, Store, Survivor, SurvivorRequest, SurvivorReward, Task, Vec2, Vehicle,
@@ -86,16 +86,18 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
   const routeSeconds = steps / PLAYER_SPEED + holding;
   const timeLimit = Math.ceil(routeSeconds * TIME_SLACK + TIME_PAD);
 
-  // Drivable vehicles at kerbside spots, spread out, with one a short walk from the start.
+  // Drivable vehicles at kerbside spots, spread out, with one a short walk from the start (in a room, from each start).
   const spots = shuffle(rng, map.parking);
-  const nearStart = spots
-    .filter((p) => dist(p, spawn) > 4)
-    .sort((a, b) => dist(a, spawn) - dist(b, spawn))[0];
-  const chosen = nearStart ? [nearStart] : [];
+  const chosen: typeof spots = [];
+  for (const from of spawns ?? [spawn]) {
+    const near = spots.filter((p) => dist(p, from) > 4 && !chosen.includes(p)).sort((a, b) => dist(a, from) - dist(b, from))[0];
+    if (near) chosen.push(near);
+  }
+  const want = spawns ? VEHICLES_ROOM + spawns.length : VEHICLE_COUNT;
   // never parked on top of something you need to pick up or stand at
   const keepClear = tasks.flatMap((t) => [t.pos, ...(t.parts ?? [])]);
   for (const p of spots) {
-    if (chosen.length >= VEHICLE_COUNT) break;
+    if (chosen.length >= want) break;
     if (chosen.every((q) => dist(p, q) > 14) && keepClear.every((q) => dist(p, q) > 6)) chosen.push(p);
   }
   const vehicles: Vehicle[] = chosen.map((p, i) => {
@@ -215,5 +217,5 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
     pickups.push({ id: pickups.length + 1, kind: 'antiviral', pos, taken: false });
   }
 
-  return { seed, map, spawn, safehouse, tasks, timeLimit, routeSeconds, vehicles: opts.room ? [] : vehicles, crates, pickups, stores, houses, survivors, ...(spawns ? { spawns } : {}) };
+  return { seed, map, spawn, safehouse, tasks, timeLimit, routeSeconds, vehicles, crates, pickups, stores, houses, survivors, ...(spawns ? { spawns } : {}) };
 }

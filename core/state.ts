@@ -389,6 +389,19 @@ export function playerVehicle(s: GameState): Vehicle | null {
   return s.player.vehicleId === null ? null : s.vehicles.find((v) => v.id === s.player.vehicleId) ?? null;
 }
 
+/** Who is at the wheel of this vehicle, if anyone (in a room it may be any seat). */
+export function driverOf(s: GameState, v: Vehicle): Player | null {
+  for (const p of s.players) if (p.vehicleId === v.id) return p;
+  return null;
+}
+
+/** Run a rule for another player (`cur` pointed at them for its length). */
+function asPlayer<T>(s: GameState, p: Player, fn: () => T): T {
+  const was = s.cur;
+  s.cur = p;
+  try { return fn(); } finally { s.cur = was; }
+}
+
 /** Current ground speed of the player (or their vehicle), units/s. */
 export function playerSpeed(s: GameState): number {
   return dhypot(s.player.vel.x, s.player.vel.y);
@@ -1067,6 +1080,7 @@ function hurtOther(s: GameState, by: Player, victim: Player, amount: number): vo
 /** A player is out: lying still for a moment before they turn (health), or turning at once (the dose ran out). */
 function fall(s: GameState, pl: Player, reason: LossReason): void {
   if (pl.status !== 'alive') return;
+  if (pl.vehicleId !== null) asPlayer(s, pl, () => exitVehicle(s)); // out of the car, onto the road
   pl.hold = { taskId: null, progress: 0 };
   pl.work = null;
   if (reason === 'time') { turnPlayer(s, pl); return; }
@@ -1137,9 +1151,10 @@ function lunge(s: GameState, pl: Player): void {
 function updateExit(s: GameState): void {
   const pl = s.cur;
   if (pl.status !== 'alive') return;
-  if (dist(s.safehouse, pl.pos) >= SAFEHOUSE_RADIUS) { pl.lockedNotice = null; return; }
-  if (requiredDone(s)) { // every one of your own steps done: a seat, while there is one
+  if (dist(s.safehouse, pl.pos) >= SAFEHOUSE_RADIUS + (pl.vehicleId !== null ? 2 : 0)) { pl.lockedNotice = null; return; }
+  if (requiredDone(s)) { // your share of the steps done: a seat, while there is one
     if (s.seatsLeft <= 0) return;
+    if (pl.vehicleId !== null) exitVehicle(s); // the car stays at the door
     pl.status = 'escaped';
     pl.escapedAt = s.elapsed;
     pl.vel = { x: 0, y: 0 };
@@ -1207,6 +1222,7 @@ function stepRoom(s: GameState, inputs: readonly Input[], dt: number): GameState
   }
 
   s.cur = turnOf();
+  for (const v of s.vehicles) if (!driverOf(s, v)) moveVehicle(s, v, dt, false); // left rolling: it coasts to a stop
   updateThrown(s, dt);
   updateAlarms(s, dt);
   updateFlare(s, dt);
@@ -1220,17 +1236,34 @@ function stepRoom(s: GameState, inputs: readonly Input[], dt: number): GameState
 
 /** What a living player does in one step of a room (the single-player step, for one body, without vehicles or company). */
 function playerTurn(s: GameState, pl: Player, input: Input, dt: number): void {
-  if (input.light) { pl.light = !pl.light; s.events.push({ type: 'light', on: pl.light }); }
+  if (input.light && pl.vehicleId === null) { pl.light = !pl.light; s.events.push({ type: 'light', on: pl.light }); }
   if (input.crouch) toggleCrouch(s);
   if (input.action) interact(s);
   pl.slowT = Math.max(0, pl.slowT - dt);
-  if (pl.hide === null) { // hidden: you keep still and keep quiet
+  if (pl.hide === null && pl.vehicleId === null) { // hidden: you keep still and keep quiet; at the wheel, you drive
     updateWeapons(s, input, dt);
     if (input.throw) throwBottle(s);
   }
-  if (pl.roof === null && pl.hide === null) { takePickups(s); takeParts(s); }
+  if (pl.roof === null && pl.hide === null && pl.vehicleId === null) { takePickups(s); takeParts(s); }
   guardCurrent(s);
-  movePlayer(s, input, dt);
+  const driving = playerVehicle(s);
+  if (driving) { // as alone: the car goes where the stick points, burns fuel, and is heard
+    drive(driving, input, dt, 1 - LATCH_DRAG * latchedOn(s, driving.id));
+    burnFuel(s, driving, dt);
+    s.engineT -= dt;
+    s.swarmT -= dt;
+    if (s.swarmT <= 0) { s.swarmT = SWARM_EVERY; releaseSwarm(s, driving); }
+    if (s.engineT <= 0) { s.engineT = ENGINE_NOISE_EVERY; alertWithin(s, driving.kind === 'bike' ? ENGINE_NOISE.bike : ENGINE_NOISE.car); }
+    moveVehicle(s, driving, dt, true);
+    const still = playerVehicle(s); // a wreck may have thrown them out
+    if (still) {
+      pl.pos.x = still.pos.x;
+      pl.pos.y = still.pos.y;
+      pl.vel = { x: dcos(still.heading) * still.speed, y: dsin(still.heading) * still.speed };
+      pl.heading = still.heading;
+    }
+  } else movePlayer(s, input, dt);
+  pumpFuel(s, dt);
   if (pl.roof === null) enterStores(s);
   updateWork(s, dt);
   updateSurvivors(s);
@@ -1365,7 +1398,7 @@ export function interactionFor(s: GameState): Interaction | null {
   if (ladder && s.player.slowT <= 0 && !s.escort) return { kind: 'climb', ladder: ladder.id, up: true }; // not with one on your leg, nor with people who cannot follow
   let best: Vehicle | null = null, bestD = 1.6;
   for (const c of s.vehicles) {
-    if (c.wrecked) continue;
+    if (c.wrecked || driverOf(s, c)) continue; // a room: someone else is at the wheel
     const d = vehicleReach(c, p);
     if (d < bestD) { bestD = d; best = c; }
   }
@@ -2162,14 +2195,11 @@ function drive(v: Vehicle, input: Input, dt: number, load = 1): void {
   }
 }
 
-function moveVehicle(s: GameState, v: Vehicle, dt: number, driven: boolean): void {
-  if (v.wrecked) { v.speed = 0; return; }
-  if (!driven) v.speed = approach(v.speed, 0, 6 * dt);
-  if (Math.abs(v.speed) < 1e-3) return;
-  const spec = VEHICLES[v.kind];
+/** Roll the vehicle on and keep it out of the city and the other vehicles. Returns how hard it hit something (its
+ * speed), or null if it hit nothing. The bounce is left to the caller. */
+function slide(s: GameState, v: Vehicle, dt: number): number | null {
   v.pos.x += dcos(v.heading) * v.speed * dt;
   v.pos.y += dsin(v.heading) * v.speed * dt;
-
   // collide each circle with the city and with other vehicles; apply the average push
   let px = 0, py = 0, hits = 0;
   for (const c of vehicleCircles(v)) {
@@ -2178,10 +2208,32 @@ function moveVehicle(s: GameState, v: Vehicle, dt: number, driven: boolean): voi
     for (const o of s.vehicles) if (o !== v) hit = pushOutOfVehicle(o, p, c.r) || hit;
     if (hit) { px += p.x - c.x; py += p.y - c.y; hits++; }
   }
-  if (hits > 0) {
-    v.pos.x += px / hits;
-    v.pos.y += py / hits;
-    const force = Math.abs(v.speed);
+  if (hits === 0) return null;
+  v.pos.x += px / hits;
+  v.pos.y += py / hits;
+  return Math.abs(v.speed);
+}
+
+/**
+ * A room client's guess at its own car between snapshots: the same steering and the same walls as the server, but
+ * nothing it cannot know (no damage, no one run over). The server's word replaces it at every snapshot.
+ */
+export function predictVehicle(s: GameState, v: Vehicle, input: Input, dt: number): void {
+  if (v.wrecked) return;
+  drive(v, input, dt, 1 - LATCH_DRAG * latchedOn(s, v.id));
+  if (Math.abs(v.speed) < 1e-3) return;
+  const force = slide(s, v, dt);
+  if (force !== null) v.speed *= force > 5 ? -0.2 : 0.6;
+}
+
+function moveVehicle(s: GameState, v: Vehicle, dt: number, driven: boolean): void {
+  if (v.wrecked) { v.speed = 0; return; }
+  if (!driven) v.speed = approach(v.speed, 0, 6 * dt);
+  if (Math.abs(v.speed) < 1e-3) return;
+  v.moved = true;
+  const spec = VEHICLES[v.kind];
+  const force = slide(s, v, dt);
+  if (force !== null) {
     if (force > 5) {
       s.events.push({ type: 'vehicle-crash', id: v.id, force });
       for (const z of s.zombies) if (z.latch === v.id) shakeOff(s, z, v, 0.6);
@@ -2264,7 +2316,8 @@ function latchOn(s: GameState, z: Zombie, v: Vehicle): boolean {
 /** Hanging on: rides along, claws at the car, reaches in once it is beaten enough; lets go at speed. */
 function updateLatched(s: GameState, z: Zombie, dt: number): void {
   const v = s.vehicles.find((x) => x.id === z.latch);
-  if (!v || v.wrecked || s.player.vehicleId !== v.id) { // the car is dead or you got out: after you
+  const driver = v ? driverOf(s, v) : null;
+  if (!v || v.wrecked || !driver) { // the car is dead or you got out: after you
     z.latch = null;
     z.action = 'chase';
     z.alertT = Math.max(z.alertT, ALERT_SECONDS);
@@ -2282,6 +2335,11 @@ function updateLatched(s: GameState, z: Zombie, dt: number): void {
   z.cooldown = Math.max(0, z.cooldown - dt);
   if (z.cooldown > 0) return;
   z.cooldown = LATCH_EVERY;
+  asPlayer(s, driver, () => clawAt(s, z, v));
+}
+
+/** One clawing at the car, for whoever is driving it (`cur`): the body takes it, then, once the glass is gone, they do. */
+function clawAt(s: GameState, z: Zombie, v: Vehicle): void {
   const spec = VEHICLES[v.kind];
   const wasWhole = v.health > spec.health * BREACH_AT;
   s.events.push({ type: 'vehicle-crash', id: v.id, force: 2 });
@@ -2310,7 +2368,8 @@ function damageVehicle(s: GameState, v: Vehicle, amount: number): void {
   v.wrecked = true;
   v.speed = 0;
   s.events.push({ type: 'vehicle-wrecked', id: v.id });
-  if (s.player.vehicleId === v.id) exitVehicle(s);
+  const d = driverOf(s, v);
+  if (d) asPlayer(s, d, () => exitVehicle(s));
 }
 
 // ---------------------------------------------------------------- tasks and the safehouse
@@ -2555,7 +2614,15 @@ function updateZombies(s: GameState, dt: number): void {
 
   for (const z of s.zombies) {
     if (z.action === 'dead') { z.actionT -= dt; continue; }
-    if (z.latch != null) { updateLatched(s, z, dt); if (s.phase !== 'playing') return; continue; }
+    if (z.latch != null) { // hanging on to a car: what it does is its driver's business
+      tag();
+      const lv = s.vehicles.find((x) => x.id === z.latch), ld = lv ? driverOf(s, lv) : null;
+      if (ld) tagSeat = ld.id;
+      updateLatched(s, z, dt);
+      tag();
+      if (s.phase !== 'playing') return;
+      continue;
+    }
     if (room) { // each one goes for the nearest living player it can reach; their rules are those of whoever it chose
       // ...unless one of the turned is close and on someone: then it goes for them too, knowing just where they are
       let lead: (typeof leaders)[number] | null = null, ld = HORDE_RADIUS;

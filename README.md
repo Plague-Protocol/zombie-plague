@@ -130,7 +130,7 @@ gets it all, added to their kit without changing the weapon in hand), and they l
 the infected, with a bite (nowhere near the exit, nor at anyone working a step: a step's circle is as safe as
 it is alone, from the infected and the turned). The infected ignore the turned and follow them: any living
 player a turned one closes in on is hunted by the infected round them too. The living can put the turned
-down. Nobody sees anyone else on the map. Rooms have no vehicles and nobody to escort.
+down. Nobody sees anyone else on the map. Rooms have cars and bikes (ten, and one more for every player, one parked near each start): one driver each, nobody else gets in while they are at the wheel, and you are told where one is only while you can see it. Nobody to escort.
 
 What a browser is told is what its player could see (`core/view.ts`): other players and infected out
 of sight, other players' health and clocks, and noises too far to hear never leave the server. Snapshots go

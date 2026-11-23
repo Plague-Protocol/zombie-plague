@@ -21,8 +21,19 @@ export const HIDDEN_SEEN = 2.5;
 /** A stalker you are not lighting is only sent this close. */
 export const STALKER_NEAR = 10;
 
-/** The viewer's own player: everything but the path field. */
-export type YouView = Omit<Player, 'flow' | 'flowCell' | 'escort'>;
+/** The viewer's own player: everything but the path field and the engine's own timers. */
+export type YouView = Omit<Player, 'flow' | 'flowCell' | 'escort' | 'engineT' | 'swarmT'>;
+
+/** A vehicle the viewer can see (or is driving). */
+export interface VehicleView {
+  id: number;
+  pos: Vec2;
+  heading: number;
+  speed: number;
+  health: number;
+  fuel: number;
+  wrecked: boolean;
+}
 
 export interface OtherView {
   id: number;
@@ -59,6 +70,10 @@ export interface PlayerView {
   you: YouView;
   others: OtherView[];
   zombies: ZombieView[];
+  /** The vehicles in sight, and the ones driven off from where they were parked that are not: where those are is not
+   * yours to know (a client still has them where the level put them, and stops drawing them). */
+  vehicles: VehicleView[];
+  carsGone: number[];
   corpses: GameState['corpses'];
   /** The district's changing parts, by index into what the level gives: a client that has built the level from
    * the seed knows where everything is, and is told only what has been taken, opened, done. */
@@ -160,8 +175,8 @@ function eventPos(s: GameState, e: GameEvent): Vec2 | null {
 /** What this seat may know right now. The only thing a server may send them. */
 export function viewFor(s: GameState, seat: number): PlayerView {
   const me = s.players[seat]!;
-  const { flow: _flow, flowCell: _cell, escort: _escort, ...you } = me;
-  void _flow; void _cell; void _escort;
+  const { flow: _flow, flowCell: _cell, escort: _escort, engineT: _e, swarmT: _w, ...you } = me;
+  void _flow; void _cell; void _escort; void _e; void _w;
   const turned = me.status === 'turned';
 
   const others: OtherView[] = [];
@@ -187,6 +202,12 @@ export function viewFor(s: GameState, seat: number): PlayerView {
     zombies.push({ id: z.id, kind: z.kind, pos: z.pos, heading: z.heading, speed: z.speed, action: z.action, actionT: z.actionT, staggerT: z.staggerT, frozen: !!z.frozen, roof: z.roof ?? null });
   }
 
+  const vehicles: VehicleView[] = [], carsGone: number[] = [];
+  for (const v of s.vehicles) {
+    if (v.id === me.vehicleId || sees(s, me, v.pos)) vehicles.push({ id: v.id, pos: v.pos, heading: v.heading, speed: v.speed, health: v.health, fuel: v.fuel, wrecked: v.wrecked });
+    else if (v.moved) carsGone.push(v.id);
+  }
+
   const events: GameEvent[] = [];
   for (const e of s.events) {
     const owner = eventSeat(e);
@@ -204,6 +225,8 @@ export function viewFor(s: GameState, seat: number): PlayerView {
     you,
     others,
     zombies,
+    vehicles,
+    carsGone,
     corpses: s.corpses.filter((c) => sees(s, me, c.pos)),
     taken: s.pickups.map((p) => p.taken),
     drops: s.drops.filter((d) => !d.taken).map((d) => ({ id: d.id, pos: d.pos })),

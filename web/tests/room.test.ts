@@ -1,12 +1,12 @@
 // Rooms: several players in one district at once.
 import { describe, expect, it } from 'vitest';
-import { createRoom, currentTask, eventSeat, interactionFor, isRevealed, roomCity, roomProgress, step, type GameState } from '../../core/state';
+import { createRoom, currentTask, eventSeat, interactionFor, isRevealed, predictVehicle, roomCity, roomProgress, step, type GameState } from '../../core/state';
 import { command, hashState, quantize, replayRoom, RoomRecorder } from '../../core/replay';
 import type { Loadout } from '../../core/loadout';
 import { sightClear, viewFor } from '../../core/view';
 import { lineClear } from '../../core/collision';
 import { createRng, next } from '../../core/rng';
-import { ATTACK_DAMAGE, EXIT_SEATS_SHARE, HORDE_PREY, PLAYER_HEALTH, ROOM_SECONDS, ROOM_SPARE, ROOM_TASKS, SAFE_RADIUS, TURNED_HEALTH } from '../../core/config';
+import { ATTACK_DAMAGE, EXIT_SEATS_SHARE, HORDE_PREY, PLAYER_HEALTH, ROOM_SECONDS, ROOM_SPARE, ROOM_TASKS, SAFE_RADIUS, VEHICLES, VEHICLES_ROOM, TURNED_HEALTH } from '../../core/config';
 import type { Input, Vec2 } from '../../core/types';
 import { addZ, DT, IDLE, openSpot, put, quietRoom, runRoom } from './helpers-room';
 
@@ -28,13 +28,13 @@ function duel(gap = 5, seed = 5): GameState {
 }
 
 describe('a room', () => {
-  it('has a seat each, spread out and far from the exit, a shared chain, and no vehicles or escorts', () => {
+  it('has a seat each, spread out and far from the exit, a shared pool of steps, cars, and no escorts', () => {
     for (const n of [2, 4, 8]) {
       const g = createRoom(7, n);
       expect(g.mode).toBe('room');
       expect(g.players.length).toBe(n);
       expect(g.seatsLeft).toBe(Math.max(1, Math.ceil(n * EXIT_SEATS_SHARE)));
-      expect(g.vehicles.length).toBe(0);
+      expect(g.vehicles.length).toBeGreaterThan(0);
       expect(g.tasks.some((t) => t.effect === 'escort-start' || t.needsEscort)).toBe(false);
       for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) expect(Math.hypot(g.players[i]!.pos.x - g.players[j]!.pos.x, g.players[i]!.pos.y - g.players[j]!.pos.y)).toBeGreaterThan(8);
       for (const p of g.players) expect(Math.hypot(p.pos.x - g.safehouse.x, p.pos.y - g.safehouse.y)).toBeGreaterThan(40);
@@ -389,6 +389,101 @@ describe('the steps: one pool, open to everyone', () => {
   it('has more doses lying about the more players there are', () => {
     const doses = (n: number) => createRoom(5, n).pickups.filter((p) => p.kind === 'antiviral').length;
     expect(doses(8)).toBeGreaterThan(doses(2));
+  });
+});
+
+describe('cars in a room', () => {
+  /** Seat `seat` standing at the driver's door of the first car that is out in the open, with a full tank. */
+  function atCar(g: GameState, seat: number) {
+    const car = g.vehicles.find((v) => { const o = openSpot(g, v.pos, 3); return Math.hypot(o.x - v.pos.x, o.y - v.pos.y) < 6; }) ?? g.vehicles[0]!;
+    car.fuel = 1;
+    const w = VEHICLES[car.kind].width / 2 + 0.7;
+    put(g, seat, { x: car.pos.x - Math.sin(car.heading) * w, y: car.pos.y + Math.cos(car.heading) * w });
+    return car;
+  }
+
+  it('there are more the more players, and one a short walk from each start', () => {
+    for (const n of [2, 8]) {
+      const g = createRoom(5, n);
+      expect(g.vehicles.length).toBeGreaterThan(VEHICLES_ROOM - 2);
+      expect(g.vehicles.length).toBeLessThanOrEqual(VEHICLES_ROOM + n);
+      for (const p of g.players) expect(Math.min(...g.vehicles.map((v) => Math.hypot(v.pos.x - p.pos.x, v.pos.y - p.pos.y)))).toBeLessThan(50); // the nearest kerb with room
+    }
+  });
+
+  it('a player gets in and drives; nobody else can get in while they are at the wheel', () => {
+    const g = quietRoom(2);
+    const car = atCar(g, 0);
+    g.cur = g.players[0]!;
+    expect(interactionFor(g)).toMatchObject({ kind: 'enter', vehicleId: car.id });
+    step(g, [{ ...IDLE, action: true }, IDLE], DT);
+    expect(g.players[0]!.vehicleId).toBe(car.id);
+    const from = { ...car.pos };
+    const ahead = { dx: Math.cos(car.heading), dy: Math.sin(car.heading) };
+    for (let k = 0; k < 30; k++) step(g, [ahead, IDLE], DT);
+    expect(Math.hypot(car.pos.x - from.x, car.pos.y - from.y)).toBeGreaterThan(1);
+    expect(g.players[0]!.pos).toEqual(car.pos); // they go where it goes
+    expect(car.fuel).toBeLessThan(1);
+    // the other one, at its door
+    for (let k = 0; k < 30; k++) step(g, [IDLE, IDLE], DT); // it rolls to a stop
+    const w = VEHICLES[car.kind].width / 2 + 0.7;
+    put(g, 1, { x: car.pos.x - Math.sin(car.heading) * w, y: car.pos.y + Math.cos(car.heading) * w });
+    g.cur = g.players[1]!;
+    expect(interactionFor(g)?.kind === 'enter' && (interactionFor(g) as { vehicleId: number }).vehicleId === car.id).toBe(false);
+  });
+
+  it('turning at the wheel puts you out on the road, and the exit takes you out of the car', () => {
+    const g = quietRoom(2);
+    const car = atCar(g, 0);
+    step(g, [{ ...IDLE, action: true }, IDLE], DT);
+    g.players[0]!.remaining = 0.001;
+    step(g, [IDLE, IDLE], DT);
+    expect(g.players[0]!.status).toBe('turned');
+    expect(g.players[0]!.vehicleId).toBe(null);
+
+    const h = quietRoom(2);
+    const c2 = atCar(h, 1);
+    step(h, [IDLE, { ...IDLE, action: true }], DT);
+    give(h, 1, ROOM_TASKS);
+    h.safehouseKnown = true;
+    c2.pos = { x: h.safehouse.x + 1, y: h.safehouse.y };
+    h.players[1]!.pos = { ...c2.pos };
+    step(h, [IDLE, IDLE], DT);
+    expect(h.players[1]!.status).toBe('escaped');
+    expect(h.players[1]!.vehicleId).toBe(null);
+    void car;
+  });
+
+  it('a client\'s guess at its own car lands where the server puts it (no jitter while driving)', () => {
+    const g = quietRoom(2);
+    const car = atCar(g, 0);
+    step(g, [{ ...IDLE, action: true }, IDLE], DT);
+    const shadow = quietRoom(2); // the client's own copy of the district, its car the one it predicts
+    const guess = shadow.vehicles.find((v) => v.id === car.id)!;
+    Object.assign(guess, { pos: { ...car.pos }, heading: car.heading, speed: car.speed, fuel: car.fuel });
+    const turns = [0, 0.4, 0.8, 0.4, 0, -0.4];
+    for (let k = 0; k < 60; k++) {
+      const a = car.heading + turns[Math.floor(k / 10)]!;
+      const input = { dx: Math.cos(a), dy: Math.sin(a) };
+      step(g, [input, IDLE], DT);
+      predictVehicle(shadow, guess, input, DT);
+    }
+    expect(Math.hypot(guess.pos.x - car.pos.x, guess.pos.y - car.pos.y)).toBeLessThan(0.05);
+    expect(Math.abs(guess.heading - car.heading)).toBeLessThan(0.01);
+  });
+
+  it('tells a player where a car is only while they can see it: one driven off out of sight is just gone', () => {
+    const g = quietRoom(2);
+    const car = atCar(g, 0);
+    step(g, [{ ...IDLE, action: true }, IDLE], DT);
+    const ahead = { dx: Math.cos(car.heading), dy: Math.sin(car.heading) };
+    for (let k = 0; k < 10; k++) step(g, [ahead, IDLE], DT);
+    put(g, 1, openSpot(g, { x: car.pos.x > 120 ? 20 : 220, y: car.pos.y > 120 ? 20 : 220 }));
+    const near = viewFor(g, 0), far = viewFor(g, 1);
+    expect(near.vehicles.some((v) => v.id === car.id)).toBe(true);
+    expect(far.vehicles.some((v) => v.id === car.id)).toBe(false);
+    expect(far.carsGone).toContain(car.id);
+    expect(far.others.some((o) => o.id === 0)).toBe(false);
   });
 });
 

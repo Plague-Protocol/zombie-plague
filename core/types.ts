@@ -249,6 +249,8 @@ export interface Vehicle {
   wrecked: boolean;
   tone: number; // paint, visual only
   fuel: number; // 0..1; an empty tank coasts to a stop
+  /** It has been driven from where it was parked (a room tells a player where it is only while they can see it). */
+  moved?: boolean;
 }
 
 export type GearKind = 'vest' | 'helmet';
