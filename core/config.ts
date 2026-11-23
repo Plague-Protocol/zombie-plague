@@ -48,7 +48,7 @@ export const VEHICLES = {
   // quick and nimble, but nothing between you and them: they reach the rider, not the bike
   bike: { length: 3.2, width: 1.1, maxSpeed: 18, accel: 13, reverse: 3, steer: 3.0, health: 60 },
 } as const;
-export const VEHICLE_COUNT = 10; // a few, not a car park: about half of them bikes
+export const VEHICLE_COUNT = 12; // a few, not a car park: about half of them bikes
 /** Share of each kind among the parked vehicles (in order; the rest are vans). */
 export const VEHICLE_MIX = { bike: 0.45, sedan: 0.25, pickup: 0.18 } as const;
 // An engine is loud: everything within earshot comes, again and again while it runs.
@@ -267,7 +267,8 @@ export const FALLEN_QUIET = 0.6; // and the quiet is shorter
 // ---- rooms: several players in one district, all at once
 export const ROOM_PLAYERS_MAX = 8;
 export const ROOM_SECONDS = 600; // the round ends here whatever has happened
-export const ROOM_TASKS = 4; // steps each player must do themselves before the exit lets them in
+export const ROOM_TASKS = 4; // steps a player must have done (from the room's shared pool) before the exit lets them in
+export const ROOM_SPARE = 3; // steps in the pool beyond everyone's share: take extra to shut others out, and lose the time
 export const EXIT_SEATS_SHARE = 0.5; // the exit has room for this share of the players who started (at least one)
 export const SAFE_RADIUS = 12; // nobody can hurt anybody this close to the exit
 export const PVP_KILL_REWARD = 25;

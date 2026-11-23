@@ -151,8 +151,8 @@ export interface Task {
   /** Infected to clear (a clear step), and the ones that came once you got close. */
   clear?: number;
   targets?: number[];
-  /** Rooms: the seat whose step this is (only they see it and can do it). Absent: anyone's (solo, and optional ones). */
-  owner?: number;
+  /** Rooms: the seat that finished this step (the pool is open to everyone; whoever gets it done first has it). */
+  doneBy?: number;
 }
 
 /** Someone you are taking somewhere: they follow you (and ride along in a car). */

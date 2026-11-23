@@ -68,6 +68,11 @@ for (const [name, make] of stores) {
       expect(today.rounds).toBeGreaterThanOrEqual(2); // a shared database may hold others' rounds
       expect(today.escapes).toBeGreaterThanOrEqual(1);
       expect(await s.roomsSince(new Date(Date.now() + 3600e3))).toEqual({ rounds: 0, escapes: 0 });
+      const all = await s.allTime(500);
+      expect(all.players).toBeGreaterThanOrEqual(2); // a and b (c's only run failed its replay)
+      expect(all.escapes).toBeGreaterThanOrEqual(1);
+      const mine = all.top.filter((r) => r.address === a.address || r.address === b.address || r.address === c.address);
+      expect(mine.map((r) => r.score)).toEqual([900, 400]); // one per player, their best ever; never a failed replay
     });
 
     it('counts for the admin page, and the accounts whose replays fail', async () => {

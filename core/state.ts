@@ -4,7 +4,7 @@ import {
   ATTACK_COOLDOWN, ATTACK_DAMAGE, ATTACK_RANGE, ATTACK_REACH, ATTACK_WINDUP, CALM_FACTOR, CORPSE_SECONDS,
   HIT_INVULNERABLE, KNOCKBACK, MEDKIT_HEAL, PLAYER_ACCEL, PLAYER_HEALTH, PLAYER_RADIUS, PLAYER_SPEED, RISE_SECONDS,
   RUN_OVER_SPEED, RUNNER_SIGHT, RUNNER_SPEED, SAFEHOUSE_RADIUS, SPAWNS_BY_TIER, SPEED_BOOST, TASK_HOLD_SECONDS,
-  TASK_RADIUS, TIER_THRESHOLDS, USE_RADIUS, VEHICLES, WALKER_SIGHT_BY_TIER, WALKER_SPEED_BY_TIER, WAVE_SPAWN_MAX_DIST,
+  ROOM_TASKS, TASK_RADIUS, TIER_THRESHOLDS, USE_RADIUS, VEHICLES, WALKER_SIGHT_BY_TIER, WALKER_SPEED_BY_TIER, WAVE_SPAWN_MAX_DIST,
   ZOMBIE_ACTIVE_RADIUS, ZOMBIE_CAP, ZOMBIE_RADIUS, ZOMBIE_SPAWN_MIN_DIST, ZOMBIES_PER_BLOCK,
   AIM_CONE, ALERT_SECONDS, BITE_SECONDS, BODY, BODY_SLOW, CLIMB_SECONDS, CORPSES_KEPT, CROUCH_SIGHT, CROUCH_SPEED, HIDE_FOUND, HIDE_LEAVE, HIDE_REACH, HIDE_SEEN,
   LADDER_REACH, ROOF_RANGE, STALKER_FINDS, ZOMBIE_CLIMB_SECONDS, SEATS, SWARM, SWARM_EVERY, SWARM_SPEED, BREACH_AT, CHASE, CHASE_ALERT, GUARD_CHANCE, GUARDS, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
@@ -340,24 +340,39 @@ export function partsOf(t: Task): { got: number; of: number } | null {
 
 /** Objectives show up one at a time: done ones, optional ones, and the one you are on now. */
 export function isRevealed(s: GameState, t: Task): boolean {
+  if (s.mode === 'room') return t.done || !t.required || depsMet(s, t); // the pool: every step open to do is out there
   return t.done || !t.required || t === currentTask(s);
 }
 
-/** Is this step one `cur` can do: anyone's (solo, optional ones), or, in a room, their own? */
-export const mine = (s: GameState, t: Task): boolean => t.owner === undefined || t.owner === s.cur.id;
-
-/** The required steps `cur` has to do (in a room, their own). */
-export function myTasks(s: GameState): Task[] {
-  return s.tasks.filter((t) => t.required && mine(s, t));
+/** Rooms: the steps `cur` has done from the shared pool, how many they need, and how many nobody has done yet. */
+export function roomProgress(s: GameState): { done: number; need: number; left: number } {
+  let done = 0, left = 0;
+  for (const t of s.tasks) {
+    if (!t.required) continue;
+    if (!t.done) left++;
+    else if (t.doneBy === s.cur.id) done++;
+  }
+  return { done, need: ROOM_TASKS, left };
 }
 
+/** Solo: every required step done. A room: `cur` has done their share of the pool. */
 export function requiredDone(s: GameState): boolean {
-  return s.tasks.every((t) => !t.required || t.done || !mine(s, t));
+  if (s.mode === 'room') return roomProgress(s).done >= ROOM_TASKS;
+  return s.tasks.every((t) => !t.required || t.done);
 }
 
-/** First incomplete required task whose dependencies are met (chain order). */
+/** Solo: the first incomplete required step whose dependencies are met (chain order). A room: the nearest one open to do. */
 export function currentTask(s: GameState): Task | null {
-  return s.tasks.find((t) => t.required && !t.done && mine(s, t) && depsMet(s, t)) ?? null;
+  if (s.mode === 'room') {
+    let best: Task | null = null, bd = Infinity;
+    for (const t of s.tasks) {
+      if (!t.required || t.done || !depsMet(s, t)) continue;
+      const d = dist(t.pos, s.player.pos);
+      if (d < bd) { bd = d; best = t; }
+    }
+    return best;
+  }
+  return s.tasks.find((t) => t.required && !t.done && depsMet(s, t)) ?? null;
 }
 
 function depsMet(s: GameState, t: Task): boolean {
@@ -2320,6 +2335,7 @@ function updateTasks(s: GameState, dt: number): void {
 /** A step is done: the grace moment, its effect, its cost and reward. */
 function completeTask(s: GameState, t: Task): void {
   t.done = true;
+  if (s.mode === 'room') t.doneBy = s.cur.id; // theirs now: it counts toward their way out, and nobody else's
   s.safeT = SAFE_AFTER;
   if (t.required) s.cur.helped++;
   s.events.push({ type: 'task-done', id: t.id });

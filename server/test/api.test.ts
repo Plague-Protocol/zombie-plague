@@ -257,6 +257,18 @@ describe('the leaderboard', () => {
     ]);
     expect((await s.app.inject({ method: 'GET', url: '/rooms/today' })).json()).toEqual({ rounds: 2, escapes: 2 });
   });
+
+  it('all time, for the home page: players, room escapes, and the best score of each of the top players', async () => {
+    const s = await makeServer();
+    expect((await s.app.inject({ method: 'GET', url: '/stats' })).json()).toEqual({ players: 0, escapes: 0, top: [] });
+    const a = await s.store.upsertAccount('0x' + 'a'.repeat(40)), b = await s.store.upsertAccount('0x' + 'b'.repeat(40));
+    await s.store.setName(a.id, 'Ada');
+    await s.store.addRoundSeats([{ accountId: b.id, code: 'ABCDE', status: 'escaped', kills: 2, escaped: true }]);
+    await rec(s, a.id, 7, 1200); await rec(s, a.id, 8, 800); await rec(s, b.id, 7, 600); await rec(s, b.id, 8, 5000, { replayOk: false });
+    expect((await s.app.inject({ method: 'GET', url: '/stats' })).json()).toEqual({
+      players: 2, escapes: 1, top: [{ name: 'Ada', score: 1200 }, { name: '0xbbbb…bbbb', score: 600 }],
+    });
+  });
 });
 
 describe('the score', () => {

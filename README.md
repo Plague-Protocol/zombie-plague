@@ -117,12 +117,13 @@ Caveat: exact across the same JavaScript engine only, until the trig calls are m
 
 Free rooms of 2 to 8 players in one district at once, run by a server. Tap **Multiplayer** on the title
 screen, make a room (a five-letter code) or join one, and the host starts it. Each room is in a city rolled from
-its seed (downtown, the docks or the edge for now; every city the story adds joins the draw). Every player has
-**their own four steps** (single steps and pairs, never one you collect in pieces), on a route picked to be about
-as long as everyone else's; nobody else sees or can do them. The exit opens to a player once all four of theirs
-are done, and it has seats for half of those who started: the first ones through take them. The round lasts ten
-minutes; the infection clock is set by the longest route, and there are more doses lying about the more players
-there are. The living cannot hurt each other. The dose of each player ticks down separately, and a player who runs
+its seed (downtown, the docks or the edge for now; every city the story adds joins the draw). The steps are **one
+pool, open to everyone**: four for each player and three spare, spread over the district (single steps and pairs,
+never one you collect in pieces, no escorts, no fights at a spot). A step is done once, by whoever finishes it
+first, and it counts for them; the exit opens to a player once they have done **four**. Taking more than your four
+shuts others out, and costs you the time. The exit has seats for half of those who started: the first ones through
+take them. The round lasts ten minutes; the infection clock is set by the longest walk any player would have doing
+the four nearest them, and there are more doses lying about the more players there are. The living cannot hurt each other. The dose of each player ticks down separately, and a player who runs
 out, or is bitten down, **turns**:
 what they carried is left as an **arsenal** where they fell (the first to stand at it and press TAKE ARSENAL
 gets it all, added to their kit without changing the weapon in hand), and they look, move and hunt as one of
@@ -195,8 +196,10 @@ Guests get three minutes of play, then sign in to go on. Multiplayer is for sign
 tonight's city (the same for everyone on a day). A run's score comes from the server's own replay of it: districts
 cleared, getting out and the time left, kills (capped), people helped, optional steps, accuracy, a clean night, less
 bites, doses and people you let turn. Boards: tonight, the week, streaks, rooms; each shows your rank, a title, and
-how far it is to the next place. Rooms: Quick play into an open public room, or a private room joined by code or an
-invite link (`?join=CODE`). Recorded sounds and their licences: `web/public/sfx/CREDITS.md`.
+how far it is to the next place. Rooms: the lobby lists the public rooms waiting at each stake, each with a Join;
+Create is only offered at a stake with none waiting. Or a private room joined by code or an invite link
+(`?join=CODE`). The home page shows all-time numbers (players, the best score ever, room escapes) and the day's top
+five once anyone has played today's city (the all-time five until then). Recorded sounds and their licences: `web/public/sfx/CREDITS.md`.
 
 **Sign-in:** an injected wallet (MiniPay, MetaMask), or Google / passkey (thirdweb, set `VITE_THIRDWEB_CLIENT_ID`;
 that wallet signs in but cannot stake). Copy `.env.example` (page) and `server/.env.example` (server).
@@ -253,7 +256,7 @@ that wallet signs in but cannot stake). Copy `.env.example` (page) and `server/.
 - **Objectives are safe:** while you work an objective or talk to someone (and for a second
   after), the zombies that were after you hold back and wait. Anything you take (keys, keycard,
   map, supplies) lies where you can see it and is gone once taken.
-- **Drive:** about ten vehicles a district, half of them motorbikes. Push the stick where you want
+- **Drive:** about a dozen vehicles a district, half of them motorbikes. Push the stick where you want
   to go and it steers there; push back against the nose to reverse. Run zombies down. A vehicle is
   not a safe room: the engine calls every zombie within earshot, again and again while it runs.
   Get slow near them and they **grab hold** (up to four), ride along clawing at it and drag its top

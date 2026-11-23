@@ -8,7 +8,7 @@ import { createRoom, step, type GameState } from '../../core/state.ts';
 import { ROOM_PLAYERS_MAX } from '../../core/config.ts';
 import { viewFor } from '../../core/view.ts';
 import { makeEncoder, type WireSnap } from '../../core/codec.ts';
-import { RECONNECT_SECONDS, ROOM_DT, SNAPSHOT_EVERY, type SeatInfo, type ServerMsg } from '../../core/protocol.ts';
+import { RECONNECT_SECONDS, ROOM_DT, SNAPSHOT_EVERY, type OpenRoom, type SeatInfo, type ServerMsg } from '../../core/protocol.ts';
 import type { Input } from '../../core/types.ts';
 
 export const MAX_ROOMS = 40;
@@ -83,7 +83,7 @@ export class Room {
   private tick = 0;
   private startedAt = 0;
   private timer: unknown = null;
-  private countdownEnds: number | null = null;
+  countdownEnds: number | null = null;
   private cmds: Array<[number, Command]> = [];
 
   /** A staked room is bound to an on-chain room: the chain decides when it starts, and the winners are paid from it. */
@@ -335,18 +335,24 @@ export class Hub {
 
   /** What the Play page shows on the public-room button: players waiting in a public room that still has a seat, and
    * players in a round anywhere (public, private or staked). Counts only, no codes: a public room is reached through quick(). */
-  live(): { waiting: number; playing: number; byStake: Record<string, number> } {
+  live(): { waiting: number; playing: number; byStake: Record<string, number>; open: OpenRoom[] } {
     let waiting = 0, playing = 0;
     const byStake: Record<string, number> = {}; // players waiting in a public room, by its ZP stake ('free' for none)
+    const open: OpenRoom[] = []; // the public rooms still taking players, so nobody has to guess whether they join or start one
     for (const r of this.rooms.values()) {
       if (r.state === 'playing') playing += r.live;
       else if (r.isPublic && !r.staked && r.state === 'lobby' && r.seats.length < ROOM_PLAYERS_MAX) {
         waiting += r.live;
         const k = r.zp ? String(r.zp) : 'free';
         byStake[k] = (byStake[k] ?? 0) + r.live;
+        if (r.live > 0) {
+          const startsIn = r.countdownEnds === null ? null : Math.max(0, Math.ceil((r.countdownEnds - this.now()) / 1000));
+          open.push({ code: r.code, zp: r.zp, players: r.seats.length, host: r.seats[r.host]?.name ?? '', startsIn });
+        }
       }
     }
-    return { waiting, playing, byStake };
+    open.sort((a, b) => b.players - a.players || a.code.localeCompare(b.code));
+    return { waiting, playing, byStake, open };
   }
 
   /** Quick play: the public lobby with the most players that still has a seat (so rounds fill and start), or a new public room. */

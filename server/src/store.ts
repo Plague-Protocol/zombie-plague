@@ -38,6 +38,7 @@ export interface BestRun { accountId: string; name: string | null; address: stri
 
 /** One signed-in seat's part in a finished room round. */
 export interface RoundSeat { accountId: string; code: string; status: string; kills: number; escaped: boolean }
+export interface AllTime { players: number; escapes: number; top: Array<{ name: string | null; address: string; score: number }> }
 export interface RoomRow { accountId: string; name: string | null; address: string; rounds: number; escapes: number; kills: number }
 
 export interface LastSelfRecord { chapter: number; x: number; y: number; weapon: string | null }
@@ -150,6 +151,8 @@ export interface Store {
   roomTotals(days: number): Promise<RoomRow[]>;
   /** Rounds played since `since` (with a signed-in seat), and how many signed-in players got out of them. */
   roomsSince(since: Date): Promise<{ rounds: number; escapes: number }>;
+  /** For the home page, all time: players who have a replayed run or a room round, room escapes, and the best scores (one per player). */
+  allTime(top: number): Promise<AllTime>;
   lastSelf(accountId: string, chapter: number): Promise<LastSelfRecord | null>;
   setLastSelf(accountId: string, rec: LastSelfRecord | null, chapter: number): Promise<void>;
   bank(accountId: string): Promise<Bank>;
@@ -299,6 +302,14 @@ export class MemoryStore implements Store {
   async roomsSince(since: Date) {
     const xs = this.seats.filter((x) => x.at.getTime() >= since.getTime());
     return { rounds: new Set(xs.map((x) => x.code)).size, escapes: xs.filter((x) => x.escaped).length };
+  }
+  async allTime(top: number): Promise<AllTime> {
+    const best = new Map<string, number>();
+    for (const r of this.runs) if (r.replayOk && r.score > (best.get(r.accountId) ?? -Infinity)) best.set(r.accountId, r.score);
+    const players = new Set([...best.keys(), ...this.seats.map((x) => x.accountId)]).size;
+    const rows = [...best.entries()].sort((a, b) => b[1] - a[1]).slice(0, top)
+      .map(([id, score]) => { const a = this.accounts.get(id)!; return { name: a.name, address: a.address, score }; });
+    return { players, escapes: this.seats.filter((x) => x.escaped).length, top: rows };
   }
   async roomTotals(days: number): Promise<RoomRow[]> {
     const since = this.now().getTime() - days * 864e5, by = new Map<string, RoomRow>();
@@ -653,6 +664,17 @@ export class PgStore implements Store {
   async roomsSince(since: Date) {
     const r = await this.pool.query('SELECT count(DISTINCT code)::int AS rounds, count(*) FILTER (WHERE escaped)::int AS escapes FROM round_seat WHERE created_at >= $1', [since]);
     return { rounds: r.rows[0].rounds as number, escapes: r.rows[0].escapes as number };
+  }
+  async allTime(top: number): Promise<AllTime> {
+    const [n, t] = await Promise.all([
+      this.pool.query(`SELECT
+        (SELECT count(*)::int FROM (SELECT account_id FROM run WHERE replay_ok UNION SELECT account_id FROM round_seat) x) AS players,
+        (SELECT count(*)::int FROM round_seat WHERE escaped) AS escapes`),
+      this.pool.query(
+        `SELECT a.name, a.address, b.score FROM (SELECT account_id, max(score)::int AS score FROM run WHERE replay_ok GROUP BY account_id) b
+           JOIN account a ON a.id = b.account_id ORDER BY b.score DESC, a.created_at LIMIT $1`, [top]),
+    ]);
+    return { players: n.rows[0].players, escapes: n.rows[0].escapes, top: t.rows.map((x) => ({ name: x.name, address: x.address, score: x.score })) };
   }
   async roomTotals(days: number): Promise<RoomRow[]> {
     const r = await this.pool.query(

@@ -15,7 +15,7 @@ import type { GameView } from '../render/view';
 import type { Controls } from '../input/controls';
 import { Actor, loadSkin, type SkinName } from '../render/characters';
 import { makeDecoder } from '../../../core/codec';
-import { ROOM_DT, type ClientMsg, type Eligibility, type SeatInfo, type ServerMsg } from '../../../core/protocol';
+import { ROOM_DT, type ClientMsg, type Eligibility, type OpenRoom, type SeatInfo, type ServerMsg } from '../../../core/protocol';
 import { ROOM_PLAYERS_MAX, ROOM_TASKS, ZOMBIE_HEALTH } from '../../../core/config';
 import { account, signIn, signInSocial, socialAvailable, type Account } from './account';
 
@@ -106,6 +106,7 @@ const CSS = `
 #mp .mp-seats .av { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font: 600 13px system-ui; color: #060b06; background: #8fb34a; }
 #mp .mp-seats .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #efe6d2; }
 #mp .mp-seats .tg { font: 14px 'VT323', monospace; letter-spacing: .14em; text-transform: uppercase; color: #8fa785; }
+#mp .mp-seats .mp-btn.sm { flex: none; font-size: 17px; padding: 5px 14px; letter-spacing: .1em; }
 #mp .mp-seats li.empty { justify-content: center; color: #5d6f55; border-style: dashed; font-size: 13px; }
 #mp .err { color: #ff7a6b; font-size: 14px; } #mp .err:empty { display: none; }
 #mp .ok { color: #c8e07a; font-size: 14px; }
@@ -234,9 +235,10 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
     ws = new WebSocket(`${url}/play`);
     ws.onopen = () => { send({ t: 'hello', token: me?.token ?? null, name: me?.name || name() }); then(); };
     ws.onerror = () => { err = 'Cannot reach the game server.'; draw(); };
-    ws.onclose = () => { if (!began) { roomInfo = null; if (!err) err = 'Disconnected.'; watchQuiet(); if (away) banner(false); draw(); } };
+    ws.onclose = () => { connecting = false; if (!began) { roomInfo = null; if (!err) err = 'Disconnected.'; watchQuiet(); if (away) banner(false); draw(); } };
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data as string) as ServerMsg;
+      if (m.t === 'room' || m.t === 'err' || m.t === 'confirm') connecting = false; // an answer to join or create
       if (m.t === 'room') { const before = roomInfo?.seats.length ?? 0; roomInfo = m; err = ''; seating = null; watchQuiet(); if (away) banner(m.seats.length > before); draw(); }
       else if (m.t === 'err') {
         if (seating && RETRY.has(m.code) && seating.tries < 12) { seating.tries++; const { stack, id } = seating; setTimeout(() => send({ t: 'staked', stack, roomId: String(id) }), 1500); return; }
@@ -280,13 +282,23 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
   let tab: 'zp' | 'crypto' = stakedInvite ? 'crypto' : 'zp';
   /** A ZP room joined by its code, waiting for the player to agree to its stake. */
   let joinAsk: Extract<ServerMsg, { t: 'confirm' }> | null = null;
-  /** Players waiting in public rooms, by stake ('free' for none), refreshed while the menu is open. */
+  /** Players waiting in public rooms, by stake ('free' for none), and the public rooms still taking players, refreshed while the menu is open. */
   let waitingBy: Record<string, number> = {};
+  let openRooms: OpenRoom[] | null = null; // null until the first answer
+  /** On the way into a room (asked to join or create, no answer yet): the list is not redrawn under the player's finger. */
+  let connecting = false;
   const fetchWaiting = async () => {
-    try { const r = await fetch(`${httpUrl(url)}/rooms/live`); if (r.ok) { waitingBy = ((await r.json()) as { byStake?: Record<string, number> }).byStake ?? {}; if (!roomInfo && !joinAsk) draw(); } } catch { /* the counts are a nicety */ }
+    try {
+      const r = await fetch(`${httpUrl(url)}/rooms/live`);
+      if (r.ok) {
+        const j = (await r.json()) as { byStake?: Record<string, number>; open?: OpenRoom[] };
+        waitingBy = j.byStake ?? {}; openRooms = j.open ?? [];
+        if (!roomInfo && !joinAsk && !connecting) draw();
+      }
+    } catch { /* the counts are a nicety */ }
   };
   void fetchWaiting();
-  const waitTimer = window.setInterval(() => { if (!root.isConnected) { clearInterval(waitTimer); return; } if (!roomInfo) void fetchWaiting(); }, 10_000);
+  const waitTimer = window.setInterval(() => { if (!root.isConnected) { clearInterval(waitTimer); return; } if (!roomInfo) void fetchWaiting(); }, 5_000);
   void import('../site/kit').then((k) => k.armoury()).then((a) => { if (a) { zpHave = a.cash; if (!roomInfo) draw(); } }, () => {});
   /** Alone in a free room for a minute: offer a solo night while the seat is kept. */
   let quiet = false, quietTimer = -1;
@@ -343,7 +355,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
       const n = waitingBy[v === null ? 'free' : String(v)] ?? 0;
       const short = v !== null && zpHave !== null && zpHave < v;
       const b = el('button', { class: `mp-chip${stake === v ? ' on' : ''}` });
-      b.append(el('b', {}, v === null ? 'Free' : `${v} ZP`), el('small', {}, short ? `need ${(v! - zpHave!).toLocaleString()} more` : v === null ? 'nothing at stake' : mode === 'create' ? 'a seat' : n ? `${n} waiting` : 'open a room'));
+      b.append(el('b', {}, v === null ? 'Free' : `${v} ZP`), el('small', {}, short ? `need ${(v! - zpHave!).toLocaleString()} more` : mode === 'create' ? (v === null ? 'nothing at stake' : 'a seat') : n ? `${n} waiting` : 'no room yet'));
       if (short) b.disabled = true;
       b.onclick = () => { stake = v; zpNote = ''; draw(); };
       grid.append(b);
@@ -403,7 +415,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
         return;
       }
       const titles: Record<typeof mode, [string, string]> = {
-        quick: ['Join a public room', 'We put you with whoever is waiting at your stake, or open a room anyone can join.'],
+        quick: ['Join a public room', 'Pick a stake: join a room that is waiting, or create one anyone can join if none is.'],
         create: ['New private room', 'A room only your friends can join, by its code or your invite link.'],
         staked: ['Staked rooms', 'Everyone stakes the same. Those who get out split the pot.'],
       };
@@ -433,15 +445,35 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
       const tail = stake ? ` · ${stake} ZP` : '';
       const short = stake !== null && zpHave !== null && zpHave < stake; // the stake picked is more than you have
       const guard = (b: HTMLButtonElement) => { if (short) { b.disabled = true; b.textContent = 'Not enough ZP for this stake'; } return b; };
-      const quick = () => connect(() => send(stake ? { t: 'quick', zp: stake } : { t: 'quick' }));
-      const create = () => connect(() => send(stake ? { t: 'create', zp: stake } : { t: 'create' }));
-      if (mode === 'quick') { const b = btn(`Find a room${tail}`); b.onclick = quick; c.append(guard(b)); }
-      else if (mode === 'create') { const b = btn(`Create room${tail}`); b.onclick = create; c.append(guard(b)); }
+      // quick opens a public room when none is waiting (and, should one have opened a moment ago, sits you in it)
+      const quick = () => { connecting = true; connect(() => send(stake ? { t: 'quick', zp: stake } : { t: 'quick' })); };
+      const create = () => { connecting = true; connect(() => send(stake ? { t: 'create', zp: stake } : { t: 'create' })); };
+      if (mode === 'create') { const b = btn(`Create room${tail}`); b.onclick = create; c.append(guard(b)); }
       else {
+        // the public rooms at this stake still taking players, each with a Join; a new one only when none is waiting
+        const here = (openRooms ?? []).filter((o) => o.zp === stake);
+        c.append(el('div', { class: 'mp-label' }, `Open public rooms${stake ? ` · ${stake} ZP` : ' · free'}`));
+        const list = el('ul', { class: 'mp-seats' });
+        if (openRooms === null) list.append(el('li', { class: 'empty' }, 'Looking for open rooms…'));
+        else if (!here.length) list.append(el('li', { class: 'empty' }, 'No room is waiting at this stake. Create one and others can join you.'));
+        for (const o of here) {
+          const li = el('li');
+          const who = o.host ? `${o.host}'s room` : `Room ${o.code}`;
+          const j = el('button', { class: 'mp-btn sm' }, 'Join') as HTMLButtonElement;
+          j.onclick = () => { connecting = true; connect(() => send(stake ? { t: 'join', code: o.code, zp: stake } : { t: 'join', code: o.code })); };
+          if (short) j.disabled = true;
+          li.append(el('span', { class: 'av' }, String(o.players)), el('span', { class: 'nm' }, who),
+            el('span', { class: 'tg' }, o.startsIn !== null ? `starts in ${o.startsIn}s` : `${o.players} of ${ROOM_PLAYERS_MAX}`), j);
+          list.append(li);
+        }
+        c.append(list);
         const row = el('div', { class: 'mp-row' });
-        const a = btn('Public room'); a.onclick = quick;
-        const b = btn('Private room', true); b.onclick = create;
-        if (short) c.append(guard(btn(''))); else { row.append(a, b); c.append(row); }
+        const a = btn(`Create a room${tail}`); a.onclick = quick;
+        if (here.length || openRooms === null) { a.disabled = true; a.title = 'Join the open room: a new one can be made once it fills or starts'; }
+        row.append(guard(a));
+        if (mode === 'staked') { const b = btn('Private room', true); b.onclick = create; row.append(guard(b)); }
+        c.append(row);
+        if (here.length) c.append(el('div', { class: 'mp-note' }, 'A room is already waiting at this stake: join it. Create opens again once it fills or starts.'));
       }
       foot(c);
       return;
@@ -620,7 +652,7 @@ class Session implements Driver {
     // the others' survivors: their skins are fetched now, and worn as soon as they are in
     this.sv = begin.sv ?? [];
     for (const id of this.sv) { const sk = id ? SURVIVORS[id as SurvivorId]?.skin : null; if (sk) void loadSkin(host.view.assets, sk as SkinName); }
-    host.toast(`Do your own ${ROOM_TASKS} steps, then reach the exit. Seats are limited: the first ones out take them.`);
+    host.toast(`Get ${ROOM_TASKS} steps done (any of them: whoever finishes one first has it), then reach the exit. Seats are limited: the first ones out take them.`);
   }
 
   message(m: ServerMsg): void {
@@ -664,7 +696,7 @@ class Session implements Driver {
     s.drops = v.drops.map((d) => ({ id: d.id, pos: d.pos, from: -1, taken: false }));
     v.opened.forEach((t, i) => { const k = s.crates[i]; if (k) k.opened = t; });
     v.searched.forEach((t, i) => { const k = s.houses[i]; if (k) k.searched = t; });
-    for (const t of v.tasks) { const k = s.tasks.find((x) => x.id === t.id); if (k) { k.done = t.done; if (t.got) k.got = t.got; if (t.targets) k.targets = t.targets; } }
+    for (const t of v.tasks) { const k = s.tasks.find((x) => x.id === t.id); if (k) { k.done = t.done; if (t.by !== undefined) k.doneBy = t.by; if (t.got) k.got = t.got; if (t.targets) k.targets = t.targets; } }
     s.safehouseKnown = v.safehouseKnown;
     s.flare = v.flare;
     s.tier = v.tier;

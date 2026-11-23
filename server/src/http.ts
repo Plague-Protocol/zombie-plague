@@ -125,6 +125,14 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     return d.store.roomsSince(new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate())));
   });
 
+  // the home page, all time (the day's numbers sit at zero most of the day while the game is young): players, room
+  // escapes, and the best scores, one per player
+  app.get('/stats', async () => {
+    const a = await d.store.allTime(5);
+    const name = (r: { name: string | null; address: string }) => r.name ?? `${r.address.slice(0, 6)}…${r.address.slice(-4)}`;
+    return { players: a.players, escapes: a.escapes, top: a.top.map((r) => ({ name: name(r), score: r.score })) };
+  });
+
   // ?board=night|week|streak|rooms (default night), ?night= to look at another night. Signed in, the answer also says
   // where you stand and how far it is to the next place.
   app.get('/leaderboard', async (req, reply) => {

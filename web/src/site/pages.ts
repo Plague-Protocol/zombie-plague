@@ -61,9 +61,9 @@ export const home: Page = {
     <div class="ios-tip">For full screen on iPhone: tap Share, then <b>Add to Home Screen</b>, and play from the new icon.</div>
     <div class="stats">
       <div class="stat"><b>3</b><span>Districts</span></div>
-      <a class="stat" href="/ranks" data-board="night"><b data-k="players">&mdash;</b><span>On today's board</span></a>
-      <a class="stat" href="/ranks" data-board="night"><b data-k="best">&mdash;</b><span>Best today</span></a>
-      <a class="stat" href="/ranks" data-board="rooms" title="Signed-in players who got out of a multiplayer room today"><b data-k="escapes">&mdash;</b><span>Room escapes today</span></a>
+      <a class="stat" href="/ranks" data-board="night" title="Signed-in players with a run or a room behind them"><b data-k="players">&mdash;</b><span>Players</span></a>
+      <a class="stat" href="/ranks" data-board="night" title="The best solo score anyone has had"><b data-k="best">&mdash;</b><span data-k="bestby">Best score ever</span></a>
+      <a class="stat" href="/ranks" data-board="rooms" title="Signed-in players who got out of a multiplayer room"><b data-k="escapes">&mdash;</b><span>Room escapes</span></a>
     </div>
   </div></section>
   <div class="ticker" aria-hidden="true"><div>THE CLOCK IS YOUR INFECTION  |  FIND THE DOSES  |  CHECK WHO IS COUGHING  |  KILL THE LIGHT  |  MIND THE RED X  |  REACH THE HELICOPTER  |  THE CLOCK IS YOUR INFECTION  |  FIND THE DOSES  |  CHECK WHO IS COUGHING  |  KILL THE LIGHT  |  MIND THE RED X  |  REACH THE HELICOPTER  |  </div></div>
@@ -92,7 +92,7 @@ export const home: Page = {
         <img src="/intro/bg-zombie-portrait.webp" alt="" loading="lazy" style="width:100%;border-radius:12px;aspect-ratio:4/3;object-fit:cover;filter:saturate(.8) brightness(.8)" />
       </div>
       <div class="panel">
-        <h3>Top of today</h3>
+        <h3 data-k="toph">Top of today</h3>
         <ol id="top5"><li class="msg">Loading the board&hellip;</li></ol>
         <a class="btn ghost sm" href="/ranks">All rankings</a>
       </div>
@@ -114,19 +114,29 @@ export const home: Page = {
     root.querySelectorAll<HTMLAnchorElement>('a.stat[data-board]').forEach((a) => a.addEventListener('click', () => {
       try { sessionStorage.setItem('zp.board', a.dataset.board!); } catch { /* the Ranks page opens on Today */ }
     }));
-    void api<{ rounds: number; escapes: number }>('/rooms/today').then((r) => {
-      const b = root.querySelector('[data-k=escapes]');
-      if (b && r) b.textContent = fmt(r.escapes);
+    // all time, while the game is young (the day's numbers sit at zero for much of the day)
+    const all = api<{ players: number; escapes: number; top: Array<{ name: string; score: number }> }>('/stats');
+    void all.then((a) => {
+      if (!a) return;
+      const set = (k: string, v: string) => { const e = root.querySelector(`[data-k=${k}]`); if (e) e.textContent = v; };
+      set('players', fmt(a.players));
+      set('escapes', fmt(a.escapes));
+      set('best', a.top[0] ? fmt(a.top[0].score) : '—');
+      if (a.top[0]) set('bestby', `Best ever · ${a.top[0].name}`);
     });
-    void board('night').then((b) => {
+    void board('night').then(async (b) => {
       const list = root.querySelector('#top5');
       if (!list) return;
-      if (!b) { list.innerHTML = '<li class="msg">The board is not reachable right now. You can still play.</li>'; return; }
-      root.querySelector('[data-k=players]')!.textContent = fmt(b.of);
-      root.querySelector('[data-k=best]')!.textContent = b.rows[0] ? fmt(b.rows[0].value) : '—';
-      list.innerHTML = b.rows.length
-        ? b.rows.slice(0, 5).map((r) => `<li><span><i>#${r.rank}</i>${esc(r.name)}</span><span>${fmt(r.value)} pts</span></li>`).join('')
-        : '<li class="msg">Nobody has a score in today\'s city yet. Be the first.</li>';
+      const a = await all;
+      if (!b && !a) { list.innerHTML = '<li class="msg">The board is not reachable right now. You can still play.</li>'; return; }
+      const row = (rank: number, name: string, value: number) => `<li><span><i>#${rank}</i>${esc(name)}</span><span>${fmt(value)} pts</span></li>`;
+      // today's top five once anyone has played today's city; until then, the best of all time
+      if (b?.rows.length) list.innerHTML = b.rows.slice(0, 5).map((r) => row(r.rank, r.name, r.value)).join('');
+      else if (a?.top.length) {
+        root.querySelector('[data-k=toph]')!.textContent = 'Best of all time';
+        list.innerHTML = a.top.map((r, i) => row(i + 1, r.name, r.score)).join('');
+      } else list.innerHTML = '<li class="msg">Nobody has a score yet. Be the first.</li>';
+      if (!b) return;
       const st = root.querySelector('[data-k=status]');
       if (st) {
         void board('streak').then((s) => {
@@ -156,7 +166,7 @@ export const play: Page = {
     ${account() ? '<p class="muted" style="margin:-6px 0 14px;font-size:15px">What you carry is set in the <a href="/armoury">Armoury</a>.</p>' : ''}
     <div class="modes">
       <button class="mode hot" type="button" data-play="solo" disabled><span class="ico">${ICON.bio}</span><span class="body"><h3>Play solo <span class="tag g">Counts for ranks</span></h3><p>Just you against today's city: the same streets for everyone today &middot; three districts &middot; your ranked loadout</p>${carrying('ranked')}</span>${ICON.chev}</button>
-      <button class="mode" type="button" data-play="quick" disabled><span class="ico a">${ICON.users}</span><span class="body"><h3>Join a public room ${needsSignIn()}</h3><p>Multiplayer: we put you with whoever is waiting, or open a new room anyone can join &middot; 2 to 8 players</p><p class="live" data-k="live" hidden></p></span>${ICON.chev}</button>
+      <button class="mode" type="button" data-play="quick" disabled><span class="ico a">${ICON.users}</span><span class="body"><h3>Join a public room ${needsSignIn()}</h3><p>Multiplayer: see the rooms waiting for players and join one, or create one if none is &middot; 2 to 8 players</p><p class="live" data-k="live" hidden></p></span>${ICON.chev}</button>
       <button class="mode" type="button" data-play="create" disabled><span class="ico p">${ICON.door}</span><span class="body"><h3>Private room ${needsSignIn()}</h3><p>Multiplayer, friends only: make a room, then share its five-letter code or an invite link</p></span>${ICON.chev}</button>
       <div class="mode" style="cursor:default"><span class="ico b">${ICON.key}</span><span class="body"><h3>Join with a code</h3><p>A friend read out their room's code? Type it here.</p>
         <form data-join><input name="code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" aria-label="Room code" /><button class="btn sm" type="submit" disabled data-play="join">Join</button></form></span></div>

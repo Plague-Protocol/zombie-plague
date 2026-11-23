@@ -49,7 +49,7 @@ describe('the snapshot wire form', () => {
     expect(third.c!.tasks).toBeUndefined();
     const v = dec(third);
     expect(v.you.funds).toBe(g.players[1]!.funds);
-    expect(v.tasks.length).toBe(g.tasks.filter((t) => t.owner === undefined || t.owner === 1).length); // still there (your own): the decoder kept it
+    expect(v.tasks.length).toBe(g.tasks.filter((t) => t.done || t.got || t.targets).length); // still there: the decoder kept it
   });
 
   it('sends a zombie in full once, then only its moves, nothing while it keeps still, and its id when it goes', () => {

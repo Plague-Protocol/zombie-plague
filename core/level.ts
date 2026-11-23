@@ -1,10 +1,10 @@
 import { chance, fork, next, pick, range, shuffle } from './rng';
 import type { Theme } from './types';
 import { cellOf, distanceField, generateMap, PITCH, STREET, UNREACHABLE } from './map';
-import { chapterGroups, generateChain, roomChains } from './tasks';
+import { chapterGroups, generateChain, roomPool } from './tasks';
 import { content } from './content';
 import {
-  AMBUSH_CHANCE, AMMO_PICKUPS, ANTIVIRAL_PICKUPS, ANTIVIRAL_PER_SEAT, ROOM_TASKS, SPAWN_APART, SPAWN_FROM_EXIT, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, INTERIOR_SEARCH, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
+  AMBUSH_CHANCE, AMMO_PICKUPS, ANTIVIRAL_PICKUPS, ANTIVIRAL_PER_SEAT, ROOM_SPARE, ROOM_TASKS, SPAWN_APART, SPAWN_FROM_EXIT, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, INTERIOR_SEARCH, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
   SURVIVOR_COUNT, SURVIVOR_NAMES, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLE_MIX, VEHICLES,
 } from './config';
 import type {
@@ -55,7 +55,7 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
   const [sh0] = shuffle(rng, far);
   const safehouse = { ...(sh0 as Vec2) };
 
-  // a room: every seat starts apart and a long walk from the exit, and has steps of its own
+  // a room: every seat starts apart and a long walk from the exit; the steps are one pool, open to all
   let spawns: Vec2[] | undefined, roomRoute = 0;
   if (opts.players) {
     const srng = fork(seed, 'spawns');
@@ -71,17 +71,18 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
     }
     while (spawns.length < opts.players) spawns.push({ ...spawn });
   }
-  const own = spawns ? roomChains(fork(seed, 'room-steps'), map, spawns, safehouse, ROOM_TASKS) : null;
-  if (own) roomRoute = own.route;
+  const own = spawns ? roomPool(fork(seed, 'room-steps'), map, spawns, safehouse, spawns.length * ROOM_TASKS + ROOM_SPARE, ROOM_TASKS) : null;
+  if (own) roomRoute = own.route; // the nearest steps each time: about a third more clock than a set route had, for steps taken from under you
   const tasks = own ? own.tasks : generateChain(rng, map, spawn, safehouse, chapterGroups(opts.night ?? seed, opts.chapter ?? 0, opts.room));
 
   const route = own ? [] : [spawn, ...tasks.filter((t) => t.required).flatMap((t) => [...(t.parts ?? []), t.pos]), safehouse];
-  let steps = own ? roomRoute : 0; // a room: the longest of the seats' routes, walked (every seat gets the same clock)
+  let steps = own ? roomRoute : 0; // a room: the longest walk any seat has to do its share (every seat gets the same clock)
   for (let i = 0; i < route.length - 1; i++) {
     const f = distanceField(map, route[i] as Vec2);
     steps += f[cellOf(map, route[i + 1] as Vec2)] as number;
   }
-  const holding = tasks.filter((t) => t.required).reduce((a, t) => a + (t.seconds ?? TASK_HOLD_SECONDS), 0) / (spawns?.length ?? 1); // a room: one player's share
+  const holding = own ? ROOM_TASKS * TASK_HOLD_SECONDS // a room: one player's share
+    : tasks.filter((t) => t.required).reduce((a, t) => a + (t.seconds ?? TASK_HOLD_SECONDS), 0);
   const routeSeconds = steps / PLAYER_SPEED + holding;
   const timeLimit = Math.ceil(routeSeconds * TIME_SLACK + TIME_PAD);
 

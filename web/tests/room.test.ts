@@ -1,16 +1,21 @@
 // Rooms: several players in one district at once.
 import { describe, expect, it } from 'vitest';
-import { createRoom, currentTask, eventSeat, interactionFor, isRevealed, roomCity, step, type GameState } from '../../core/state';
+import { createRoom, currentTask, eventSeat, interactionFor, isRevealed, roomCity, roomProgress, step, type GameState } from '../../core/state';
 import { command, hashState, quantize, replayRoom, RoomRecorder } from '../../core/replay';
 import type { Loadout } from '../../core/loadout';
 import { sightClear, viewFor } from '../../core/view';
 import { lineClear } from '../../core/collision';
 import { createRng, next } from '../../core/rng';
-import { ATTACK_DAMAGE, EXIT_SEATS_SHARE, HORDE_PREY, PLAYER_HEALTH, ROOM_SECONDS, ROOM_TASKS, SAFE_RADIUS, TURNED_HEALTH } from '../../core/config';
+import { ATTACK_DAMAGE, EXIT_SEATS_SHARE, HORDE_PREY, PLAYER_HEALTH, ROOM_SECONDS, ROOM_SPARE, ROOM_TASKS, SAFE_RADIUS, TURNED_HEALTH } from '../../core/config';
 import type { Input, Vec2 } from '../../core/types';
 import { addZ, DT, IDLE, openSpot, put, quietRoom, runRoom } from './helpers-room';
 
 const fire: Input = { dx: 0, dy: 0, fire: true };
+
+/** `seat` has done `k` steps from the pool. */
+function give(g: GameState, seat: number, k: number): void {
+  for (const t of g.tasks.filter((x) => x.required && !x.done).slice(0, k)) { t.done = true; t.doneBy = seat; }
+}
 
 /** Two seats on open ground `gap` apart along +x, away from the exit. */
 function duel(gap = 5, seed = 5): GameState {
@@ -279,15 +284,16 @@ describe('shots in a room', () => {
 describe('the exit', () => {
   function atExit(n: number): GameState {
     const g = quietRoom(n);
-    for (const t of g.tasks) if (t.required) t.done = true;
+    for (let i = 0; i < n; i++) give(g, i, ROOM_TASKS);
     g.safehouseKnown = true;
     g.players.forEach((p, i) => { put(g, i, { x: g.safehouse.x + (i - n / 2) * 0.4, y: g.safehouse.y }); p.helped = 1; });
     return g;
   }
 
-  it('lets a player in only once all their own steps are done: the others\' do not count for them', () => {
+  it('lets a player in only once they have done their share of the steps: what the others did does not count for them', () => {
     const g = atExit(4);
-    for (const t of g.tasks) if (t.owner !== 0) t.done = false; // only seat 0 has done theirs
+    for (const t of g.tasks) if (t.doneBy !== 0) { t.done = false; delete t.doneBy; } // only seat 0 has done theirs
+    give(g, 1, ROOM_TASKS - 1); // seat 1 is one short
     step(g, [IDLE, IDLE, IDLE, IDLE], DT);
     expect(g.players[0]!.status).toBe('escaped');
     expect(g.players.slice(1).every((p) => p.status === 'alive')).toBe(true);
@@ -305,9 +311,10 @@ describe('the exit', () => {
     expect(g.placements!.slice(0, 2).map((p) => p.status)).toEqual(['escaped', 'escaped']);
   });
 
-  it('stays shut to a player with one of their own steps left', () => {
+  it('stays shut to a player one step short', () => {
     const g = atExit(2);
-    g.tasks.find((t) => t.owner === 0)!.done = false;
+    const t0 = g.tasks.find((t) => t.doneBy === 0)!;
+    t0.done = false; delete t0.doneBy;
     step(g, [IDLE, IDLE], DT);
     expect(g.players[0]!.status).not.toBe('escaped'); // (two players, one seat: seat 1 took it and the round is over)
     expect(g.players[1]!.status).toBe('escaped');
@@ -323,45 +330,60 @@ describe('the exit', () => {
   });
 });
 
-describe('every player\'s own steps', () => {
-  it('each seat gets ROOM_TASKS single steps of its own (nothing collected in pieces), in a city rolled from the seed', () => {
+describe('the steps: one pool, open to everyone', () => {
+  it('holds every player\'s share and a few spare, single jobs (nothing in pieces, no escorts, no fights), in a city rolled from the seed', () => {
     const cities = new Set<string>();
     for (const seed of [3, 7, 11, 19, 23, 31]) {
       const g = createRoom(seed, 6);
       cities.add(roomCity(seed));
       expect(new Set(g.tasks.map((t) => t.id)).size).toBe(g.tasks.length); // no two the same
-      for (let i = 0; i < 6; i++) {
-        const own = g.tasks.filter((t) => t.owner === i);
-        expect(own.length).toBe(ROOM_TASKS);
-        expect(own.every((t) => t.required && !t.parts && !t.escort && !t.needsEscort)).toBe(true);
-      }
-      expect(g.tasks.some((t) => t.owner === undefined && t.required)).toBe(false);
+      const req = g.tasks.filter((t) => t.required);
+      expect(req.length).toBe(6 * ROOM_TASKS + ROOM_SPARE);
+      expect(req.every((t) => !t.parts && !t.escort && !t.needsEscort && t.kind !== 'clear')).toBe(true);
       expect(g.safehouseKnown).toBe(true); // nobody has to find the way out first
+      // spread out: never two on one spot
+      for (const a of req) for (const b of req) if (a !== b) expect(Math.hypot(a.pos.x - b.pos.x, a.pos.y - b.pos.y)).toBeGreaterThan(2);
     }
     expect(cities.size).toBeGreaterThan(1);
   });
 
-  it('a player sees and works only their own steps', () => {
+  it('every player sees every step open to do, and the nearest is theirs to go for', () => {
     const g = quietRoom(2);
+    const open = g.tasks.filter((t) => t.required && t.requires.length === 0);
     g.cur = g.players[0]!;
-    const mineNow = currentTask(g)!, theirs = g.tasks.find((t) => t.owner === 1)!;
-    expect(mineNow.owner).toBe(0);
-    expect(isRevealed(g, theirs)).toBe(false);
-    put(g, 0, { ...theirs.pos });
-    g.cur = g.players[0]!;
-    expect(interactionFor(g)?.kind === 'task' && (interactionFor(g) as { taskId: string }).taskId === theirs.id).toBe(false);
+    expect(open.every((t) => isRevealed(g, t))).toBe(true);
+    const near = open[3]!;
+    put(g, 1, { ...near.pos });
+    g.cur = g.players[1]!;
+    expect(currentTask(g)).toBe(near);
+    expect(interactionFor(g)).toMatchObject({ kind: 'task', taskId: near.id });
   });
 
-  it('deals every seat a route of about the same length', () => {
-    for (const seed of [5, 9, 13]) {
-      const g = createRoom(seed, 8);
-      const lens = g.players.map((p) => {
-        let at = p.pos, len = 0;
-        for (const t of g.tasks.filter((x) => x.owner === p.id)) { len += Math.hypot(t.pos.x - at.x, t.pos.y - at.y); at = t.pos; }
-        return len + Math.hypot(g.safehouse.x - at.x, g.safehouse.y - at.y);
-      });
-      expect(Math.max(...lens) / Math.min(...lens)).toBeLessThan(1.6);
-    }
+  it('a step is done once, by whoever finishes it first: it counts for them, and is gone for everyone else', () => {
+    const g = quietRoom(2);
+    const t = g.tasks.find((x) => x.required && x.kind === 'hold' && x.requires.length === 0)!;
+    put(g, 0, { ...t.pos }); put(g, 1, { x: t.pos.x + 0.5, y: t.pos.y });
+    // both start on it; seat 1 started later
+    step(g, [{ ...IDLE, action: true }, IDLE], DT);
+    for (let k = 0; k < 20; k++) step(g, [IDLE, IDLE], DT);
+    step(g, [IDLE, { ...IDLE, action: true }], DT);
+    for (let k = 0; k < 30 * 30 && !t.done; k++) step(g, [IDLE, IDLE], DT);
+    expect(t.done).toBe(true);
+    expect(t.doneBy).toBe(0);
+    g.cur = g.players[0]!;
+    expect(roomProgress(g).done).toBe(1);
+    g.cur = g.players[1]!;
+    expect(roomProgress(g).done).toBe(0);
+    expect(g.players[1]!.hold.taskId).toBe(null); // their hold on it went with it
+    expect(isRevealed(g, t) && !t.done).toBe(false);
+  });
+
+  it('says when too few are left for a player to get out', () => {
+    const g = quietRoom(2);
+    give(g, 0, g.tasks.filter((t) => t.required).length - 2); // seat 0 takes all but two
+    g.cur = g.players[1]!;
+    const p = roomProgress(g);
+    expect(p.done + p.left).toBeLessThan(p.need);
   });
 
   it('has more doses lying about the more players there are', () => {

@@ -254,13 +254,14 @@ describe('quick play and private rooms', () => {
   it('live counts players waiting in public rooms with a seat, and players in rounds, never private lobbies', () => {
     const { hub } = make();
     hub.create(conn('Pat')); // a private lobby: not waiting for strangers
-    expect(hub.live()).toEqual({ waiting: 0, playing: 0, byStake: {} });
+    expect(hub.live()).toEqual({ waiting: 0, playing: 0, byStake: {}, open: [] });
     const a = conn('A');
     const q = hub.quick(a) as Exclude<ReturnType<Hub['create']>, 'busy'>;
     hub.quick(conn('B'));
-    expect(hub.live()).toEqual({ waiting: 2, playing: 0, byStake: { free: 2 } });
+    expect(hub.live()).toMatchObject({ waiting: 2, playing: 0, byStake: { free: 2 } });
+    expect(hub.live().open).toEqual([expect.objectContaining({ code: q.code, zp: null, players: 2, host: 'A' })]); // the lobby lists it, with a Join
     q.start(a);
-    expect(hub.live()).toEqual({ waiting: 0, playing: 2, byStake: {} });
+    expect(hub.live()).toEqual({ waiting: 0, playing: 2, byStake: {}, open: [] }); // started: no longer listed
   });
 });
 

@@ -8,7 +8,7 @@ import {
 import { cellOf, reachable } from '../../core/map';
 import {
   AMMO_PRICES, ATTACK_DAMAGE, CHAPTERS, ATTACK_WINDUP, GUNS, MEDKIT_HEAL, MELEE, PLAYER_HEALTH, SAFE_AFTER, SPAWNS_BY_TIER, STORE_COUNT,
-  LATCH_DRAG, MERCY_DAMAGE, MERCY_HEALTH, TASK_HOLD_SECONDS, UPGRADE_LEVELS, VEHICLES, WEAPON_PRICES, ZOMBIE_CAP, ZOMBIE_HEALTH,
+  LATCH_DRAG, MERCY_DAMAGE, MERCY_HEALTH, TASK_HOLD_SECONDS, UPGRADE_LEVELS, VEHICLE_COUNT, VEHICLES, WEAPON_PRICES, ZOMBIE_CAP, ZOMBIE_HEALTH,
 } from '../../core/config';
 import type { Zombie } from '../../core/types';
 import type { Input, Vec2 } from '../../core/types';
@@ -268,7 +268,8 @@ describe('vehicles are not safe', () => {
     let bikes = 0, all = 0;
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
       const g = calmGame(seed);
-      expect(g.vehicles.length).toBeLessThanOrEqual(10);
+      expect(g.vehicles.length).toBeLessThanOrEqual(VEHICLE_COUNT);
+      expect(g.vehicles.length).toBeGreaterThanOrEqual(VEHICLE_COUNT - 3); // the kerbs have room for most of them
       all += g.vehicles.length;
       bikes += g.vehicles.filter((v) => v.kind === 'bike').length;
     }

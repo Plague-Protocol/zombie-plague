@@ -8,7 +8,7 @@ import { Crowd, MUT, type CrowdClip } from './crowd';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
 import { ArmyGate, bandageMesh, bandolierMesh, satchelMesh, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
-import { currentTask, escortGroup, finalChapter, gunStats, heightOf, infection, isGun, isRevealed, lightOn, mine, onBody, playerSpeed, playerVehicle, requiredDone, type GameState } from '../../../core/state';
+import { currentTask, escortGroup, finalChapter, gunStats, heightOf, infection, isGun, isRevealed, lightOn, onBody, playerSpeed, playerVehicle, requiredDone, type GameState } from '../../../core/state';
 import { ATTACK_WINDUP, ZOMBIE_CLIMB_SECONDS, COUGH_NOISE, LASH_REACH, MELEE, PLAYER_HEALTH, SAFEHOUSE_RADIUS, SCREAM_WINDUP, TASK_RADIUS } from '../../../core/config';
 import { plagueDressing, Spores, Tentacles, Waves } from './plague';
 import type { GameEvent, Interior, Task, TaskId, Vec2, WeaponKind, Zombie } from '../../../core/types';
@@ -494,7 +494,6 @@ export class GameView {
     };
 
     for (const t of s.tasks) {
-      if (!mine(s, t)) continue; // a room: only your own steps are set out in your city
       const def = stepDef(t.id);
       const id = t.id;
       const x = t.pos.x + 1.4, z = t.pos.y + 1.4;
@@ -1682,7 +1681,9 @@ export class GameView {
     const cur = currentTask(s);
     const parts = cur?.parts ?? [];
     // only what you can see: your current step (yellow), optional ones (blue), the exit, the pieces still to find
-    const shown = s.tasks.filter((t) => !t.done && isRevealed(s, t) && (!t.got || t.got.every(Boolean)));
+    let shown = s.tasks.filter((t) => !t.done && isRevealed(s, t) && (!t.got || t.got.every(Boolean)));
+    // a room's pool can hold more steps than there are rings: the nearest ones (the rest are on the map)
+    if (shown.length > 12) shown = shown.sort((a, b) => (a.pos.x - s.player.pos.x) ** 2 + (a.pos.y - s.player.pos.y) ** 2 - (b.pos.x - s.player.pos.x) ** 2 - (b.pos.y - s.player.pos.y) ** 2).slice(0, 12);
     const cap = this.rings.instanceMatrix.count;
     let i = 0;
     const set = (pos: Vec2, radius: number, color: number, beam: boolean) => {

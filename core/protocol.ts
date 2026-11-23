@@ -54,3 +54,6 @@ export type Eligibility =
   | { ok: false; why: 'new' | 'failed'; until: string }
   | { ok: false; why: 'runs'; have: number; need: number }
   | { ok: false; why: 'busy' | 'signin' | 'off' };
+
+/** A public room still taking players, as GET /rooms/live lists it for the lobby (join it, or create one when none waits). */
+export interface OpenRoom { code: string; zp: number | null; players: number; host: string; startsIn: number | null }

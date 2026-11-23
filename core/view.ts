@@ -67,7 +67,7 @@ export interface PlayerView {
   drops: Array<{ id: number; pos: Vec2 }>;
   opened: boolean[];
   searched: boolean[];
-  tasks: Array<{ id: string; done: boolean; got?: boolean[]; targets?: number[] }>;
+  tasks: Array<{ id: string; done: boolean; by?: number; got?: boolean[]; targets?: number[] }>;
   safehouseKnown: boolean;
   flare: GameState['flare'];
   fallen: number;
@@ -210,7 +210,8 @@ export function viewFor(s: GameState, seat: number): PlayerView {
     opened: s.crates.map((c) => c.opened),
     searched: s.houses.map((h) => h.searched),
     // your own steps (and anyone's), not the others': theirs are no business of yours, and would cost every snapshot
-    tasks: s.tasks.filter((t) => t.owner === undefined || t.owner === seat).map((t) => ({ id: t.id, done: t.done, ...(t.got ? { got: t.got.slice() } : {}), ...(t.targets ? { targets: t.targets.slice() } : {}) })),
+    // the steps that have changed from how they start (done, and by whom; pieces found; who came for you): the rest are as dealt
+    tasks: s.tasks.filter((t) => t.done || t.got || t.targets).map((t) => ({ id: t.id, done: t.done, ...(t.doneBy !== undefined ? { by: t.doneBy } : {}), ...(t.got ? { got: t.got.slice() } : {}), ...(t.targets ? { targets: t.targets.slice() } : {}) })),
     safehouseKnown: s.safehouseKnown,
     flare: s.flare,
     fallen: s.fallenN,
