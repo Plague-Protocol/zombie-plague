@@ -43,6 +43,8 @@ export interface WsOptions {
   staked?: Staked;
   /** ZP rooms (stakes in the game currency, held in the ledger). Absent: ZP rooms are off. */
   zp?: ZpBank;
+  /** Who is about: a signed-in player with a game connection open is online. */
+  presence?: import('./presence.ts').Presence;
   origins: string[];
   /** Sockets that have not answered a ping in this long are cut. */
   keepAliveMs?: number;
@@ -89,7 +91,7 @@ export function attachWs(server: Server, o: WsOptions): () => void {
       try { m = frame.parse(JSON.parse(raw.toString())); } catch { conn.send({ t: 'err', code: 'bad' }); return; }
       queue = queue.then(() => handle(m)).catch(() => ws.terminate());
     });
-    ws.on('close', () => { beats.delete(ws); conn.room?.drop(conn); });
+    ws.on('close', () => { beats.delete(ws); conn.room?.drop(conn); if (conn.accountId) o.presence?.close(conn.accountId); });
     ws.on('error', () => ws.terminate());
 
     /**
@@ -134,6 +136,7 @@ export function attachWs(server: Server, o: WsOptions): () => void {
         const acc = id ? await o.store.accountById(id) : null;
         conn.accountId = acc?.id ?? null;
         conn.address = acc?.address ?? null;
+        if (acc) o.presence?.open(acc.id);
         conn.name = (acc?.name ?? m.name) || (acc ? `${acc.address.slice(0, 6)}…${acc.address.slice(-4)}` : 'Guest');
         if (acc) conn.loadout = await roomLoadout(o.store, acc.id).catch(() => undefined);
         return;

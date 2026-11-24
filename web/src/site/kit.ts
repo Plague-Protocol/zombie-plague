@@ -36,13 +36,16 @@ export const ICON = {
   chev: '<span class="chev" aria-hidden="true">&rsaquo;</span>',
 };
 
-export type Kind = 'night' | 'week' | 'streak' | 'rooms';
-export interface Row { rank: number; name: string; value: number; title: string; detail: Record<string, number | string> }
+export type Kind = 'night' | 'week' | 'all' | 'streak' | 'rooms';
+/** `on`: online now, or active today (the server says nothing finer). */
+export interface Row { rank: number; name: string; value: number; title: string; detail: Record<string, number | string>; on?: 'online' | 'today' }
 export interface Board {
   kind: Kind; unit: 'points' | 'nights' | 'escapes'; of: number; rows: Row[]; rules: string[];
   me: { rank: number; value: number; title: string; toNext: { gap: number; name: string } | null; detail: Record<string, number | string> } | null;
 }
-export const BOARD_NAMES: Record<Kind, string> = { night: 'Today', week: 'This week', streak: 'Streak', rooms: 'Rooms' };
+export const BOARD_NAMES: Record<Kind, string> = { night: 'Today', week: 'This week', all: 'All time', streak: 'Streak', rooms: 'Rooms' };
+/** The dot by a name: green, online now; a ring, active today. */
+export const seenDot = (on: Row['on']): string => (on ? `<i class="seen ${on}" title="${on === 'online' ? 'Online now' : 'Active today'}" aria-label="${on === 'online' ? 'online now' : 'active today'}"></i>` : '');
 export const unitOf = (b: Pick<Board, 'unit'>, n: number): string => (b.unit === 'points' ? 'pts' : b.unit === 'nights' ? (n === 1 ? 'night' : 'nights') : n === 1 ? 'escape' : 'escapes');
 /** One line of what a run or a record was made of. */
 export function detail(kind: Kind, d: Record<string, number | string>): string {
@@ -52,6 +55,7 @@ export function detail(kind: Kind, d: Record<string, number | string>): string {
   }
   if (kind === 'week') return `${d.nights} ${d.nights === 1 ? 'night' : 'nights'} · best ${fmt(Number(d.best))}`;
   if (kind === 'streak') return `${fmt(Number(d.total))} pts across the streak`;
+  if (kind === 'all') return [d.outcome === 'won' ? 'got out of the city' : `reached district ${d.reached}`, `${d.kills} kills`].join(' · ');
   return `${d.rounds} rounds · out ${d.rate}% of the time · ${d.kills} kills`;
 }
 
@@ -73,6 +77,20 @@ export function board(kind: Kind): Promise<Board | null> {
   return b;
 }
 export const forgetBoards = (): void => boards.clear();
+
+/** Tell the server this page is open, once a minute while it is in view: signed in, as the account; otherwise by a
+ * random id this browser keeps, which only ever counts toward the number online. */
+export function heartbeat(): void {
+  let g = '';
+  try { g = localStorage.getItem('zp.g') ?? ''; if (!g) { g = Math.random().toString(36).slice(2, 14).padEnd(10, '0'); localStorage.setItem('zp.g', g); } } catch { g = 'nostorage0'; }
+  const beat = () => {
+    if (document.visibilityState !== 'visible') return;
+    void fetch(`${apiBase()}/ping`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth() }, body: JSON.stringify({ g }), keepalive: true }).catch(() => {});
+  };
+  beat();
+  setInterval(beat, 60_000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') beat(); });
+}
 
 export interface Me {
   account: { id: string; address: string; name: string | null; createdAt: string };

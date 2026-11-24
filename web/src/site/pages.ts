@@ -1,7 +1,7 @@
 // The site's pages. Each is markup (filled from the server where it needs to be) plus what happens once it is on screen.
 // Buttons that start the game carry data-play (app.ts wires them, and keeps them disabled until the city has loaded).
 import {
-  account, api, board, BOARD_NAMES, detail, esc, fmt, ICON, ITEM_NAMES, itemArt, ago, setName, short, shown, signInThen, unitOf,
+  account, api, board, BOARD_NAMES, seenDot, detail, esc, fmt, ICON, ITEM_NAMES, itemArt, ago, setName, short, shown, signInThen, unitOf,
   type Board, type Kind, type Me,
 } from './kit';
 
@@ -60,9 +60,9 @@ export const home: Page = {
     <p class="note">${me ? `Signed in as ${esc(shown(me))}. Today's best run goes on the board.` : 'Free in your browser. Sign in after a few minutes to keep playing and save your nights.'}</p>
     <div class="ios-tip">For full screen on iPhone: tap Share, then <b>Add to Home Screen</b>, and play from the new icon.</div>
     <div class="stats">
-      <div class="stat"><b>3</b><span>Districts</span></div>
-      <a class="stat" href="/ranks" data-board="night" title="Signed-in players with a run or a room behind them"><b data-k="players">&mdash;</b><span>Players</span></a>
-      <a class="stat" href="/ranks" data-board="night" title="The best solo score anyone has had"><b data-k="best">&mdash;</b><span data-k="bestby">Best score ever</span></a>
+      <a class="stat" href="/play" title="Players with the game open right now, signed in or not"><b data-k="online">&mdash;</b><span><i class="seen online"></i>Online now</span></a>
+      <a class="stat" href="/ranks" data-board="all" title="Signed-in players with a run or a room behind them"><b data-k="players">&mdash;</b><span>Have played</span></a>
+      <a class="stat" href="/ranks" data-board="all" title="The best solo score anyone has had"><b data-k="best">&mdash;</b><span data-k="bestby">Best score ever</span></a>
       <a class="stat" href="/ranks" data-board="rooms" title="Signed-in players who got out of a multiplayer room"><b data-k="escapes">&mdash;</b><span>Room escapes</span></a>
     </div>
   </div></section>
@@ -115,10 +115,11 @@ export const home: Page = {
       try { sessionStorage.setItem('zp.board', a.dataset.board!); } catch { /* the Ranks page opens on Today */ }
     }));
     // all time, while the game is young (the day's numbers sit at zero for much of the day)
-    const all = api<{ players: number; escapes: number; top: Array<{ name: string; score: number }> }>('/stats');
+    const all = api<{ players: number; escapes: number; online: number; top: Array<{ name: string; score: number }> }>('/stats');
     void all.then((a) => {
       if (!a) return;
       const set = (k: string, v: string) => { const e = root.querySelector(`[data-k=${k}]`); if (e) e.textContent = v; };
+      set('online', fmt(Math.max(1, a.online))); // you are here, even if your first heartbeat is still on its way
       set('players', fmt(a.players));
       set('escapes', fmt(a.escapes));
       set('best', a.top[0] ? fmt(a.top[0].score) : '—');
@@ -202,6 +203,7 @@ const EMPTY: Record<Kind, string> = {
   week: 'No scores this week yet.',
   streak: 'No one has got out of the city two nights running. Yet.',
   rooms: 'Play three rounds of multiplayer signed in to be listed.',
+  all: 'Nobody has a score yet. Be the first.',
 };
 export const ranks: Page = {
   title: 'Ranks',
@@ -237,10 +239,11 @@ function drawBoard(b: Board): string {
     : account() ? '' : '<div class="mine">Sign in and play to see where you stand. <button class="linkish" type="button" data-signin>Sign in</button></div>';
   if (!b.rows.length) return `${me}<div class="empty"><span class="ico">${ICON.trophy}</span><p><b>The board is empty</b>${EMPTY[b.kind]}</p></div>${rules(b)}`;
   const top = b.rows.slice(0, 3), order = top.length === 3 ? [top[1]!, top[0]!, top[2]!] : top;
-  const pod = `<div class="podium">${order.map((r) => `<div class="pod${r === top[0] ? ' p1' : ''}"><div class="medal">#${r.rank}</div><span class="n">${esc(r.name)}</span><span class="tag r">${esc(r.title)}</span><div class="v">${v(r.value)}</div></div>`).join('')}</div>`;
+  const pod = `<div class="podium">${order.map((r) => `<div class="pod${r === top[0] ? ' p1' : ''}"><div class="medal">#${r.rank}</div><span class="n">${seenDot(r.on)}${esc(r.name)}</span><span class="tag r">${esc(r.title)}</span><div class="v">${v(r.value)}</div></div>`).join('')}</div>`;
   const myName = account() ? shown(account()!) : null;
-  const rows = `<ol class="rows">${b.rows.map((r) => `<li${r.name === myName ? ' class="me"' : ''}><span class="rk">#${r.rank}</span><span class="n"><b>${esc(r.name)} <span class="tag r">${esc(r.title)}</span></b><span class="d">${esc(detail(b.kind, r.detail))}</span></span><span class="v">${v(r.value)}</span></li>`).join('')}</ol>`;
-  return `${me}${pod}${rows}${rules(b)}`;
+  const rows = `<ol class="rows">${b.rows.map((r) => `<li${r.name === myName ? ' class="me"' : ''}><span class="rk">#${r.rank}</span><span class="n"><b>${seenDot(r.on)}${esc(r.name)} <span class="tag r">${esc(r.title)}</span></b><span class="d">${esc(detail(b.kind, r.detail))}</span></span><span class="v">${v(r.value)}</span></li>`).join('')}</ol>`;
+  const legend = b.rows.some((r) => r.on) ? `<p class="seen-key">${seenDot('online')}Online now <span>${seenDot('today')}Active today</span></p>` : '';
+  return `${me}${pod}${rows}${legend}${rules(b)}`;
 }
 const rules = (b: Board) => (b.rules.length ? `<details class="rules"><summary>How this board is scored</summary><ul>${b.rules.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></details>` : '');
 

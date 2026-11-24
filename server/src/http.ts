@@ -5,6 +5,7 @@ import { Auth } from './auth.ts';
 import { nightOf, type ContentRegistry } from './content.ts';
 import { BOARD_KINDS, buildBoard, type BoardKind } from './boards.ts';
 import { Limiter } from './limiter.ts';
+import { Presence } from './presence.ts';
 import { submit, type Claim } from './runs.ts';
 import { RULES } from './rules.ts';
 import { registerArmoury } from './armoury.ts';
@@ -20,6 +21,8 @@ export interface Deps {
   content: ContentRegistry;
   origins: string[];
   now?: () => Date;
+  /** Who is about (shared with the rooms' sockets); one of its own if not given. */
+  presence?: Presence;
   /** Set when armoury top-ups in a stablecoin are on: the token and treasury, and how receipts are read. */
   topup?: { config: import('./topup.ts').TopupConfig; read: import('./topup.ts').ReceiptReader };
 }
@@ -43,7 +46,26 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
   let queue: Promise<unknown> = Promise.resolve(); // replays run one at a time: each is a few hundred ms of CPU
   const serial = <T>(f: () => Promise<T>): Promise<T> => { const r = queue.then(f, f); queue = r.catch(() => undefined); return r; };
 
-  const who = async (req: FastifyRequest): Promise<string | null> => d.auth.accountOf(req.headers.authorization?.replace(/^Bearer /, ''));
+  const presence = d.presence ?? new Presence(d.store);
+  const pingLimit = new Limiter(4, 4);
+  // who is asking (and, signed in, that they are about)
+  const who = async (req: FastifyRequest): Promise<string | null> => {
+    const id = await d.auth.accountOf(req.headers.authorization?.replace(/^Bearer /, ''));
+    if (id) presence.touch(id);
+    return id;
+  };
+
+  // a heartbeat, once a minute while a page of the game is open: signed in, by the account; a guest, by a random id
+  // their browser keeps (it only ever counts toward the number online)
+  app.post('/ping', async (req, reply) => {
+    if (!pingLimit.take(req.ip)) return reply.code(429).send({ error: 'slow down' });
+    const id = await who(req);
+    if (!id) {
+      const g = z.object({ g: z.string().regex(/^[a-z0-9]{8,32}$/) }).safeParse(req.body);
+      if (g.success) presence.guest(g.data.g);
+    }
+    return { ok: true };
+  });
   const ip = (req: FastifyRequest) => req.ip;
 
   app.get('/health', async (_req, reply) => {
@@ -130,7 +152,7 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
   app.get('/stats', async () => {
     const a = await d.store.allTime(5);
     const name = (r: { name: string | null; address: string }) => r.name ?? `${r.address.slice(0, 6)}…${r.address.slice(-4)}`;
-    return { players: a.players, escapes: a.escapes, top: a.top.map((r) => ({ name: name(r), score: r.score })) };
+    return { players: a.players, escapes: a.escapes, online: presence.online(), top: a.top.map((r) => ({ name: name(r), score: r.score })) };
   });
 
   // ?board=night|week|streak|rooms (default night), ?night= to look at another night. Signed in, the answer also says
@@ -138,7 +160,7 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
   app.get('/leaderboard', async (req, reply) => {
     const q = z.object({ board: z.enum(BOARD_KINDS as [BoardKind, ...BoardKind[]]).default('night'), night: z.coerce.number().int().min(0).max(2 ** 32 - 1).optional() }).safeParse(req.query);
     if (!q.success) return reply.code(400).send({ error: 'bad query' });
-    return buildBoard(d.store, q.data.board, now(), await who(req), q.data.night);
+    return buildBoard(d.store, q.data.board, now(), await who(req), q.data.night, (ids) => presence.of(ids));
   });
 
   registerArmoury(app, { store: d.store, auth: d.auth, topup: d.topup, now });

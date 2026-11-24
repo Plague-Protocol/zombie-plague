@@ -165,7 +165,7 @@ a.stat { color: inherit; text-decoration: none; transition: border-color .15s; }
 @keyframes zp-load { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 
 /* ── ranks ── */
-.seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; border: 1px solid rgba(107,142,35,.22); border-radius: 10px; background: #0a100a; margin-bottom: 18px; }
+.seg { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 4px; border: 1px solid rgba(107,142,35,.22); border-radius: 10px; background: #0a100a; margin-bottom: 18px; }
 .seg button { font: 19px 'VT323', monospace; letter-spacing: .14em; text-transform: uppercase; border: 0; border-radius: 7px; padding: 8px 4px; background: none; color: #8fa785; cursor: pointer; }
 .seg button.on { background: #6b8e23; color: #060b06; }
 .mine { border: 1px solid rgba(242,182,48,.55); background: rgba(242,182,48,.06); border-radius: 12px; padding: 12px 16px; margin-bottom: 18px; color: #f2d58a; }
@@ -189,7 +189,7 @@ a.stat { color: inherit; text-decoration: none; transition: border-color .15s; }
 .rules { margin-top: 18px; color: #8fa785; font-size: 14px; }
 .rules summary { cursor: pointer; font: 18px 'VT323', monospace; letter-spacing: .14em; text-transform: uppercase; color: #a8c46a; }
 .rules li { margin: 4px 0; }
-@media (max-width: 560px) { .seg button { font-size: 16px; letter-spacing: .06em; } .podium { gap: 6px; } .pod { padding: 12px 6px; } .rows li { padding: 8px 10px; gap: 2px 10px; } }
+@media (max-width: 560px) { .seg button { font-size: 15px; letter-spacing: .02em; padding: 8px 2px; white-space: nowrap; } .podium { gap: 6px; } .pod { padding: 12px 6px; } .rows li { padding: 8px 10px; gap: 2px 10px; } }
 
 /* ── profile ── */
 .prof { display: grid; gap: 22px; grid-template-columns: 340px 1fr; align-items: start; }
@@ -401,3 +401,9 @@ s.was { color: #8a7a62; font-size: .85em; margin-right: 2px; }
 .salebar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 16px; padding: 10px 14px; border: 1px solid rgba(255,120,150,.35); border-radius: 10px; background: rgba(60,10,25,.45); }
 .salebar b { color: #f3ead6; } .salebar span:last-child { color: #c8b89a; font-size: 14px; }
 
+
+/* who is about: a green dot online now, a ring active today */
+.seen { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 2px; }
+.seen.online { background: #3ddc84; box-shadow: 0 0 6px rgba(61,220,132,.8); }
+.seen.today { border: 1.5px solid #7d9a72; width: 7px; height: 7px; }
+.seen-key { margin: 10px 2px 0; font-size: 13px; color: #7d9a72; } .seen-key span { margin-left: 14px; }

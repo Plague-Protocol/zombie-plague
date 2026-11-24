@@ -260,14 +260,37 @@ describe('the leaderboard', () => {
 
   it('all time, for the home page: players, room escapes, and the best score of each of the top players', async () => {
     const s = await makeServer();
-    expect((await s.app.inject({ method: 'GET', url: '/stats' })).json()).toEqual({ players: 0, escapes: 0, top: [] });
+    expect((await s.app.inject({ method: 'GET', url: '/stats' })).json()).toEqual({ players: 0, escapes: 0, online: 0, top: [] });
     const a = await s.store.upsertAccount('0x' + 'a'.repeat(40)), b = await s.store.upsertAccount('0x' + 'b'.repeat(40));
     await s.store.setName(a.id, 'Ada');
     await s.store.addRoundSeats([{ accountId: b.id, code: 'ABCDE', status: 'escaped', kills: 2, escaped: true }]);
     await rec(s, a.id, 7, 1200); await rec(s, a.id, 8, 800); await rec(s, b.id, 7, 600); await rec(s, b.id, 8, 5000, { replayOk: false });
     expect((await s.app.inject({ method: 'GET', url: '/stats' })).json()).toEqual({
-      players: 2, escapes: 1, top: [{ name: 'Ada', score: 1200 }, { name: '0xbbbb…bbbb', score: 600 }],
+      players: 2, escapes: 1, online: 0, top: [{ name: 'Ada', score: 1200 }, { name: '0xbbbb…bbbb', score: 600 }],
     });
+    // the All time board is the same list, in full
+    const all = (await s.app.inject({ method: 'GET', url: '/leaderboard?board=all' })).json() as Board;
+    expect(all.rows.map((r) => [r.name, r.value])).toEqual([['Ada', 1200], ['0xbbbb…bbbb', 600]]);
+  });
+
+  it('who is about: a heartbeat counts toward online now, and the boards mark players online or active today (nothing finer)', async () => {
+    const s = await makeServer();
+    const w = wallet();
+    const { body } = await w.signIn(s.app);
+    const other = await s.store.upsertAccount('0x' + 'c'.repeat(40));
+    await rec(s, body.account.id, 7, 900); await rec(s, other.id, 7, 500);
+    // a guest's page and a signed-in player's
+    expect((await s.app.inject({ method: 'POST', url: '/ping', payload: { g: 'abcdef1234' } })).statusCode).toBe(200);
+    await s.app.inject({ method: 'POST', url: '/ping', headers: { authorization: `Bearer ${body.token}` }, payload: {} });
+    expect(((await s.app.inject({ method: 'GET', url: '/stats' })).json() as { online: number }).online).toBe(2);
+    // someone seen earlier today (written down, not in this run of the server's memory)
+    await s.store.touchSeen(other.id, new Date());
+    const b = (await s.app.inject({ method: 'GET', url: '/leaderboard?board=all' })).json() as Board;
+    expect(b.rows.map((r) => r.on)).toEqual(['online', 'today']);
+    expect(JSON.stringify(b)).not.toContain(other.id); // no account ids, no times
+    // a bad guest id is ignored
+    await s.app.inject({ method: 'POST', url: '/ping', payload: { g: 'NOT OK!' } });
+    expect(((await s.app.inject({ method: 'GET', url: '/stats' })).json() as { online: number }).online).toBe(2);
   });
 });
 

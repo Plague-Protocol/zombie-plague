@@ -13,6 +13,7 @@ import { payForRound } from './armoury.ts';
 import { rpcReceipts } from './topup.ts';
 import { MemoryStore, PgStore, type Store } from './store.ts';
 import { attachWs } from './ws.ts';
+import { Presence } from './presence.ts';
 
 const cfg = loadConfig();
 const content = ContentRegistry.fromDir(cfg.CONTENT_DIR);
@@ -26,7 +27,8 @@ const topup = cfg.TOPUP_TOKEN && cfg.TOPUP_TREASURY && cfg.CELO_RPC ? {
   config: { token: cfg.TOPUP_TOKEN, treasury: cfg.TOPUP_TREASURY, decimals: cfg.TOPUP_DECIMALS, rate: cfg.TOPUP_RATE, symbol: cfg.TOPUP_SYMBOL, chainId: cfg.CHAIN_ID },
   read: rpcReceipts(cfg.CELO_RPC),
 } : undefined;
-const app = await buildApp({ store, auth, content, origins: cfg.origins, chain, stacks: Object.keys(chains), topup });
+const presence = new Presence(store); // who is about: the API's calls and heartbeats, and the rooms' connections
+const app = await buildApp({ store, auth, content, origins: cfg.origins, chain, stacks: Object.keys(chains), topup, presence });
 let staked: Staked | undefined;
 // ZP rooms: stakes in the game currency, held in the ledger; any cut short by the last restart go back first
 const zp = new ZpBank(store);
@@ -62,7 +64,7 @@ const funds = Object.keys(chains).length ? new Funds({ logs: chains, store, from
 if (funds) { void funds.syncAll(); setInterval(() => { void funds.syncAll(); }, 120_000).unref(); }
 registerAdmin(app, { store, auth, hub, staked, chains, funds, topup: topup && { symbol: topup.config.symbol, rate: topup.config.rate, treasury: topup.config.treasury, decimals: topup.config.decimals }, admins: cfg.admins, startedAt: Date.now(), db: cfg.DATABASE_URL ? 'postgres' : 'memory', content: () => content.latest });
 await app.listen({ port: cfg.PORT, host: '0.0.0.0' });
-const closeWs = attachWs(app.server, { hub, auth, store, origins: cfg.origins, staked, zp });
+const closeWs = attachWs(app.server, { hub, auth, store, origins: cfg.origins, staked, zp, presence });
 console.log(`outbreak server on :${cfg.PORT} (content v${content.latest}, ${cfg.DATABASE_URL ? 'postgres' : 'memory'})`);
 
 const stop = async () => { staked?.stop(); closeWs(); hub.close(); await app.close(); await store.close(); process.exit(0); };

@@ -2,7 +2,7 @@
 // and, on a phone, a tab bar. The game (main.ts: three.js, the city, its assets) is imported in the background as soon as
 // this runs, so it is usually ready by the time someone picks a night; the buttons that start it wait for it.
 import './site/site.css';
-import { account, armoury, esc, ICON, isAdmin, shown, signInThen, board } from './site/kit';
+import { account, armoury, esc, heartbeat, ICON, isAdmin, shown, signInThen, board } from './site/kit';
 import { isMuted, onMute, setMuted } from './seams/mute';
 import { drawPromos, startPromos } from './site/promos';
 import { admin, armouryPage, home, how, notFound, play, profile, ranks, type Ctx, type Page } from './site/pages';
@@ -179,3 +179,4 @@ render();
 startPromos(() => app.querySelector<HTMLElement>('[data-k=promos]')); // bounties, prizes, deals: under the header on every page
 checkAdmin();
 void armoury(); // the device's copy of your loadouts, for the game to start nights with
+heartbeat(); // once a minute while the page is open: the home page's Online now, and the dots on the boards

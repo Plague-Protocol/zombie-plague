@@ -73,6 +73,11 @@ for (const [name, make] of stores) {
       expect(all.escapes).toBeGreaterThanOrEqual(1);
       const mine = all.top.filter((r) => r.address === a.address || r.address === b.address || r.address === c.address);
       expect(mine.map((r) => r.score)).toEqual([900, 400]); // one per player, their best ever; never a failed replay
+      const ever = (await s.bestEver()).filter((r) => [a.id, b.id, c.id].includes(r.accountId)).map((r) => r.score).sort((x, y) => y - x);
+      expect(ever).toEqual([900, 400]);
+      await s.touchSeen(a.id, new Date());
+      expect(await s.seenSince([a.id, b.id], new Date(Date.now() - 60_000))).toEqual([a.id]);
+      expect(await s.seenSince([], new Date())).toEqual([]);
     });
 
     it('counts for the admin page, and the accounts whose replays fail', async () => {

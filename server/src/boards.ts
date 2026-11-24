@@ -3,16 +3,20 @@
 //   week    the last seven nights, each player's best score per night added up: coming back beats one lucky run
 //   streak  nights in a row survived (a won night), up to tonight; ties go to the higher total over the streak
 //   rooms   the last 30 days of rooms: escapes, then escape rate, then kills (three rounds to be listed)
+//   all     every player's best score ever (the home page's numbers open this one)
+// Each row says whether the player is online now or was about today (presence.ts), and nothing finer.
 import { nightOf } from './content.ts';
 import { SCORE, titleFor } from './score.ts';
 import type { BestRun, RoomRow, Store } from './store.ts';
 
-export type BoardKind = 'night' | 'week' | 'streak' | 'rooms';
-export const BOARD_KINDS: BoardKind[] = ['night', 'week', 'streak', 'rooms'];
+export type BoardKind = 'night' | 'week' | 'streak' | 'rooms' | 'all';
+export const BOARD_KINDS: BoardKind[] = ['night', 'week', 'streak', 'rooms', 'all'];
+/** Whether a player is about: online now, or active today (and nothing said otherwise). */
+export type Seen = 'online' | 'today';
 export const TOP = 50;
 export const ROOMS_MIN_ROUNDS = 3;
 
-export interface BoardRow { rank: number; accountId: string; name: string; value: number; title: string; detail: Record<string, number | string> }
+export interface BoardRow { rank: number; accountId: string; name: string; value: number; title: string; detail: Record<string, number | string>; on?: Seen }
 export interface Board {
   kind: BoardKind;
   /** What `value` is, for the page to label. */
@@ -48,10 +52,19 @@ function finish(kind: BoardKind, unit: Board['unit'], night: number, list: Ranke
     const above = ranked.slice(0, i).reverse().find((x) => x.rank < r.rank);
     mine = { rank: r.rank, value: r.value, title: r.title, detail: r.detail, toNext: above ? { gap: above.value - r.value + (above.value === r.value ? 0 : 1), name: above.name } : null };
   }
-  return { kind, unit, night, of: ranked.length, rows: ranked.slice(0, TOP).map(({ accountId: _a, ...x }) => { void _a; return x; }), me: mine, rules };
+  return { kind, unit, night, of: ranked.length, rows: ranked.slice(0, TOP) as Board['rows'], me: mine, rules };
 }
 
-export async function buildBoard(store: Store, kind: BoardKind, today: Date, me: string | null, nightOverride?: number): Promise<Board> {
+/** A board, each row marked online or active today when `seen` is given, and with no account ids in it. */
+export async function buildBoard(store: Store, kind: BoardKind, today: Date, me: string | null, nightOverride?: number, seen?: (ids: string[]) => Promise<Map<string, Seen>>): Promise<Board> {
+  const b = await rawBoard(store, kind, today, me, nightOverride);
+  const rows = b.rows as BoardRow[];
+  const on = seen ? await seen(rows.map((r) => r.accountId)) : new Map<string, Seen>();
+  b.rows = rows.map(({ accountId, ...x }) => { const o = on.get(accountId); return o ? { ...x, on: o } : x; });
+  return b;
+}
+
+async function rawBoard(store: Store, kind: BoardKind, today: Date, me: string | null, nightOverride?: number): Promise<Board> {
   const tonight = nightOverride ?? nightOf(today);
   if (kind === 'night') {
     const runs = await store.bestRuns([tonight]);
@@ -65,6 +78,13 @@ export async function buildBoard(store: Store, kind: BoardKind, today: Date, me:
       `Each bite ${SCORE.perBite}, each dose ${SCORE.perDose}, each person you brought in who turned ${SCORE.perLostEscort}.`,
       'Only your best run of the night counts, and only once the server has replayed it.',
     ]);
+  }
+  if (kind === 'all') {
+    const runs = await store.bestEver();
+    return finish('all', 'points', tonight, runs.map((r) => ({
+      accountId: r.accountId, name: shown(r), value: r.score, tie: -r.createdAt.getTime(),
+      detail: { outcome: r.outcome, reached: r.chapter + 1, kills: r.kills },
+    })), me, ['Every player\'s best score ever, from any night: the run the server replayed, not a claim.']);
   }
   if (kind === 'week') {
     const runs = await store.bestRuns(nightsBack(today, 7));

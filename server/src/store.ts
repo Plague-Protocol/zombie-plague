@@ -153,6 +153,12 @@ export interface Store {
   roomsSince(since: Date): Promise<{ rounds: number; escapes: number }>;
   /** For the home page, all time: players who have a replayed run or a room round, room escapes, and the best scores (one per player). */
   allTime(top: number): Promise<AllTime>;
+  /** Each account's best replayed run ever (the All time board). */
+  bestEver(): Promise<BestRun[]>;
+  /** Write down when an account was last about (presence.ts, at most every few minutes). */
+  touchSeen(accountId: string, at: Date): Promise<void>;
+  /** Which of these accounts have been about since `since`. */
+  seenSince(ids: string[], since: Date): Promise<string[]>;
   lastSelf(accountId: string, chapter: number): Promise<LastSelfRecord | null>;
   setLastSelf(accountId: string, rec: LastSelfRecord | null, chapter: number): Promise<void>;
   bank(accountId: string): Promise<Bank>;
@@ -303,6 +309,14 @@ export class MemoryStore implements Store {
     const xs = this.seats.filter((x) => x.at.getTime() >= since.getTime());
     return { rounds: new Set(xs.map((x) => x.code)).size, escapes: xs.filter((x) => x.escaped).length };
   }
+  private lastSeen = new Map<string, Date>();
+  async touchSeen(accountId: string, at: Date) { this.lastSeen.set(accountId, at); }
+  async seenSince(ids: string[], since: Date) { return ids.filter((id) => (this.lastSeen.get(id)?.getTime() ?? 0) >= since.getTime()); }
+  async bestEver(): Promise<BestRun[]> {
+    const best = new Map<string, RunRecord>();
+    for (const r of this.runs) { if (!r.replayOk) continue; const b = best.get(r.accountId); if (!b || r.score > b.score) best.set(r.accountId, r); }
+    return [...best.values()].map((r) => { const a = this.accounts.get(r.accountId)!; return { accountId: r.accountId, name: a.name, address: a.address, night: r.night, score: r.score, outcome: r.outcome, chapter: r.chapter, secondsLeft: r.secondsLeft, kills: r.kills, stats: r.stats, createdAt: r.createdAt }; });
+  }
   async allTime(top: number): Promise<AllTime> {
     const best = new Map<string, number>();
     for (const r of this.runs) if (r.replayOk && r.score > (best.get(r.accountId) ?? -Infinity)) best.set(r.accountId, r.score);
@@ -442,6 +456,7 @@ CREATE TABLE IF NOT EXISTS last_self (
 );
 ALTER TABLE account ADD COLUMN IF NOT EXISTS cash bigint NOT NULL DEFAULT 0;
 ALTER TABLE account ADD COLUMN IF NOT EXISTS loadouts text;
+ALTER TABLE account ADD COLUMN IF NOT EXISTS last_seen timestamptz;
 CREATE INDEX IF NOT EXISTS account_name_idx ON account (lower(name));
 CREATE TABLE IF NOT EXISTS owned (
   account_id text NOT NULL REFERENCES account(id),
@@ -664,6 +679,22 @@ export class PgStore implements Store {
   async roomsSince(since: Date) {
     const r = await this.pool.query('SELECT count(DISTINCT code)::int AS rounds, count(*) FILTER (WHERE escaped)::int AS escapes FROM round_seat WHERE created_at >= $1', [since]);
     return { rounds: r.rows[0].rounds as number, escapes: r.rows[0].escapes as number };
+  }
+  async touchSeen(accountId: string, at: Date) {
+    await this.pool.query('UPDATE account SET last_seen = $2 WHERE id = $1', [accountId, at]);
+  }
+  async seenSince(ids: string[], since: Date) {
+    if (!ids.length) return [];
+    const r = await this.pool.query('SELECT id FROM account WHERE id = ANY($1::text[]) AND last_seen >= $2', [ids, since]);
+    return r.rows.map((x) => x.id as string);
+  }
+  async bestEver(): Promise<BestRun[]> {
+    const r = await this.pool.query(
+      `SELECT DISTINCT ON (r.account_id) r.account_id, a.name, a.address, r.night, r.score, r.outcome, r.chapter, r.seconds_left, r.kills, r.stats, r.created_at
+         FROM run r JOIN account a ON a.id = r.account_id
+        WHERE r.replay_ok
+        ORDER BY r.account_id, r.score DESC, r.created_at`);
+    return r.rows.map((x) => ({ accountId: x.account_id, name: x.name, address: x.address, night: Number(x.night), score: x.score, outcome: x.outcome, chapter: x.chapter, secondsLeft: x.seconds_left, kills: x.kills, stats: x.stats ? JSON.parse(x.stats) : null, createdAt: x.created_at }));
   }
   async allTime(top: number): Promise<AllTime> {
     const [n, t] = await Promise.all([
