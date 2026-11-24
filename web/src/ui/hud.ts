@@ -76,6 +76,7 @@ export class Hud {
   private carHealth = $('car-health');
   private useBtn = $('btn-use');
   private ammo = $('ammo');
+  private swapBtn = $('btn-swap');
   private weaponName = $('weapon-name');
   private fireBtn = $('btn-fire');
   private throwBtn = $('btn-throw');
@@ -142,6 +143,8 @@ export class Hud {
   private toldInside = false;
   /** Told why a dose stayed on the ground (once a session). */
   private toldDose = false;
+  /** Told how to follow the objective (once on this device). */
+  private toldWay = false;
 
   toast(text: string, ms = 1800): void {
     this.toastEl.textContent = text;
@@ -227,6 +230,10 @@ export class Hud {
       const gun = isGun(a.weapon) ? a.weapon : null;
       this.ammo.textContent = !gun ? 'MELEE' : a.reloadT > 0 ? '...' : `${a.mag[gun]}/${a.ammo[gun]}`;
       this.weaponName.textContent = WEAPON_NAMES[a.weapon];
+      // running out: amber when little is left, red and pulsing when the gun is dry
+      const left = gun ? a.mag[gun] + a.ammo[gun] : 99;
+      const state = !gun ? '' : left <= 0 ? 'dry' : left <= 6 || (a.ammo[gun] <= 0 && a.mag[gun] <= 3) ? 'low' : '';
+      if (this.swapBtn.dataset.ammo !== state) { this.swapBtn.dataset.ammo = state; this.swapBtn.classList.toggle('ammo-low', state === 'low'); this.swapBtn.classList.toggle('ammo-dry', state === 'dry'); }
       const fire = gun ? 'FIRE' : 'SWING';
       if (this.fireBtn.textContent !== fire) this.fireBtn.textContent = fire;
       this.reloadBtn.style.visibility = gun ? 'visible' : 'hidden';
@@ -255,6 +262,14 @@ export class Hud {
       this.fireBtn.classList.toggle('cool', s.player.lungeCd > 0);
       this.ammo.textContent = 'HUNT';
       this.weaponName.textContent = 'Teeth and nails';
+    }
+
+    // the first night on this device: how to find the step
+    if (!this.toldWay && s.phase === 'playing' && cur && s.timeLimit - s.remaining > 4) {
+      this.toldWay = true;
+      let seen = false;
+      try { seen = localStorage.getItem('zp_way') === '1'; localStorage.setItem('zp_way', '1'); } catch { /* no storage: tell it anyway */ }
+      if (!seen) this.toast('Follow the yellow arrow to your step. Tap the little map to see the whole city and what each mark means.', 6500);
     }
 
     // compass arrow to the current objective when it is off screen

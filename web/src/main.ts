@@ -485,7 +485,16 @@ function narrate(events: readonly GameEvent[]): void {
       case 'gear-broken': hud.toast(`Your ${e.gear} is torn apart. Buy another at a weapon store.`); break;
       case 'chapter-cleared': hud.toast(chapterInfo().exit === 'gate' ? 'Through the barricade and out of the docks...' : 'Down the stairs, into the dark...'); break;
       case 'vehicle-wrecked': hud.toast('The engine dies. Get out!'); view.shake(0.8); break;
-      case 'empty': hud.toast('Out of ammo. Swap to your baton (Q), or buy rounds at a weapon store.'); break;
+      case 'empty': {
+        // a dry gun: put the baton (or next weapon) in hand, and say where rounds are
+        const have = state.arsenal.owned.length > 1;
+        if (have) controls.queueSwap();
+        const pp = state.player.pos;
+        const near = [...state.stores].sort((a, b) => Math.hypot(a.pos.x - pp.x, a.pos.y - pp.y) - Math.hypot(b.pos.x - pp.x, b.pos.y - pp.y))[0];
+        const where = near ? ` The nearest weapon store (red $ on the map) is about ${Math.round(Math.hypot(near.pos.x - pp.x, near.pos.y - pp.y) * 0.63)} m away.` : '';
+        hud.toast(`${WEAPON_NAMES[e.weapon]} is empty.${have ? ' Switched weapon.' : ''}${where}`, 5000);
+        break;
+      }
       case 'store-open': {
         const st = state.stores.find((x) => x.id === e.id);
         if (!st) break;

@@ -237,6 +237,13 @@
   #btn-reload { right: 34px; bottom: calc(env(safe-area-inset-bottom, 0px) + 136px); width: 50px; height: 50px; font-size: 18px; }
   #btn-swap { right: 96px; bottom: calc(env(safe-area-inset-bottom, 0px) + 128px); width: 64px; height: 64px; font-size: 10px; flex-direction: column; }
   #btn-swap b { font-size: 13px; }
+  #btn-swap.ammo-low { border-color: #f2b630; } #btn-swap.ammo-low b { color: #f2b630; }
+  #btn-swap.ammo-dry { border-color: #ff4b4b; background: rgba(120,20,20,.6); animation: dry .8s ease-in-out infinite; } #btn-swap.ammo-dry b { color: #ff6b6b; }
+  @keyframes dry { 50% { box-shadow: 0 0 0 6px rgba(255,75,75,.35); } }
+  #map-legend { position: absolute; left: 12px; bottom: 44px; display: grid; gap: 4px; font-size: 11px; color: #ddd; background: rgba(12,14,18,.75);
+    border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 8px 10px; pointer-events: none; text-align: left; }
+  #map-legend i { display: inline-block; width: 9px; height: 9px; margin-right: 7px; border-radius: 50%; vertical-align: -1px; }
+  #map-legend i.r { background: none; border: 2px solid; } #map-legend i.sq { border-radius: 2px; }
   #btn-throw { right: 206px; bottom: calc(env(safe-area-inset-bottom, 0px) + 46px); width: 56px; height: 56px; font-size: 9px;
     flex-direction: column; border-color: rgba(120,200,140,.6); }
   #btn-throw b { font-size: 14px; }
@@ -453,6 +460,17 @@
 </div>
 <div id="map-screen" class="screen"><canvas id="fullmap"></canvas>
   <div id="map-tools"><button id="map-close" aria-label="Close map">&#10005;</button><button id="map-in" aria-label="Zoom in">+</button><button id="map-out" aria-label="Zoom out">&minus;</button></div>
+  <div id="map-legend" aria-label="Map key">
+    <span><i class="r" style="color:#f2b630"></i>Your current step (yellow)</span>
+    <span><i class="r" style="color:#3f9be6"></i>Optional step (blue)</span>
+    <span><i style="background:#4ad27a"></i>Vaccine dose</span>
+    <span><i class="sq" style="background:#ff4b4b"></i>Weapon store ($)</span>
+    <span><i style="background:#e0483a"></i>Marked HOUSE, infected inside (danger, good loot)</span>
+    <span><i style="background:#f2f2ee"></i>Marked HOUSE, cleared (safe)</span>
+    <span><i class="r" style="color:#7fe08a"></i>Survivor</span>
+    <span><i class="r" style="color:#d9534f"></i>Subway / exit</span>
+    <span style="opacity:.7">Zombies themselves are not shown</span>
+  </div>
   <p>Drag to move &middot; pinch or +/&minus; to zoom &middot; tap to close</p></div>
 <div id="app"></div>
 <div id="film"><video id="film-video" src="/ending/turn.mp4" muted playsinline preload="none" disablepictureinpicture></video></div>

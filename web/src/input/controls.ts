@@ -80,6 +80,9 @@ export class Controls {
     button('btn-crouch', () => { this.queued.crouch = true; });
   }
 
+  /** Ask for a weapon swap on the next step (used when a gun runs dry). */
+  queueSwap(): void { this.queued.swap = true; }
+
   /** Forget presses made while the game was waiting (closing a message must not also press Use). */
   reset(): void {
     this.queued = { action: false, reload: false, swap: false, throw: false, light: false, crouch: false };

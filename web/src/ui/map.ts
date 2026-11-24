@@ -1,6 +1,6 @@
-import { currentTask, fallenBlocks, finalChapter, isRevealed, requiredDone, type GameState } from '../../../core/state';
+import { clearLeft, currentTask, fallenBlocks, finalChapter, isRevealed, requiredDone, type GameState } from '../../../core/state';
 import { stepDef } from '../../../core/content';
-import { shortName } from '../../../core/story';
+import { objectiveFor, shortName } from '../../../core/story';
 import type { MapData, Vec2 } from '../../../core/types';
 
 // The map is drawn rotated 45 degrees so that "up" on the map is "up" on screen (the camera's
@@ -67,7 +67,7 @@ export function markers(s: GameState): Marker[] {
     const piece = stepDef(t.id).parts?.name;
     t.parts?.forEach((q, i) => { if (!t.got![i]) out.push({ pos: q, color: '#f2b630', size: 4, shape: 'dot', label: piece }); });
     // yellow is the main mission and nothing else; optional steps are blue, and named, so they are not taken for it
-    out.push({ pos: t.pos, color: t.required ? '#f2b630' : '#3f9be6', size: t === cur ? 7 : 5, shape: 'ring', label: t === cur ? shortName(t) : !t.required ? `${shortName(t)} (optional)` : undefined });
+    out.push({ pos: t.pos, color: t.required ? '#f2b630' : '#3f9be6', size: t === cur ? 7 : 5, shape: 'ring', label: t === cur ? objectiveFor(t, finalChapter(s), t.kind === 'clear' ? clearLeft(s, t) : null) : !t.required ? `${shortName(t)} (optional)` : undefined });
   }
   if (s.safehouseKnown) out.push({ pos: s.safehouse, color: requiredDone(s) ? '#3ddc84' : '#d9534f', size: 8, shape: 'ring', label: finalChapter(s) ? 'Evac' : 'Subway' });
   if (s.escort) out.push({ pos: s.escort.pos, color: '#7fe08a', size: 4.5, shape: 'dot', label: s.escort.name });
@@ -78,7 +78,7 @@ export function markers(s: GameState): Marker[] {
     out.push({ pos: v.pos, color: '#7fe08a', size: 6, shape: 'ring', label: s.mode === 'room' ? 'Survivor' : v.name }); // (in a room a name would read as another player's)
     if (v.request === 'fetch' && v.status === 'asked' && !v.carrying) out.push({ pos: v.fetchPos, color: '#7fe08a', size: 4, shape: 'dot', label: s.mode === 'room' ? 'Their bag' : `${v.name}'s bag` });
   }
-  for (const h of s.houses) if (!h.searched) out.push({ pos: h.pos, color: h.mark === 'infected' ? '#e0483a' : h.mark === 'clear' ? '#f2f2ee' : '#8f9ab0', size: h.mark ? 2.6 : 2.2, shape: 'dot' });
+  for (const h of s.houses) if (!h.searched) out.push({ pos: h.pos, color: h.mark === 'infected' ? '#e0483a' : h.mark === 'clear' ? '#f2f2ee' : '#8f9ab0', size: h.mark ? 2.6 : 2.2, shape: 'dot', label: h.mark === 'infected' ? 'Infected house' : undefined });
   for (const a of s.abandoned) out.push({ pos: a.pos, color: '#c06a50', size: 3.5, shape: 'dot', label: a.name });
   // antiviral doses: a green cross, and the nearest one keeps to the minimap's rim so you always know which way the next one is
   const pp = s.player.pos;
