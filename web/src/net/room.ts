@@ -106,7 +106,18 @@ const CSS = `
 #mp .mp-seats .av { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font: 600 13px system-ui; color: #060b06; background: #8fb34a; }
 #mp .mp-seats .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #efe6d2; }
 #mp .mp-seats .tg { font: 14px 'VT323', monospace; letter-spacing: .14em; text-transform: uppercase; color: #8fa785; }
-#mp .mp-seats .mp-btn.sm { flex: none; font-size: 17px; padding: 5px 14px; letter-spacing: .1em; }
+#mp .mp-rooms { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+#mp .mp-rooms li { display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 12px; background: #0b110a; border: 1px solid rgba(107,142,35,.25); }
+#mp .mp-rooms .n { flex: none; width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center; background: rgba(107,142,35,.16); border: 1px solid rgba(155,211,74,.35);
+  font: 22px/1 'VT323', monospace; color: #c8e07a; }
+#mp .mp-rooms .n small { display: block; font-size: 13px; color: #7d9a72; margin-top: -4px; }
+#mp .mp-rooms .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+#mp .mp-rooms .who b { font-weight: 600; color: #efe6d2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#mp .mp-rooms .who span { font-size: 13px; color: #8fa785; }
+#mp .mp-rooms .who span.soon { color: #e8c86a; }
+#mp .mp-rooms .mp-btn { width: auto; flex: none; font-size: 19px; letter-spacing: .12em; padding: 8px 20px; }
+#mp .mp-rooms li.empty { justify-content: center; color: #6d8264; border-style: dashed; font-size: 14px; padding: 14px; background: none; }
+#mp .mp-sub { margin: -8px 0 0; font-size: 13px; color: #7d9a72; text-align: center; }
 #mp .mp-seats li.empty { justify-content: center; color: #5d6f55; border-style: dashed; font-size: 13px; }
 #mp .err { color: #ff7a6b; font-size: 14px; } #mp .err:empty { display: none; }
 #mp .ok { color: #c8e07a; font-size: 14px; }
@@ -355,7 +366,7 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
       const n = waitingBy[v === null ? 'free' : String(v)] ?? 0;
       const short = v !== null && zpHave !== null && zpHave < v;
       const b = el('button', { class: `mp-chip${stake === v ? ' on' : ''}` });
-      b.append(el('b', {}, v === null ? 'Free' : `${v} ZP`), el('small', {}, short ? `need ${(v! - zpHave!).toLocaleString()} more` : mode === 'create' ? (v === null ? 'nothing at stake' : 'a seat') : n ? `${n} waiting` : 'no room yet'));
+      b.append(el('b', {}, v === null ? 'Free' : `${v} ZP`), el('small', {}, short ? `need ${(v! - zpHave!).toLocaleString()}` : mode === 'create' ? (v === null ? 'nothing at stake' : 'a seat') : n ? `${n} waiting` : 'no room yet'));
       if (short) b.disabled = true;
       b.onclick = () => { stake = v; zpNote = ''; draw(); };
       grid.append(b);
@@ -450,30 +461,34 @@ export function openLobby(host: Host, opts: { join?: string; staked?: string; ac
       const create = () => { connecting = true; connect(() => send(stake ? { t: 'create', zp: stake } : { t: 'create' })); };
       if (mode === 'create') { const b = btn(`Create room${tail}`); b.onclick = create; c.append(guard(b)); }
       else {
-        // the public rooms at this stake still taking players, each with a Join; a new one only when none is waiting
+        // first the way to start one (offered only when none is waiting), then the rooms at this stake waiting for players
         const here = (openRooms ?? []).filter((o) => o.zp === stake);
-        c.append(el('div', { class: 'mp-label' }, `Open public rooms${stake ? ` · ${stake} ZP` : ' · free'}`));
-        const list = el('ul', { class: 'mp-seats' });
-        if (openRooms === null) list.append(el('li', { class: 'empty' }, 'Looking for open rooms…'));
-        else if (!here.length) list.append(el('li', { class: 'empty' }, 'No room is waiting at this stake. Create one and others can join you.'));
-        for (const o of here) {
-          const li = el('li');
-          const who = o.host ? `${o.host}'s room` : `Room ${o.code}`;
-          const j = el('button', { class: 'mp-btn sm' }, 'Join') as HTMLButtonElement;
-          j.onclick = () => { connecting = true; connect(() => send(stake ? { t: 'join', code: o.code, zp: stake } : { t: 'join', code: o.code })); };
-          if (short) j.disabled = true;
-          li.append(el('span', { class: 'av' }, String(o.players)), el('span', { class: 'nm' }, who),
-            el('span', { class: 'tg' }, o.startsIn !== null ? `starts in ${o.startsIn}s` : `${o.players} of ${ROOM_PLAYERS_MAX}`), j);
-          list.append(li);
-        }
-        c.append(list);
         const row = el('div', { class: 'mp-row' });
         const a = btn(`Create a room${tail}`); a.onclick = quick;
-        if (here.length || openRooms === null) { a.disabled = true; a.title = 'Join the open room: a new one can be made once it fills or starts'; }
+        if (here.length || openRooms === null) a.disabled = true;
         row.append(guard(a));
         if (mode === 'staked') { const b = btn('Private room', true); b.onclick = create; row.append(guard(b)); }
         c.append(row);
-        if (here.length) c.append(el('div', { class: 'mp-note' }, 'A room is already waiting at this stake: join it. Create opens again once it fills or starts.'));
+        if (here.length) c.append(el('p', { class: 'mp-sub' }, `${here.length === 1 ? 'A room is' : 'Rooms are'} waiting at this stake: join one below. Create opens again once ${here.length === 1 ? 'it fills or starts' : 'they fill or start'}.`));
+        const sec = el('div');
+        sec.append(el('div', { class: 'mp-label' }, `Waiting for players${stake ? ` · ${stake} ZP` : ' · free'}`));
+        const list = el('ul', { class: 'mp-rooms' });
+        if (openRooms === null) list.append(el('li', { class: 'empty' }, 'Looking for rooms…'));
+        else if (!here.length) list.append(el('li', { class: 'empty' }, 'No room is waiting at this stake yet.'));
+        for (const o of here) {
+          const li = el('li');
+          const n = el('span', { class: 'n' }, String(o.players));
+          n.append(el('small', {}, `of ${ROOM_PLAYERS_MAX}`));
+          const who = el('span', { class: 'who' });
+          who.append(el('b', {}, o.host ? `${o.host}'s room` : `Room ${o.code}`),
+            el('span', o.startsIn !== null ? { class: 'soon' } : {}, o.startsIn !== null ? `Starts in ${o.startsIn}s` : `${o.players} ${o.players === 1 ? 'player' : 'players'} waiting`));
+          const j = btn('Join'); j.onclick = () => { connecting = true; connect(() => send(stake ? { t: 'join', code: o.code, zp: stake } : { t: 'join', code: o.code })); };
+          if (short) j.disabled = true;
+          li.append(n, who, j);
+          list.append(li);
+        }
+        sec.append(list);
+        c.append(sec);
       }
       foot(c);
       return;
