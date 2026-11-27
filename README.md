@@ -195,10 +195,10 @@ the admin wallet.
 Guests get three minutes of play, then sign in to go on. Multiplayer is for signed-in players. Every night is
 tonight's city (the same for everyone on a day). A run's score comes from the server's own replay of it: districts
 cleared, getting out and the time left, kills (capped), people helped, optional steps, accuracy, a clean night, less
-bites, doses and people you let turn. Boards: tonight, the week, streaks, rooms; each shows your rank, a title, and
+bites, doses and people you let turn. Boards: tonight, the week, All time (every player's best replayed score ever), streaks, rooms; each shows your rank, a title, and
 how far it is to the next place. Rooms: the lobby lists the public rooms waiting at each stake, each with a Join;
 Create is only offered at a stake with none waiting. Or a private room joined by code or an invite link
-(`?join=CODE`). The home page shows all-time numbers (players, the best score ever, room escapes) and the day's top
+(`?join=CODE`). Boards mark each player who is online now (a green dot) or active today (a ring), nothing finer, and no account ids. The home page shows all-time numbers (players who have played and the best score ever, both opening the All time board, and room escapes), **Online now** (a page of the game open in the last two minutes, signed in or a guest) and the day's top
 five once anyone has played today's city (the all-time five until then). Recorded sounds and their licences: `web/public/sfx/CREDITS.md`.
 
 **Sign-in:** an injected wallet (MiniPay, MetaMask), or Google / passkey (thirdweb, set `VITE_THIRDWEB_CLIENT_ID`;
@@ -214,6 +214,10 @@ that wallet signs in but cannot stake). Copy `.env.example` (page) and `server/.
   bigger waves. The third chapter ends at the helicopter. Each district has its own dose and so its
   own clock; when it runs out you turn (TURNED). A retry restarts the chapter with what you came
   into it with.
+- **Help for first-time players:** the ammo button turns amber when rounds are low, and red and pulsing when the
+  gun is dry; a dry gun switches to the next weapon and says how far the nearest store is. The full map has a key;
+  houses marked by the quarantine teams are labelled Infected house (zombies are not shown), and the current
+  step's marker carries its objective text. The first night hints to follow the yellow arrow.
 - **People you bring in:** some steps hand you someone to protect (Nora, Leo, or the family of
   three, who follow in a line). If one of the infected gets hold of any of them for a second, it is
   over (INFECTED). You are warned when one is on them; shoot it or get between them. They are
